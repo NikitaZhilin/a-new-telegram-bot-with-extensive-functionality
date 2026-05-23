@@ -188,7 +188,12 @@ async def run_bot() -> None:
 
         for telegram_id, user_id in startup_recipients.items():
             try:
-                update_message = settings.STARTUP_UPDATE_MESSAGE.strip() or "Можно продолжать пользоваться."
+                update_message = (
+                    settings.STARTUP_UPDATE_MESSAGE.strip()
+                    .strip("\"'")
+                    .strip()
+                    or "Можно продолжать пользоваться."
+                )
                 await bot_app.bot.send_message(
                     chat_id=telegram_id,
                     text=(
