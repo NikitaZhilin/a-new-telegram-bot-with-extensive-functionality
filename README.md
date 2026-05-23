@@ -11,6 +11,7 @@ Telegram bot for todo/shopping lists, medication intake reminders, reminders, an
 ## Git
 
 For first publish and clone workflow, see [GIT_SETUP.md](GIT_SETUP.md).
+For VPS deployment, see [DEPLOY_VPS.md](DEPLOY_VPS.md).
 
 ## Environment
 
@@ -24,6 +25,7 @@ If another PostgreSQL already uses `5432`, use `5433`:
 
 ```env
 POSTGRES_PORT=5433
+POSTGRES_BIND_HOST=127.0.0.1
 DATABASE_URL=postgresql+asyncpg://postgres:your-secure-password-here@localhost:5433/rememberme
 ```
 
@@ -59,6 +61,7 @@ For a public deployment, prefer a restricted API surface:
 ```env
 API_DOCS_ENABLED=false
 CORS_ORIGINS=https://your-admin.example.com
+API_BIND_HOST=127.0.0.1
 ```
 
 ## PostgreSQL

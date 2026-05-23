@@ -1,4 +1,4 @@
-# Docker Compose for local development.
+# Docker Compose for local development and isolated VPS deployment.
 #
 # Services:
 # - postgres: PostgreSQL database
@@ -12,13 +12,15 @@
 #   docker-compose logs -f bot     # Follow bot logs
 #   docker-compose down            # Stop all services
 
+name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}
+
 services:
   # ===========================================================================
   # PostgreSQL Database
   # ===========================================================================
   postgres:
     image: postgres:15-alpine
-    container_name: rememberme-postgres
+    container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -27,7 +29,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
@@ -43,22 +45,30 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: rememberme-bot
+    container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-bot
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rememberme}
       DB_ECHO: ${DB_ECHO:-false}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
       API_HOST: 0.0.0.0
       API_PORT: 8000
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TIMEZONE_DEFAULT: ${TIMEZONE_DEFAULT:-Europe/Moscow}
       WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
+      SEND_STARTUP_MENU_ON_BOOT: ${SEND_STARTUP_MENU_ON_BOOT:-true}
+      DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
     command: ["python", "-m", "src.main", "bot"]
+    healthcheck:
+      disable: true
     networks:
       - rememberme-network
     # Scale with: docker-compose up -d --scale bot=3
@@ -79,24 +89,30 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: rememberme-api
+    container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-api
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rememberme}
       DB_ECHO: ${DB_ECHO:-false}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
       API_HOST: 0.0.0.0
       API_PORT: 8000
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TIMEZONE_DEFAULT: ${TIMEZONE_DEFAULT:-Europe/Moscow}
       WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
+      SEND_STARTUP_MENU_ON_BOOT: ${SEND_STARTUP_MENU_ON_BOOT:-true}
+      DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
     command: ["python", "-m", "src.main", "api"]
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -117,22 +133,30 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    container_name: rememberme-worker
+    container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-worker
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-rememberme}
       DB_ECHO: ${DB_ECHO:-false}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
       API_HOST: 0.0.0.0
       API_PORT: 8000
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TIMEZONE_DEFAULT: ${TIMEZONE_DEFAULT:-Europe/Moscow}
       WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
+      SEND_STARTUP_MENU_ON_BOOT: ${SEND_STARTUP_MENU_ON_BOOT:-true}
+      DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
     command: ["python", "-m", "src.main", "worker"]
+    healthcheck:
+      disable: true
     networks:
       - rememberme-network
     # IMPORTANT: DO NOT SCALE - single instance only!
@@ -152,6 +176,7 @@ services:
 volumes:
   postgres_data:
     driver: local
+    name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}_postgres_data
 
 # ===========================================================================
 # Networks
