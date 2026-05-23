@@ -345,7 +345,7 @@ async def medication_instructions_preset_callback(update: Update, context: Conte
 
 
 async def medication_importance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Create medication after choosing importance."""
+    """Create medication after choosing importance and offer reminder setup."""
     query = update.callback_query
     await query.answer()
 
@@ -356,7 +356,6 @@ async def medication_importance_callback(update: Update, context: ContextTypes.D
 
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
-        user_timezone = await _get_user_timezone(update, session)
         service = MedicationService(session)
         medication = await service.create_medication(
             user_id=user_id,
@@ -368,8 +367,12 @@ async def medication_importance_callback(update: Update, context: ContextTypes.D
         await session.commit()
         medication_id = medication.id
 
-    text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
-    await query.edit_message_text(text, reply_markup=keyboard)
+    await query.edit_message_text(
+        "✅ Лекарство добавлено.\n\n"
+        "Теперь выберите, когда напоминать о приеме. "
+        "Если напоминание пока не нужно, нажмите «Пропустить».",
+        reply_markup=get_medication_reminder_keyboard(medication_id),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -468,6 +471,25 @@ async def medication_remind_callback(update: Update, context: ContextTypes.DEFAU
         "Разовые быстрые кнопки ниже создают одно ежедневное напоминание.",
         reply_markup=get_medication_reminder_keyboard(medication_id),
     )
+    return ConversationHandler.END
+
+
+async def medication_reminder_skip_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip reminder setup after medication creation."""
+    query = update.callback_query
+    await query.answer("Можно настроить позже")
+
+    medication_id = _parse_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+
+    text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
+    if not text:
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 
 

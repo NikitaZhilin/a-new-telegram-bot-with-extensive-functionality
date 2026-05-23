@@ -617,6 +617,9 @@ def get_medication_reminder_keyboard(medication_id: int) -> InlineKeyboardMarkup
             InlineKeyboardButton("✍️ Ввести", callback_data=f"med_rem_custom:{medication_id}"),
         ],
         [
+            InlineKeyboardButton("Пропустить", callback_data=f"med_rem_skip:{medication_id}"),
+        ],
+        [
             InlineKeyboardButton("⬅️ К лекарству", callback_data=f"med_view:{medication_id}"),
         ],
     ]

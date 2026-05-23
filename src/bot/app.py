@@ -70,6 +70,7 @@ from src.bot.handlers.medications import (
     medication_snooze_callback,
     medication_remind_callback,
     medication_reminder_frequency_callback,
+    medication_reminder_skip_callback,
     medication_reminder_time_callback,
     medication_delete_callback,
     medication_delete_confirm_callback,
@@ -169,6 +170,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(medication_remind_callback, pattern="^med_remind:"))
     application.add_handler(CallbackQueryHandler(medication_reminder_frequency_callback, pattern="^med_rem_freq:"))
     application.add_handler(CallbackQueryHandler(medication_reminder_time_callback, pattern="^med_rem_time:"))
+    application.add_handler(CallbackQueryHandler(medication_reminder_skip_callback, pattern="^med_rem_skip:"))
     application.add_handler(CallbackQueryHandler(medication_delete_confirm_callback, pattern="^med_delete_confirm:"))
     application.add_handler(CallbackQueryHandler(medication_delete_callback, pattern="^med_delete:"))
     

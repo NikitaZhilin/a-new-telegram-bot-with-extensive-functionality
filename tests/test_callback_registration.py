@@ -91,6 +91,7 @@ def test_important_callback_patterns_are_registered():
         "^med_remind:",
         "^med_rem_freq:",
         "^med_rem_time:",
+        "^med_rem_skip:",
         "^list_delete_confirm:",
         "^list_item_delete_confirm:",
         "^reminders_page:",
