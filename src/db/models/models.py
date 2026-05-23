@@ -1,0 +1,508 @@
+"""
+Database models for RememberMe Bot.
+
+All datetime fields are stored in UTC (timezone-aware).
+"""
+
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Enum as SQLAlchemyEnum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
+from sqlalchemy.orm import (
+    Mapped,
+    mapped_column,
+    relationship,
+)
+
+from src.db.base import Base
+
+
+class ReminderStatus(str, Enum):
+    """Reminder status."""
+    ACTIVE = "active"
+    DONE = "done"
+    CANCELED = "canceled"
+    MISSED = "missed"
+
+
+class RepeatRule(str, Enum):
+    """Reminder repeat rule."""
+    NONE = "none"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+
+class MedicationIntakeStatus(str, Enum):
+    """Medication intake mark status."""
+    TAKEN = "taken"
+    SKIPPED = "skipped"
+
+
+class User(Base):
+    """User model for storing Telegram user information."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
+    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    timezone: Mapped[str] = mapped_column(String(50), nullable=False, default="UTC")
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False, index=True)
+    onboarding_source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    notes = relationship(
+        "Note",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    todo_lists = relationship(
+        "TodoList",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    reminders = relationship(
+        "Reminder",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    medications = relationship(
+        "Medication",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    subscriptions = relationship(
+        "UserSubscription",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="UserSubscription.created_at.desc()",
+    )
+
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, telegram_id={self.telegram_id})>"
+
+
+class Note(Base):
+    """Note model for storing user notes."""
+
+    __tablename__ = "notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="notes")
+
+    def __repr__(self) -> str:
+        return f"<Note(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
+
+
+class UserSubscription(Base):
+    """Subscription state for monetized bot features."""
+
+    __tablename__ = "user_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    plan_code: Mapped[str] = mapped_column(String(50), nullable=False, default="free", index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", index=True)
+    starts_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    expires_at_utc: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    provider_payment_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="subscriptions")
+
+    __table_args__ = (
+        Index("ix_user_subscriptions_user_status", "user_id", "status"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserSubscription(user_id={self.user_id}, plan='{self.plan_code}', status='{self.status}')>"
+
+
+class TodoList(Base):
+    """TodoList model for storing todo/shopping lists."""
+
+    __tablename__ = "lists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="todo_lists")
+    items = relationship(
+        "ListItem",
+        back_populates="todo_list",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ListItem.position"
+    )
+    reminders = relationship(
+        "Reminder",
+        back_populates="todo_list",
+        lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<TodoList(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
+
+
+class ListItem(Base):
+    """ListItem model for storing list items."""
+
+    __tablename__ = "list_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    list_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("lists.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    text: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_completed: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False, index=True)
+    position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    todo_list = relationship("TodoList", back_populates="items")
+
+    def __repr__(self) -> str:
+        return f"<ListItem(id={self.id}, list_id={self.list_id}, text='{self.text[:30]}...')>"
+
+
+class ListShareToken(Base):
+    """A token that lets another user copy a list."""
+
+    __tablename__ = "list_share_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    list_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("lists.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    uses_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    token_type: Mapped[str] = mapped_column(String(20), nullable=False, default="copy", server_default="copy")
+    access_role: Mapped[str] = mapped_column(String(20), nullable=False, default="editor", server_default="editor")
+    expires_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    todo_list = relationship("TodoList")
+    created_by = relationship("User")
+
+    def __repr__(self) -> str:
+        return f"<ListShareToken(id={self.id}, list_id={self.list_id})>"
+
+
+class ListMember(Base):
+    """A user who has access to a shared list."""
+
+    __tablename__ = "list_members"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    list_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("lists.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="viewer")
+    invited_by_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    todo_list = relationship("TodoList")
+    user = relationship("User", foreign_keys=[user_id])
+    invited_by = relationship("User", foreign_keys=[invited_by_user_id])
+
+    __table_args__ = (
+        Index("ux_list_members_list_user", "list_id", "user_id", unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ListMember(list_id={self.list_id}, user_id={self.user_id}, role='{self.role}')>"
+
+
+class Reminder(Base):
+    """
+    Reminder model for storing user reminders.
+
+    All times are stored in UTC (timezone-aware datetime).
+    """
+
+    __tablename__ = "reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    list_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("lists.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    medication_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("medications.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    remind_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True
+    )
+    repeat_rule: Mapped[RepeatRule] = mapped_column(
+        SQLAlchemyEnum(RepeatRule),
+        default=RepeatRule.NONE,
+        nullable=False
+    )
+    status: Mapped[ReminderStatus] = mapped_column(
+        SQLAlchemyEnum(ReminderStatus),
+        default=ReminderStatus.ACTIVE,
+        nullable=False,
+        index=True
+    )
+    notified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="reminders")
+    todo_list = relationship("TodoList", back_populates="reminders")
+    medication = relationship("Medication", back_populates="reminders")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_reminders_user_status", "user_id", "status"),
+        Index("ix_reminders_remind_at_status", "remind_at_utc", "status"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Reminder(id={self.id}, user_id={self.user_id}, status={self.status})>"
+
+
+class Medication(Base):
+    """Medication schedule tracked by a user."""
+
+    __tablename__ = "medications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dosage: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    instructions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    importance: Mapped[str] = mapped_column(String(20), nullable=False, default="normal", server_default="normal")
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="medications")
+    intakes = relationship(
+        "MedicationIntake",
+        back_populates="medication",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="MedicationIntake.taken_at_utc.desc()",
+    )
+    reminders = relationship(
+        "Reminder",
+        back_populates="medication",
+        lazy="selectin",
+    )
+
+    __table_args__ = (
+        Index("ix_medications_user_active", "user_id", "is_active"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Medication(id={self.id}, user_id={self.user_id}, name='{self.name}')>"
+
+
+class MedicationIntake(Base):
+    """A single medication intake mark."""
+
+    __tablename__ = "medication_intakes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    medication_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("medications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    taken_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[MedicationIntakeStatus] = mapped_column(
+        SQLAlchemyEnum(MedicationIntakeStatus),
+        default=MedicationIntakeStatus.TAKEN,
+        nullable=False,
+        index=True,
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    medication = relationship("Medication", back_populates="intakes")
+
+    __table_args__ = (
+        Index("ix_medication_intakes_user_taken", "user_id", "taken_at_utc"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<MedicationIntake(id={self.id}, medication_id={self.medication_id})>"
