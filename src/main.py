@@ -183,7 +183,10 @@ async def run_bot() -> None:
             try:
                 await bot_app.bot.send_message(
                     chat_id=user.telegram_id,
-                    text="Бот перезапущен. Нижнее меню обновлено:",
+                    text=(
+                        "Бот обновлен и перезапущен.\n\n"
+                        "Улучшена стабильность сценариев и кнопок. Нижнее меню обновлено:"
+                    ),
                     reply_markup=get_main_menu_keyboard(),
                 )
             except Exception:

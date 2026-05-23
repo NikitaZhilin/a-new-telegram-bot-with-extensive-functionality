@@ -35,10 +35,17 @@ ITEMS_PER_PAGE = 10
 
 
 async def _get_app_user_id(update: Update, session) -> int:
-    """Return internal user ID when the user is registered."""
+    """Return internal user ID, creating the user for direct deep-link flows."""
     user_repo = UserRepository(session)
-    user = await user_repo.get_by_telegram_id(update.effective_user.id)
-    return user.id if user else update.effective_user.id
+    telegram_user = update.effective_user
+    user = await user_repo.get_or_create(
+        telegram_id=telegram_user.id,
+        username=telegram_user.username,
+        first_name=telegram_user.first_name,
+        last_name=telegram_user.last_name,
+    )
+    await session.commit()
+    return user.id
 
 
 def _parse_id(data: str) -> int:

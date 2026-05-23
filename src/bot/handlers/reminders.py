@@ -46,22 +46,37 @@ ITEMS_PER_PAGE = 20
 
 
 async def _get_app_user_id(update: Update, session) -> int:
-    """Return internal user ID when the user is registered."""
+    """Return internal user ID, creating the user for direct deep-link flows."""
     user_repo = UserRepository(session)
-    user = await user_repo.get_by_telegram_id(update.effective_user.id)
-    return user.id if user else update.effective_user.id
+    telegram_user = update.effective_user
+    user = await user_repo.get_or_create(
+        telegram_id=telegram_user.id,
+        username=telegram_user.username,
+        first_name=telegram_user.first_name,
+        last_name=telegram_user.last_name,
+    )
+    await session.commit()
+    return user.id
 
 
 async def _get_user_timezone(update: Update, session) -> str:
     """Return user's timezone or the configured default."""
     user_repo = UserRepository(session)
-    user = await user_repo.get_by_telegram_id(update.effective_user.id)
+    telegram_user = update.effective_user
+    user = await user_repo.get_or_create(
+        telegram_id=telegram_user.id,
+        username=telegram_user.username,
+        first_name=telegram_user.first_name,
+        last_name=telegram_user.last_name,
+    )
     if not user or not user.timezone:
+        await session.commit()
         return settings.TIMEZONE_DEFAULT
     if user.timezone == "UTC" and settings.TIMEZONE_DEFAULT != "UTC":
         user.timezone = settings.TIMEZONE_DEFAULT
-        await session.flush()
+        await session.commit()
         return settings.TIMEZONE_DEFAULT
+    await session.commit()
     return user.timezone
 
 

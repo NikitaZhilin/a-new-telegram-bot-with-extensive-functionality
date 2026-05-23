@@ -1,9 +1,24 @@
 """Tests for bot callback registration."""
 
+import re
+from types import SimpleNamespace
+
+import pytest
 from telegram.ext import ConversationHandler
 
 from src.bot.app import create_application
-from src.bot.keyboards import get_main_menu_inline_keyboard, get_main_menu_keyboard
+from src.bot.handlers import medications as medication_handlers
+from src.bot.keyboards import (
+    get_main_menu_inline_keyboard,
+    get_main_menu_keyboard,
+    get_medication_delete_confirm_keyboard,
+    get_medication_dosage_keyboard,
+    get_medication_importance_keyboard,
+    get_medication_instructions_keyboard,
+    get_medication_reminder_keyboard,
+    get_medication_view_keyboard,
+)
+from src.db.models import User
 
 
 def _collect_callback_patterns(handler) -> set[str]:
@@ -26,14 +41,32 @@ def _collect_callback_patterns(handler) -> set[str]:
     return patterns
 
 
-def test_important_callback_patterns_are_registered():
-    """Buttons for implemented flows should have registered handlers."""
+def _collect_application_callback_patterns() -> set[str]:
     app = create_application()
-
     patterns = set()
     for handlers in app.handlers.values():
         for handler in handlers:
             patterns.update(_collect_callback_patterns(handler))
+    return patterns
+
+
+def _collect_callback_data(markup) -> set[str]:
+    payload = markup.to_dict()
+    return {
+        button["callback_data"]
+        for row in payload["inline_keyboard"]
+        for button in row
+        if "callback_data" in button
+    }
+
+
+def _is_registered(callback_data: str, patterns: set[str]) -> bool:
+    return any(re.match(pattern, callback_data) for pattern in patterns)
+
+
+def test_important_callback_patterns_are_registered():
+    """Buttons for implemented flows should have registered handlers."""
+    patterns = _collect_application_callback_patterns()
 
     expected = {
         "^(notes_|note_)",
@@ -72,6 +105,50 @@ def test_important_callback_patterns_are_registered():
     }
 
     assert expected <= patterns
+
+
+def test_medication_keyboards_have_registered_callbacks():
+    """Medication buttons should not point to dead callback_data."""
+    patterns = _collect_application_callback_patterns()
+    callbacks = set()
+
+    for keyboard in [
+        get_medication_dosage_keyboard(),
+        get_medication_instructions_keyboard(),
+        get_medication_importance_keyboard(),
+        get_medication_reminder_keyboard(10),
+        get_medication_view_keyboard(10),
+        get_medication_delete_confirm_keyboard(10),
+    ]:
+        callbacks.update(_collect_callback_data(keyboard))
+
+    unregistered = {
+        callback_data
+        for callback_data in callbacks
+        if not _is_registered(callback_data, patterns)
+    }
+
+    assert unregistered == set()
+
+
+@pytest.mark.asyncio
+async def test_medication_user_lookup_creates_user_before_domain_writes(db_session):
+    """Medication flows must not use Telegram ID as an internal FK fallback."""
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(
+            id=372690348,
+            username="tester",
+            first_name="Test",
+            last_name=None,
+        )
+    )
+
+    internal_id = await medication_handlers._get_app_user_id(update, db_session)
+    user = await db_session.get(User, internal_id)
+
+    assert user is not None
+    assert user.telegram_id == 372690348
+    assert internal_id != 372690348
 
 
 def test_main_menus_expose_active_sections_only():
