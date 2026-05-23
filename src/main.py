@@ -192,7 +192,7 @@ async def run_bot() -> None:
                     chat_id=telegram_id,
                     text=(
                         "Бот обновлен и перезапущен.\n\n"
-                        "Улучшена стабильность сценариев и кнопок. Нижнее меню обновлено:"
+                        "Можно продолжать пользоваться."
                     ),
                     reply_markup=get_main_menu_keyboard(),
                 )
