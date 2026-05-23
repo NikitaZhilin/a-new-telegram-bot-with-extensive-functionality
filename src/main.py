@@ -179,10 +179,17 @@ async def run_bot() -> None:
             user_repo = UserRepository(session)
             users = await user_repo.get_all_with_telegram_id()
 
-        for user in users:
+        startup_recipients: dict[int, int | None] = {
+            user.telegram_id: user.id
+            for user in users
+        }
+        for admin_telegram_id in settings.admin_telegram_id_set:
+            startup_recipients.setdefault(admin_telegram_id, None)
+
+        for telegram_id, user_id in startup_recipients.items():
             try:
                 await bot_app.bot.send_message(
-                    chat_id=user.telegram_id,
+                    chat_id=telegram_id,
                     text=(
                         "Бот обновлен и перезапущен.\n\n"
                         "Улучшена стабильность сценариев и кнопок. Нижнее меню обновлено:"
@@ -192,7 +199,8 @@ async def run_bot() -> None:
             except Exception:
                 logger.warning(
                     "Failed to send startup menu",
-                    user_id=user.id,
+                    user_id=user_id,
+                    telegram_id=telegram_id,
                     exc_info=True,
                 )
     
