@@ -39,6 +39,12 @@ from src.bot.handlers.reminders import (
 from src.bot.handlers.settings import (
     settings_timezone_conv,
 )
+from src.bot.handlers.driver import (
+    driver_fuel_create_conv,
+    driver_service_conv,
+    driver_vehicle_create_conv,
+    driver_vehicle_mileage_conv,
+)
 
 __all__ = [
     # Navigation
@@ -61,4 +67,9 @@ __all__ = [
     "reminder_create_conv",
     # Settings
     "settings_timezone_conv",
+    # Driver
+    "driver_fuel_create_conv",
+    "driver_service_conv",
+    "driver_vehicle_create_conv",
+    "driver_vehicle_mileage_conv",
 ]

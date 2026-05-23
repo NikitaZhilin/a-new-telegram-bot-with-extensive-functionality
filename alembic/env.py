@@ -15,6 +15,8 @@ from src.db.models import (  # noqa: F401
     ListItem,
     ListMember,
     ListShareToken,
+    DriverFuelEntry,
+    DriverVehicle,
     Medication,
     MedicationIntake,
     Note,

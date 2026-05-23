@@ -9,6 +9,19 @@ from telegram.ext import ConversationHandler
 from src.bot.app import create_application
 from src.bot.handlers import medications as medication_handlers
 from src.bot.keyboards import (
+    get_driver_fuel_delete_confirm_keyboard,
+    get_driver_fuel_entry_keyboard,
+    get_driver_fuel_history_keyboard,
+    get_driver_menu_keyboard,
+    get_driver_section_keyboard,
+    get_driver_service_keyboard,
+    get_driver_step_keyboard,
+    get_driver_templates_keyboard,
+    get_driver_vehicle_delete_confirm_keyboard,
+    get_driver_vehicles_keyboard,
+    get_driver_vehicle_view_keyboard,
+    get_driver_fuel_keyboard,
+    get_driver_full_tank_keyboard,
     get_main_menu_inline_keyboard,
     get_main_menu_keyboard,
     get_medication_delete_confirm_keyboard,
@@ -103,6 +116,25 @@ def test_important_callback_patterns_are_registered():
         "^settings_timezone$",
         "^settings_subscription$",
         "^tz_custom$",
+        "^driver_menu$",
+        "^driver_section:",
+        "^driver_list_template:",
+        "^driver_reminder_template:",
+        "^driver_vehicle_create$",
+        "^driver_vehicle_edit:",
+        "^driver_vehicle_view:",
+        "^driver_vehicle_delete:",
+        "^driver_vehicle_delete_confirm:",
+        "^driver_vehicle_mileage:",
+        "^driver_fuel_add:",
+        "^driver_fuel_edit:",
+        "^driver_fuel_full:",
+        "^driver_fuel_history:",
+        "^driver_fuel_view:",
+        "^driver_fuel_delete:",
+        "^driver_fuel_delete_confirm:",
+        "^driver_service_view:",
+        "^driver_service_done:",
     }
 
     assert expected <= patterns
@@ -165,6 +197,7 @@ def test_main_menus_expose_active_sections_only():
         "📋 Списки",
         "💊 Лекарства",
         "⏰ Напоминания",
+        "🚗 Для водителя",
         "⚙️ Настройки",
         "👥 Поделиться ботом",
         "❓ Помощь",
@@ -181,6 +214,38 @@ def test_main_menus_expose_active_sections_only():
         "📋 Списки",
         "💊 Лекарства",
         "⏰ Напоминания",
+        "🚗 Для водителя",
         "⚙️ Настройки",
         "👥 Поделиться ботом",
     }
+
+
+def test_driver_keyboards_have_registered_callbacks():
+    """Driver menu buttons should route to registered handlers or existing flows."""
+    patterns = _collect_application_callback_patterns()
+    callbacks = set()
+
+    for keyboard in [
+        get_driver_menu_keyboard(),
+        get_driver_section_keyboard(),
+        get_driver_templates_keyboard(),
+        get_driver_vehicles_keyboard([]),
+        get_driver_vehicle_view_keyboard(10),
+        get_driver_vehicle_delete_confirm_keyboard(10),
+        get_driver_fuel_keyboard([]),
+        get_driver_fuel_history_keyboard(10, []),
+        get_driver_fuel_entry_keyboard(10, 20),
+        get_driver_fuel_delete_confirm_keyboard(10, 20),
+        get_driver_service_keyboard(10),
+        get_driver_step_keyboard(can_skip=True),
+        get_driver_full_tank_keyboard(),
+    ]:
+        callbacks.update(_collect_callback_data(keyboard))
+
+    unregistered = {
+        callback_data
+        for callback_data in callbacks
+        if not _is_registered(callback_data, patterns)
+    }
+
+    assert unregistered == set()

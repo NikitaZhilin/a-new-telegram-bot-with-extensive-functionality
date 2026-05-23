@@ -1,4 +1,4 @@
-# RememberMe Bot
+# Telegram Productivity Bot
 
 [Русский](#ru) | [English](#en)
 
@@ -6,9 +6,69 @@
 
 ## Русский
 
-RememberMe Bot - Telegram-бот для личной организации: списки дел и покупок, общие списки, напоминания, контроль приема лекарств, пользовательские настройки и задел под платные функции.
+Telegram Productivity Bot - модульный Telegram-бот для личной организации: списки, напоминания, прием лекарств, автомобильный журнал, настройки пользователя и основа для платных возможностей.
 
-Проект построен на новой архитектуре с разделением слоев:
+README намеренно не содержит токенов, адресов серверов, приватных путей, имен production-ботов и других данных, которые могут раскрывать конкретное размещение проекта.
+
+### Возможности
+
+**Списки**
+
+- личные списки дел и покупок;
+- добавление пунктов по одному или пачкой;
+- отметка выполненного, редактирование и удаление пунктов;
+- переименование и удаление списков с подтверждением;
+- пагинация;
+- напоминание, привязанное к списку;
+- совместные списки с ролями `owner`, `editor`, `viewer`;
+- импорт копии списка и подключение к общему списку по токену.
+
+**Напоминания**
+
+- создание напоминаний через кнопки и текстовый ввод;
+- быстрый выбор даты и времени;
+- ручной ввод фраз вроде “завтра 10” или “через 2 часа”;
+- повторы: ежедневно, еженедельно, ежемесячно;
+- активные и завершенные напоминания;
+- выполнение, отмена и удаление;
+- хранение времени в UTC и отображение в часовом поясе пользователя.
+
+**Прием лекарств**
+
+- карточки препаратов;
+- дозировка и инструкции через кнопки или текст;
+- важность: БАД, обычное, важное, критичное;
+- напоминания 1, 2 или 3 раза в день с ручным временем;
+- отметки “принял”, “пропустил”, “отложить”;
+- скрытие кнопки приема до следующего актуального окна.
+
+Бот только помогает вести учет и не заменяет медицинские рекомендации.
+
+**Для водителя**
+
+- профиль авто;
+- пошаговое добавление и редактирование авто;
+- текущий пробег;
+- интервал ТО по пробегу и по месяцам;
+- отметка выполненного ТО;
+- расчет следующего ТО по пробегу и дате;
+- журнал заправок;
+- пошаговое добавление и редактирование заправок;
+- история заправок по авто;
+- удаление авто и заправок с подтверждением;
+- расчет цены за литр, расхода и стоимости километра;
+- учет неполных заправок между полными баками;
+- быстрые шаблоны списков и авто-напоминаний.
+
+**Настройки и многопользовательский режим**
+
+- каждый пользователь видит только свои данные;
+- общие данные появляются только через явное приглашение;
+- настройка часового пояса;
+- экран текущего плана;
+- базовый слой для будущей монетизации.
+
+### Архитектура
 
 ```text
 bot -> services -> repositories -> db
@@ -16,194 +76,65 @@ api -> services -> repositories -> db
 worker -> services/repositories -> db -> Telegram
 ```
 
-### Что умеет бот
+Основные каталоги:
 
-#### Списки дел и покупок
-
-- Создание личных списков.
-- Просмотр списков с пагинацией.
-- Добавление одного пункта или нескольких пунктов пачкой.
-- Отметка пункта выполненным или невыполненным.
-- Редактирование и удаление пунктов.
-- Переименование и удаление списка.
-- Подтверждение опасных действий.
-- Возврат назад и переход в главное меню без потери сценария.
-- Обновление существующего сообщения бота после действий, чтобы чат не превращался в длинную ленту технических сообщений.
-
-#### Общие списки
-
-- Каждый пользователь по умолчанию видит только свои данные.
-- Списком можно поделиться с другим пользователем.
-- Есть два сценария:
-  - копия списка через `/import_list TOKEN`;
-  - совместный список через `/join_list TOKEN`.
-- Для совместных списков есть роли:
-  - `owner` - владелец;
-  - `editor` - может менять пункты;
-  - `viewer` - может только смотреть.
-- Владелец может смотреть участников, менять роли и отзывать доступ.
-- Токены доступа ограничены по сроку и числу использований.
-
-#### Напоминания
-
-- Создание напоминаний через Telegram-сценарий.
-- Быстрый выбор даты: сегодня, завтра, послезавтра, через неделю.
-- Быстрый выбор времени: через 10 минут, 30 минут, 1 час, 2 часа, фиксированные часы.
-- Ручной ввод даты, времени и фраз.
-- Повторы: нет, ежедневно, еженедельно, ежемесячно.
-- Список активных и завершенных напоминаний.
-- Отметка выполненным, отмена и удаление.
-- Привязка напоминания к списку, чтобы уведомление могло вести к нужному списку.
-- Хранение времени в UTC с отображением в часовом поясе пользователя.
-
-#### Прием лекарств
-
-- Создание карточки препарата.
-- Дозировка: готовые варианты и ручной ввод.
-- Инструкции: до еды, во время еды, после еды, запить водой, не смешивать, ручной вариант или пропуск.
-- Важность препарата:
-  - БАД;
-  - обычное;
-  - важное;
-  - критичное.
-- Напоминания 1, 2 или 3 раза в день с ручной настройкой времени.
-- Действия по приему:
-  - принял;
-  - пропустил;
-  - отложить на 15 минут.
-- После отметки приема кнопка "Принял" скрывается до следующего актуального окна приема.
-- Для нескольких приемов в день бот учитывает временные окна, чтобы следующий прием снова стал доступен ближе к своему времени.
-
-Важно: бот помогает отслеживать прием, но не является медицинской рекомендацией и не заменяет врача.
-
-#### Настройки
-
-- Выбор часового пояса из готовых вариантов.
-- Ручной ввод часового пояса.
-- Пользовательская статистика.
-- Просмотр текущего плана подписки.
-- Ссылка для приглашения другого пользователя к боту, если задан `BOT_USERNAME`.
-
-#### Мультипользовательский режим
-
-- Пользователи изолированы друг от друга.
-- Личные списки, напоминания и лекарства не видны другим пользователям.
-- Совместный доступ появляется только после явного шаринга.
-- Администратор может использовать API для поддержки и отладки пользователей.
-
-#### Монетизация
-
-В проекте уже есть базовый слой для будущей монетизации:
-
-- модель подписок пользователя;
-- `DEFAULT_SUBSCRIPTION_PLAN`;
-- экран текущего плана;
-- сервис доступа к функциям.
-
-Реальная платежная интеграция пока не подключена. Это оставлено как следующий этап развития.
-
-### API и worker
-
-#### FastAPI Admin API
-
-API предназначен для администрирования и поддержки:
-
-- health-check;
-- список пользователей;
-- карточка пользователя;
-- статистика проекта;
-- обзор пользовательских записей;
-- просмотр ближайших напоминаний.
-
-API защищается заголовком `X-Admin-Token`.
-
-В production рекомендуется:
-
-```env
-API_DOCS_ENABLED=false
-API_BIND_HOST=127.0.0.1
-CORS_ORIGINS=
+```text
+src/
+  api/            FastAPI admin API
+  bot/            Telegram handlers, keyboards, states
+  db/             SQLAlchemy base, session, models
+  repositories/   Data access layer
+  services/       Business logic
+  utils/          Date/text helpers
+  worker/         Reminder worker
+tests/            Regression tests
+alembic/          Database migrations
 ```
 
-#### Reminder Worker
-
-Worker отдельно от бота:
-
-- проверяет due reminders;
-- отправляет уведомления в Telegram;
-- создает следующие срабатывания для повторяющихся напоминаний;
-- различает временные и постоянные ошибки Telegram;
-- не должен запускаться в нескольких экземплярах одновременно.
-
-### Технологический стек
+### Стек
 
 - Python 3.11+
 - python-telegram-bot
 - FastAPI
 - SQLAlchemy async
-- asyncpg
 - PostgreSQL
 - Alembic
-- Pydantic v2 / pydantic-settings
+- Pydantic v2
 - Docker
 - pytest
-- structlog
 
-### Структура проекта
+### Настройка
 
-```text
-src/
-  api/            FastAPI application and admin routes
-  bot/            Telegram handlers, keyboards, states, middlewares
-  db/             SQLAlchemy base, session, models
-  repositories/   Data access layer
-  services/       Business logic
-  utils/          Text/date/format helpers
-  worker/         Reminder worker and scheduler
-tests/            Regression and service tests
-alembic/          Database migrations
-```
-
-### Быстрый старт локально
-
-1. Скопировать `.env.example`:
+1. Скопируйте пример окружения:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-2. Заполнить `.env`:
+2. Заполните `.env` своими значениями:
 
 ```env
 BOT_TOKEN=...
-BOT_USERNAME=tg_napominalka2_bot
+BOT_USERNAME=...
 ADMIN_TOKEN=...
 ADMIN_TELEGRAM_IDS=...
-POSTGRES_USER=postgres
+POSTGRES_USER=...
 POSTGRES_PASSWORD=...
-POSTGRES_DB=rememberme
+POSTGRES_DB=...
 POSTGRES_PORT=5433
-POSTGRES_BIND_HOST=127.0.0.1
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5433/rememberme
+DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@localhost:5433/DB
 ```
 
-3. Запустить локально:
+3. Для уведомления о релизе после рестарта можно задать:
 
-```powershell
-.\start-local.ps1
+```env
+APP_VERSION=0.4.0
+STARTUP_UPDATE_MESSAGE=Добавлен автомобильный журнал: авто, ТО, история заправок и расчет расхода.
 ```
 
-Полезные варианты:
+### Запуск
 
-```powershell
-.\start-local.ps1 -DryRunOnly
-.\start-local.ps1 -RunTests
-.\start-local.ps1 -Mode bot
-.\start-local.ps1 -Mode worker
-.\start-local.ps1 -SkipDocker
-```
-
-### Ручной запуск
+Локальный сценарий:
 
 ```powershell
 docker-compose up -d postgres
@@ -221,9 +152,7 @@ python -B -m src.main all
 python -B -m src.main init-db
 ```
 
-### Безопасные проверки
-
-Dry-run режимы не запускают polling, webhook и отправку сообщений:
+Безопасные проверки без Telegram polling и отправки сообщений:
 
 ```powershell
 python -B -m src.main api --dry-run
@@ -238,111 +167,93 @@ python -B -m src.main all --dry-run
 python -B -m pytest -p no:cacheprovider tests
 ```
 
-### Фоновый запуск на Windows
-
-```powershell
-.\start-background.ps1
-.\stop-background.ps1
-.\restart-background.ps1
-```
-
-Автозапуск через Windows Task Scheduler:
-
-```powershell
-.\install-autostart-task.ps1
-```
-
-Удалить задачу:
-
-```powershell
-.\uninstall-autostart-task.ps1
-```
-
-### Деплой на VPS
-
-Подробная инструкция: [DEPLOY_VPS.md](DEPLOY_VPS.md).
-
-Рекомендуемая схема:
-
-```text
-/opt/bots/rememberme
-```
-
-Проект должен жить отдельно от VPN, MTProto, nginx, firewall и других системных сервисов.
-
-Контейнеры бота изолированы именами:
-
-```text
-rememberme_bot-postgres
-rememberme_bot-api
-rememberme_bot-bot
-rememberme_bot-worker
-```
-
-PostgreSQL и API по умолчанию привязаны к `127.0.0.1`, а не к публичному интерфейсу.
-
-### Git
-
-Инструкция по первому push/clone: [GIT_SETUP.md](GIT_SETUP.md).
-
-Обычный цикл разработки:
-
-```powershell
-git status
-git add .
-git commit -m "Describe changes"
-git push
-```
-
 ### Безопасность
 
-- Не коммитить `.env`.
-- Не хранить токены в коде или README.
-- Не открывать PostgreSQL наружу.
-- Не открывать Admin API публично без HTTPS, firewall и строгого CORS.
-- После передачи root-пароля в чат сменить пароль или отключить password-login.
-- Для VPS использовать SSH-ключи.
-- Перед рискованными изменениями делать backup PostgreSQL volume.
+- не коммитьте `.env`;
+- не храните токены, пароли и приватные адреса в README;
+- не открывайте PostgreSQL наружу;
+- не публикуйте Admin API без HTTPS, firewall и строгого CORS;
+- используйте SSH-ключи для серверного доступа;
+- делайте backup базы перед рискованными миграциями;
+- запускайте worker в одном экземпляре, чтобы не дублировать уведомления.
 
-### Преимущества проекта
+### Развитие
 
-- Чистое разделение на `bot`, `api`, `db`, `repositories`, `services`, `worker`.
-- Функции развиваются вертикальными сценариями, а не хаотичными обработчиками.
-- Бизнес-логика вынесена в services/repositories.
-- Есть ownership-check и мультипользовательская изоляция.
-- Есть dry-run режимы для проверки lifecycle без Telegram API.
-- Есть тесты на критичные сценарии.
-- Можно запускать локально, в фоне на Windows или на VPS.
-- Архитектура готова к добавлению новых доменов: привычки, финансы, семейные задачи, курсы лекарств, платные тарифы.
-
-### Возможности развития
-
-- Полноценные курсы лекарств: дата начала, дата окончания, паузы, несколько приемов как единый курс.
-- История приема лекарств с экспортом врачу.
-- Гибкие статусы приема: принял поздно, пропустил, отменил, перенес.
-- Платежи и реальные тарифные ограничения.
-- Web admin panel поверх текущего API.
-- Уведомления для общих списков и семейных сценариев.
-- Audit log для совместных списков.
-- Backup/restore сценарии для VPS.
-- CI/CD: автоматический тест и деплой после push.
-- Локализация интерфейса бота на несколько языков.
-
-### Текущие ограничения
-
-- Notes-модуль есть в коде, но скрыт из пользовательского меню.
-- Напоминания редактируются ограниченно.
-- Medication tracking не заменяет медицинские назначения.
-- Платежная интеграция пока не подключена.
-- API рассчитан на администрирование, не на публичный пользовательский web-клиент.
+- платежная интеграция и тарифные ограничения;
+- web-панель администратора;
+- расширенная история приема лекарств;
+- экспорт автомобильных расходов;
+- уведомления и audit log для совместных списков;
+- CI/CD с автоматическим тестом и деплоем;
+- локализация интерфейса бота.
 
 <a id="en"></a>
 
 ## English
 
-RememberMe Bot is a Telegram bot for personal organization: todo and shopping lists, shared lists, reminders, medication intake tracking, user settings, and a foundation for paid features.
+Telegram Productivity Bot is a modular Telegram bot for personal organization: lists, reminders, medication tracking, a vehicle journal, user settings, and a foundation for paid features.
 
-The project follows a layered architecture:
+This README intentionally avoids tokens, server addresses, private paths, production bot names, and other deployment-specific details.
+
+### Features
+
+**Lists**
+
+- personal todo and shopping lists;
+- single-item and bulk item creation;
+- item toggling, editing, and deletion;
+- list rename and deletion with confirmation;
+- pagination;
+- list-linked reminders;
+- shared lists with `owner`, `editor`, and `viewer` roles;
+- copy import and shared-list join by token.
+
+**Reminders**
+
+- button and text-driven creation flow;
+- quick date and time presets;
+- natural phrases such as “tomorrow 10” or “in 2 hours”;
+- repeat rules: daily, weekly, monthly;
+- active and completed reminder lists;
+- done, cancel, and delete actions;
+- UTC storage with user-timezone display.
+
+**Medication Tracking**
+
+- medication cards;
+- dosage and instructions through buttons or text;
+- importance levels: supplement, normal, important, critical;
+- daily reminders 1, 2, or 3 times per day with custom times;
+- taken, skipped, and snooze actions;
+- intake buttons are hidden until the next relevant intake window.
+
+The bot is a tracking aid only and does not replace medical advice.
+
+**Driver Assistant**
+
+- vehicle profiles;
+- step-by-step vehicle creation and editing;
+- current mileage;
+- service interval by mileage and months;
+- mark service as completed;
+- next service calculation by mileage and date;
+- fuel journal;
+- step-by-step fuel entry creation and editing;
+- vehicle-specific fuel history;
+- vehicle and fuel entry deletion with confirmation;
+- price per liter, fuel consumption, and cost per kilometer;
+- partial refuels are included between full-tank measurements;
+- quick list and vehicle reminder templates.
+
+**Settings and Multi-User Mode**
+
+- users are isolated by default;
+- shared data exists only after explicit invitation;
+- timezone settings;
+- current plan screen;
+- base layer for future monetization.
+
+### Architecture
 
 ```text
 bot -> services -> repositories -> db
@@ -350,194 +261,65 @@ api -> services -> repositories -> db
 worker -> services/repositories -> db -> Telegram
 ```
 
-### Features
+Main directories:
 
-#### Todo and shopping lists
-
-- Create personal lists.
-- Browse lists with pagination.
-- Add one item or bulk-add multiple items.
-- Toggle items as done or not done.
-- Edit and delete items.
-- Rename and delete lists.
-- Confirm destructive actions.
-- Navigate back and return to the main menu.
-- Update existing bot messages after actions instead of flooding the chat.
-
-#### Shared lists
-
-- Every user sees only their own data by default.
-- A list can be shared with another user.
-- Two sharing modes are supported:
-  - private copy via `/import_list TOKEN`;
-  - real shared access via `/join_list TOKEN`.
-- Shared list roles:
-  - `owner` - list owner;
-  - `editor` - can change items;
-  - `viewer` - read-only access.
-- Owners can view members, change roles, and revoke access.
-- Share tokens are time-limited and usage-limited.
-
-#### Reminders
-
-- Create reminders through a Telegram flow.
-- Quick date presets: today, tomorrow, the day after tomorrow, next week.
-- Quick time presets: in 10 minutes, 30 minutes, 1 hour, 2 hours, fixed clock times.
-- Manual date, time, and phrase parsing.
-- Repeat rules: none, daily, weekly, monthly.
-- Active and completed reminder lists.
-- Mark as done, cancel, and delete.
-- Link a reminder to a list, so the notification can lead back to the relevant list.
-- Store time in UTC and display it in the user's timezone.
-
-#### Medication intake
-
-- Create medication cards.
-- Dosage presets and custom dosage text.
-- Instructions: before food, during food, after food, with water, do not mix, custom text, or skip.
-- Medication importance:
-  - supplement;
-  - normal;
-  - important;
-  - critical.
-- Daily reminders 1, 2, or 3 times per day with manually configured times.
-- Intake actions:
-  - taken;
-  - skipped;
-  - snooze for 15 minutes.
-- After a medication is marked as taken, the "taken" action is hidden until the next relevant intake window.
-- For multiple daily intakes, the bot uses time windows so the next intake becomes available near its scheduled time.
-
-Important: this bot is a tracking aid only. It is not medical advice and does not replace a doctor.
-
-#### Settings
-
-- Choose timezone from presets.
-- Enter timezone manually.
-- User statistics.
-- Current subscription plan screen.
-- Bot invite link if `BOT_USERNAME` is configured.
-
-#### Multi-user mode
-
-- Users are isolated from each other.
-- Personal lists, reminders, and medications are not visible to other users.
-- Shared access exists only after explicit sharing.
-- Admin users can use the API for support and debugging.
-
-#### Monetization foundation
-
-The project already contains a basic monetization layer:
-
-- user subscription model;
-- `DEFAULT_SUBSCRIPTION_PLAN`;
-- current plan screen;
-- feature access service.
-
-Real payment integration is not connected yet. It is planned as a future stage.
-
-### API and worker
-
-#### FastAPI Admin API
-
-The API is intended for administration and support:
-
-- health check;
-- user list;
-- user details;
-- project statistics;
-- user records overview;
-- due reminders overview.
-
-The API is protected with the `X-Admin-Token` header.
-
-Recommended production settings:
-
-```env
-API_DOCS_ENABLED=false
-API_BIND_HOST=127.0.0.1
-CORS_ORIGINS=
+```text
+src/
+  api/            FastAPI admin API
+  bot/            Telegram handlers, keyboards, states
+  db/             SQLAlchemy base, session, models
+  repositories/   Data access layer
+  services/       Business logic
+  utils/          Date/text helpers
+  worker/         Reminder worker
+tests/            Regression tests
+alembic/          Database migrations
 ```
 
-#### Reminder Worker
-
-The worker runs separately from the bot:
-
-- checks due reminders;
-- sends Telegram notifications;
-- creates next occurrences for repeating reminders;
-- separates temporary and permanent Telegram errors;
-- should not be scaled to multiple instances.
-
-### Tech stack
+### Stack
 
 - Python 3.11+
 - python-telegram-bot
 - FastAPI
 - SQLAlchemy async
-- asyncpg
 - PostgreSQL
 - Alembic
-- Pydantic v2 / pydantic-settings
+- Pydantic v2
 - Docker
 - pytest
-- structlog
 
-### Project structure
+### Setup
 
-```text
-src/
-  api/            FastAPI application and admin routes
-  bot/            Telegram handlers, keyboards, states, middlewares
-  db/             SQLAlchemy base, session, models
-  repositories/   Data access layer
-  services/       Business logic
-  utils/          Text/date/format helpers
-  worker/         Reminder worker and scheduler
-tests/            Regression and service tests
-alembic/          Database migrations
-```
-
-### Local quick start
-
-1. Copy `.env.example`:
+1. Copy the environment example:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-2. Fill `.env`:
+2. Fill `.env` with your own values:
 
 ```env
 BOT_TOKEN=...
-BOT_USERNAME=tg_napominalka2_bot
+BOT_USERNAME=...
 ADMIN_TOKEN=...
 ADMIN_TELEGRAM_IDS=...
-POSTGRES_USER=postgres
+POSTGRES_USER=...
 POSTGRES_PASSWORD=...
-POSTGRES_DB=rememberme
+POSTGRES_DB=...
 POSTGRES_PORT=5433
-POSTGRES_BIND_HOST=127.0.0.1
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5433/rememberme
+DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@localhost:5433/DB
 ```
 
-3. Start locally:
+3. Optional restart notification values:
 
-```powershell
-.\start-local.ps1
+```env
+APP_VERSION=0.4.0
+STARTUP_UPDATE_MESSAGE=Driver journal added: vehicles, service plan, fuel history, and consumption tracking.
 ```
 
-Useful variants:
+### Running
 
-```powershell
-.\start-local.ps1 -DryRunOnly
-.\start-local.ps1 -RunTests
-.\start-local.ps1 -Mode bot
-.\start-local.ps1 -Mode worker
-.\start-local.ps1 -SkipDocker
-```
-
-### Manual startup
+Local flow:
 
 ```powershell
 docker-compose up -d postgres
@@ -545,7 +327,7 @@ python -B -m src.main init-db
 python -B -m src.main bot
 ```
 
-Separate modes:
+Individual modes:
 
 ```powershell
 python -B -m src.main api
@@ -555,9 +337,7 @@ python -B -m src.main all
 python -B -m src.main init-db
 ```
 
-### Safe startup checks
-
-Dry-run modes do not start polling, webhooks, or message sending:
+Safe checks without Telegram polling or message sending:
 
 ```powershell
 python -B -m src.main api --dry-run
@@ -572,100 +352,22 @@ Tests:
 python -B -m pytest -p no:cacheprovider tests
 ```
 
-### Windows background run
-
-```powershell
-.\start-background.ps1
-.\stop-background.ps1
-.\restart-background.ps1
-```
-
-Windows Task Scheduler autostart:
-
-```powershell
-.\install-autostart-task.ps1
-```
-
-Remove the task:
-
-```powershell
-.\uninstall-autostart-task.ps1
-```
-
-### VPS deployment
-
-Full guide: [DEPLOY_VPS.md](DEPLOY_VPS.md).
-
-Recommended layout:
-
-```text
-/opt/bots/rememberme
-```
-
-The bot should be isolated from VPN, MTProto, nginx, firewall, and other system services.
-
-Isolated bot containers:
-
-```text
-rememberme_bot-postgres
-rememberme_bot-api
-rememberme_bot-bot
-rememberme_bot-worker
-```
-
-PostgreSQL and API are bound to `127.0.0.1` by default.
-
-### Git
-
-First publish/clone guide: [GIT_SETUP.md](GIT_SETUP.md).
-
-Regular development cycle:
-
-```powershell
-git status
-git add .
-git commit -m "Describe changes"
-git push
-```
-
 ### Security
 
-- Do not commit `.env`.
-- Do not store tokens in code or README files.
-- Do not expose PostgreSQL publicly.
-- Do not expose the Admin API publicly without HTTPS, firewall, and strict CORS.
-- If a root password was shared in chat, rotate it or disable password login.
-- Use SSH keys for VPS access.
-- Back up the PostgreSQL volume before risky changes.
+- do not commit `.env`;
+- do not store tokens, passwords, or private infrastructure details in README files;
+- do not expose PostgreSQL publicly;
+- do not expose the Admin API without HTTPS, firewall, and strict CORS;
+- use SSH keys for server access;
+- back up the database before risky migrations;
+- run only one worker instance to avoid duplicate notifications.
 
-### Advantages
+### Roadmap
 
-- Clean separation into `bot`, `api`, `db`, `repositories`, `services`, and `worker`.
-- Features are developed as vertical user scenarios instead of scattered handlers.
-- Business logic lives in services/repositories.
-- Ownership checks and multi-user isolation are part of the design.
-- Dry-run modes validate the lifecycle without Telegram API calls.
-- Critical flows have regression tests.
-- The project can run locally, in the background on Windows, or on a VPS.
-- The architecture is ready for new domains: habits, finance, family tasks, medication courses, and paid plans.
-
-### Development opportunities
-
-- Full medication courses: start date, end date, pauses, and multiple daily intakes as one course.
-- Medication history with export for a doctor.
-- Flexible intake statuses: taken late, skipped, canceled, postponed.
-- Payments and real feature limits.
-- Web admin panel on top of the current API.
-- Notifications for shared lists and family workflows.
-- Audit log for shared lists.
-- Backup/restore workflows for VPS.
-- CI/CD: automated test and deploy after push.
-- Bot UI localization into multiple languages.
-
-### Current limitations
-
-- The Notes module exists in code but is hidden from the user-facing menu.
-- Reminder editing is intentionally limited.
-- Medication tracking does not replace medical prescriptions.
-- Payment integration is not connected yet.
-- The API is designed for administration, not as a public user-facing web client.
+- payment integration and real plan limits;
+- admin web panel;
+- extended medication intake history;
+- vehicle expense export;
+- notifications and audit log for shared lists;
+- CI/CD with automated tests and deployment;
+- bot UI localization.

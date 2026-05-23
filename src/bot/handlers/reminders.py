@@ -276,6 +276,27 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
     """Start reminder creation."""
     query = update.callback_query
 
+    if query and query.data.startswith("driver_reminder_template:"):
+        await query.answer()
+        from src.bot.handlers.driver import DRIVER_REMINDER_TEMPLATES
+
+        template_key = query.data.split(":", 1)[1]
+        context.user_data.pop("linked_list_id", None)
+        context.user_data.pop("linked_list_title", None)
+        context.user_data["reminder_text"] = DRIVER_REMINDER_TEMPLATES.get(
+            template_key,
+            "Автомобильное напоминание",
+        )
+
+        async with async_session_maker() as session:
+            context.user_data["user_timezone"] = await _get_user_timezone(update, session)
+
+        await query.edit_message_text(
+            f"⏰ Авто-напоминание\n\n📝 {context.user_data['reminder_text']}\n\nКогда напомнить?",
+            reply_markup=get_reminder_date_keyboard(),
+        )
+        return ReminderStates.WAIT_DATE
+
     if query and query.data.startswith("list_remind:"):
         await query.answer()
         list_id = int(query.data.split(":", 1)[1])
@@ -834,6 +855,7 @@ reminder_create_conv = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(reminder_create_start, pattern="^reminder_create$"),
         CallbackQueryHandler(reminder_create_start, pattern="^list_remind:"),
+        CallbackQueryHandler(reminder_create_start, pattern="^driver_reminder_template:"),
     ],
     states={
         ReminderStates.WAIT_TEXT: [

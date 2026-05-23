@@ -29,6 +29,10 @@ from src.bot.handlers import (
     medication_create_conv,
     medication_reminder_conv,
     reminder_create_conv,
+    driver_fuel_create_conv,
+    driver_service_conv,
+    driver_vehicle_create_conv,
+    driver_vehicle_mileage_conv,
     settings_timezone_conv,
 )
 logger = logging.getLogger(__name__)
@@ -37,9 +41,14 @@ logger = logging.getLogger(__name__)
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Keep stale Telegram callback errors from breaking the visible bot flow."""
     error = context.error
-    if isinstance(error, BadRequest) and "Query is too old" in str(error):
-        logger.info("Ignored stale Telegram callback query")
-        return
+    if isinstance(error, BadRequest):
+        message = str(error)
+        if "Query is too old" in message:
+            logger.info("Ignored stale Telegram callback query")
+            return
+        if "Message is not modified" in message:
+            logger.info("Ignored Telegram message-not-modified callback")
+            return
 
     logger.exception("Unhandled bot update error", exc_info=error)
 
@@ -89,6 +98,19 @@ from src.bot.handlers.settings import (
     settings_stats_callback,
     settings_subscription_callback,
 )
+from src.bot.handlers.driver import (
+    driver_fuel_delete_callback,
+    driver_fuel_delete_confirm_callback,
+    driver_fuel_history_callback,
+    driver_fuel_view_callback,
+    driver_list_template_callback,
+    driver_menu_callback,
+    driver_section_callback,
+    driver_service_view_callback,
+    driver_vehicle_delete_callback,
+    driver_vehicle_delete_confirm_callback,
+    driver_vehicle_view_callback,
+)
 from src.bot.handlers.navigation import menu_button_handler
 from src.bot.handlers.navigation import removed_notes_callback, share_bot_callback
 
@@ -132,6 +154,12 @@ def create_application() -> Application:
     
     # Reminders
     application.add_handler(reminder_create_conv)
+
+    # Driver
+    application.add_handler(driver_vehicle_create_conv)
+    application.add_handler(driver_vehicle_mileage_conv)
+    application.add_handler(driver_fuel_create_conv)
+    application.add_handler(driver_service_conv)
 
     # Settings
     application.add_handler(settings_timezone_conv)
@@ -187,6 +215,20 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(settings_menu_callback, pattern="^settings_menu$"))
     application.add_handler(CallbackQueryHandler(settings_stats_callback, pattern="^settings_stats$"))
     application.add_handler(CallbackQueryHandler(settings_subscription_callback, pattern="^settings_subscription$"))
+
+    # Driver callbacks
+    application.add_handler(CallbackQueryHandler(driver_menu_callback, pattern="^driver_menu$"))
+    application.add_handler(CallbackQueryHandler(driver_section_callback, pattern="^driver_section:"))
+    application.add_handler(CallbackQueryHandler(driver_list_template_callback, pattern="^driver_list_template:"))
+    application.add_handler(CallbackQueryHandler(driver_vehicle_view_callback, pattern="^driver_vehicle_view:"))
+    application.add_handler(CallbackQueryHandler(driver_vehicle_delete_confirm_callback, pattern="^driver_vehicle_delete_confirm:"))
+    application.add_handler(CallbackQueryHandler(driver_vehicle_delete_callback, pattern="^driver_vehicle_delete:"))
+    application.add_handler(CallbackQueryHandler(driver_fuel_history_callback, pattern="^driver_fuel_history:"))
+    application.add_handler(CallbackQueryHandler(driver_fuel_view_callback, pattern="^driver_fuel_view:"))
+    application.add_handler(CallbackQueryHandler(driver_fuel_delete_confirm_callback, pattern="^driver_fuel_delete_confirm:"))
+    application.add_handler(CallbackQueryHandler(driver_fuel_delete_callback, pattern="^driver_fuel_delete:"))
+    application.add_handler(CallbackQueryHandler(driver_service_view_callback, pattern="^driver_service_view:"))
+
     application.add_handler(CallbackQueryHandler(share_bot_callback, pattern="^share_bot$"))
     
     # === Message Handler for Main Menu ===

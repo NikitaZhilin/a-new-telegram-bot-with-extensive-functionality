@@ -87,6 +87,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "⏰ *Напоминания*\n"
         "Создавай напоминания на конкретное время. "
         "Поддерживаются повторы: ежедневно, еженедельно, ежемесячно.\n\n"
+        "🚗 *Для водителя*\n"
+        "Автомобильный журнал: пробег, топливо, ТО, жидкости, запчасти, мойка, "
+        "шины, документы и расходы.\n\n"
         "⚙️ *Настройки*\n"
         "Установи часовой пояс для корректного времени напоминаний.\n\n"
         "Используй кнопки меню для навигации."
@@ -119,6 +122,9 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if text == "⏰ Напоминания":
         await show_reminders_menu(update, context)
         return
+    if text == "🚗 Для водителя":
+        await show_driver_menu(update, context)
+        return
     if text == "⚙️ Настройки":
         await show_settings_menu(update, context)
         return
@@ -135,6 +141,8 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_medications_menu(update, context)
     elif text == "⏰ Напоминания":
         await show_reminders_menu(update, context)
+    elif text == "🚗 Для водителя":
+        await show_driver_menu(update, context)
     elif text == "⚙️ Настройки":
         await show_settings_menu(update, context)
     elif text == "❓ Помощь":
@@ -159,6 +167,13 @@ async def show_reminders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Show reminders section menu."""
     from src.bot.handlers.reminders import reminders_list_callback
     await reminders_list_callback(update, context)
+
+
+async def show_driver_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show driver assistant menu."""
+    from src.bot.handlers.driver import driver_menu_callback
+
+    await driver_menu_callback(update, context)
 
 
 async def show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

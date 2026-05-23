@@ -188,11 +188,12 @@ async def run_bot() -> None:
 
         for telegram_id, user_id in startup_recipients.items():
             try:
+                update_message = settings.STARTUP_UPDATE_MESSAGE.strip() or "Можно продолжать пользоваться."
                 await bot_app.bot.send_message(
                     chat_id=telegram_id,
                     text=(
-                        "Бот обновлен и перезапущен.\n\n"
-                        "Можно продолжать пользоваться."
+                        f"Бот обновлен до версии {settings.APP_VERSION} и перезапущен.\n\n"
+                        f"{update_message}"
                     ),
                     reply_markup=get_main_menu_keyboard(),
                 )

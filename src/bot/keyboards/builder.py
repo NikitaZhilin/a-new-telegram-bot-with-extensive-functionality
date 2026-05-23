@@ -44,8 +44,9 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Main menu reply keyboard."""
     keyboard = [
         ["📋 Списки", "💊 Лекарства"],
-        ["⏰ Напоминания", "⚙️ Настройки"],
-        ["👥 Поделиться ботом", "❓ Помощь"],
+        ["⏰ Напоминания", "🚗 Для водителя"],
+        ["⚙️ Настройки", "👥 Поделиться ботом"],
+        ["❓ Помощь"],
     ]
     return ReplyKeyboardMarkup(
         keyboard,
@@ -67,9 +68,286 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
         ],
         [
+            InlineKeyboardButton("🚗 Для водителя", callback_data="driver_menu"),
+        ],
+        [
             InlineKeyboardButton("👥 Поделиться ботом", callback_data="share_bot"),
         ],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+# =============================================================================
+# Inline Keyboards - Driver
+# =============================================================================
+
+def get_driver_menu_keyboard() -> InlineKeyboardMarkup:
+    """Driver hub keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("⚡ Шаблоны", callback_data="driver_section:templates"),
+        ],
+        [
+            InlineKeyboardButton("🚗 Авто", callback_data="driver_section:vehicles"),
+            InlineKeyboardButton("⛽ Топливо", callback_data="driver_section:fuel"),
+        ],
+        [
+            InlineKeyboardButton("🔧 ТО", callback_data="driver_section:maintenance"),
+            InlineKeyboardButton("💧 Жидкости", callback_data="driver_section:fluids"),
+        ],
+        [
+            InlineKeyboardButton("🛒 Запчасти", callback_data="driver_section:parts"),
+            InlineKeyboardButton("🧼 Мойка", callback_data="driver_section:wash"),
+        ],
+        [
+            InlineKeyboardButton("🛞 Шины", callback_data="driver_section:tires"),
+            InlineKeyboardButton("📄 Документы", callback_data="driver_section:docs"),
+        ],
+        [
+            InlineKeyboardButton("💰 Расходы", callback_data="driver_section:costs"),
+            InlineKeyboardButton("📊 Статистика", callback_data="driver_section:stats"),
+        ],
+        [
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_section_keyboard() -> InlineKeyboardMarkup:
+    """Driver section navigation keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ Список", callback_data="list_create"),
+            InlineKeyboardButton("⏰ Напоминание", callback_data="reminder_create"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_templates_keyboard() -> InlineKeyboardMarkup:
+    """Quick driver templates keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🛒 Список запчастей", callback_data="driver_list_template:parts"),
+        ],
+        [
+            InlineKeyboardButton("✅ Проверка перед поездкой", callback_data="driver_list_template:trip_check"),
+        ],
+        [
+            InlineKeyboardButton("💧 Чек-лист жидкостей", callback_data="driver_list_template:fluids_check"),
+        ],
+        [
+            InlineKeyboardButton("🔧 Замена масла", callback_data="driver_reminder_template:oil"),
+            InlineKeyboardButton("💧 Проверить жидкости", callback_data="driver_reminder_template:fluids"),
+        ],
+        [
+            InlineKeyboardButton("🧼 Мойка", callback_data="driver_reminder_template:wash"),
+            InlineKeyboardButton("🛞 Давление", callback_data="driver_reminder_template:tire_pressure"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_vehicles_keyboard(vehicles: List) -> InlineKeyboardMarkup:
+    """Vehicle list keyboard."""
+    keyboard = []
+    for vehicle in vehicles:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"🚗 {truncate(vehicle.title, 32)}",
+                callback_data=f"driver_vehicle_view:{vehicle.id}",
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("➕ Добавить авто", callback_data="driver_vehicle_create"),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_vehicle_view_keyboard(vehicle_id: int) -> InlineKeyboardMarkup:
+    """Vehicle profile keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("📍 Обновить пробег", callback_data=f"driver_vehicle_mileage:{vehicle_id}"),
+        ],
+        [
+            InlineKeyboardButton("⛽ Добавить заправку", callback_data=f"driver_fuel_add:{vehicle_id}"),
+            InlineKeyboardButton("📜 История", callback_data=f"driver_fuel_history:{vehicle_id}:0"),
+        ],
+        [
+            InlineKeyboardButton("🔧 ТО", callback_data=f"driver_service_view:{vehicle_id}"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Изменить", callback_data=f"driver_vehicle_edit:{vehicle_id}"),
+            InlineKeyboardButton("🗑 Удалить", callback_data=f"driver_vehicle_delete:{vehicle_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К авто", callback_data="driver_section:vehicles"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_vehicle_delete_confirm_keyboard(vehicle_id: int) -> InlineKeyboardMarkup:
+    """Confirm vehicle deletion."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🗑 Да, удалить авто", callback_data=f"driver_vehicle_delete_confirm:{vehicle_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К авто", callback_data=f"driver_vehicle_view:{vehicle_id}"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_service_keyboard(vehicle_id: int) -> InlineKeyboardMarkup:
+    """Vehicle service plan keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ ТО выполнено", callback_data=f"driver_service_done:{vehicle_id}"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Интервалы", callback_data=f"driver_vehicle_edit:{vehicle_id}"),
+            InlineKeyboardButton("🚗 К авто", callback_data=f"driver_vehicle_view:{vehicle_id}"),
+        ],
+        [
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_fuel_history_keyboard(
+    vehicle_id: int,
+    entries: List,
+    page: int = 0,
+    has_next: bool = False,
+) -> InlineKeyboardMarkup:
+    """Fuel entry history keyboard."""
+    keyboard = []
+    for entry in entries:
+        full_icon = "⛽" if entry.is_full_tank else "◐"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{full_icon} {entry.mileage_km} км · {entry.liters:.1f} л · {entry.total_cost:.0f} ₽",
+                callback_data=f"driver_fuel_view:{entry.id}",
+            )
+        ])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f"driver_fuel_history:{vehicle_id}:{page - 1}"))
+    if has_next:
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f"driver_fuel_history:{vehicle_id}:{page + 1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([
+        InlineKeyboardButton("➕ Заправка", callback_data=f"driver_fuel_add:{vehicle_id}"),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("🚗 К авто", callback_data=f"driver_vehicle_view:{vehicle_id}"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_fuel_entry_keyboard(entry_id: int, vehicle_id: int) -> InlineKeyboardMarkup:
+    """Fuel entry view keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Изменить", callback_data=f"driver_fuel_edit:{entry_id}"),
+            InlineKeyboardButton("🗑 Удалить", callback_data=f"driver_fuel_delete:{entry_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ История", callback_data=f"driver_fuel_history:{vehicle_id}:0"),
+            InlineKeyboardButton("🚗 К авто", callback_data=f"driver_vehicle_view:{vehicle_id}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_fuel_delete_confirm_keyboard(entry_id: int, vehicle_id: int) -> InlineKeyboardMarkup:
+    """Confirm fuel entry deletion."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🗑 Да, удалить", callback_data=f"driver_fuel_delete_confirm:{entry_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К записи", callback_data=f"driver_fuel_view:{entry_id}"),
+            InlineKeyboardButton("📜 История", callback_data=f"driver_fuel_history:{vehicle_id}:0"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_step_keyboard(
+    can_skip: bool = False,
+    skip_text: str = "Пропустить",
+) -> InlineKeyboardMarkup:
+    """Keyboard for step-by-step driver forms."""
+    keyboard = []
+    if can_skip:
+        keyboard.append([InlineKeyboardButton(skip_text, callback_data="driver_skip")])
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_full_tank_keyboard() -> InlineKeyboardMarkup:
+    """Fuel full-tank choice keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("Полный бак", callback_data="driver_fuel_full:yes"),
+            InlineKeyboardButton("Неполный", callback_data="driver_fuel_full:no"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_fuel_keyboard(vehicles: List) -> InlineKeyboardMarkup:
+    """Fuel journal keyboard."""
+    keyboard = []
+    if len(vehicles) == 1:
+        keyboard.append([
+            InlineKeyboardButton("➕ Заправка", callback_data=f"driver_fuel_add:{vehicles[0].id}"),
+        ])
+    elif len(vehicles) > 1:
+        for vehicle in vehicles:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"➕ {truncate(vehicle.title, 28)}",
+                    callback_data=f"driver_fuel_add:{vehicle.id}",
+                )
+            ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton("➕ Добавить авто", callback_data="driver_vehicle_create"),
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 

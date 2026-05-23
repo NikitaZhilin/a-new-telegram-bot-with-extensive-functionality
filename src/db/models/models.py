@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
+    Float,
     Index,
     Integer,
     String,
@@ -107,6 +108,20 @@ class User(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
         order_by="UserSubscription.created_at.desc()",
+    )
+    driver_vehicles = relationship(
+        "DriverVehicle",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="DriverVehicle.created_at.desc()",
+    )
+    driver_fuel_entries = relationship(
+        "DriverFuelEntry",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="DriverFuelEntry.filled_at_utc.desc()",
     )
 
     def __repr__(self) -> str:
@@ -341,6 +356,107 @@ class ListMember(Base):
 
     def __repr__(self) -> str:
         return f"<ListMember(list_id={self.list_id}, user_id={self.user_id}, role='{self.role}')>"
+
+
+class DriverVehicle(Base):
+    """Vehicle profile for the driver assistant."""
+
+    __tablename__ = "driver_vehicles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    make: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    current_mileage_km: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    service_interval_km: Mapped[int] = mapped_column(Integer, nullable=False, default=10000, server_default="10000")
+    service_interval_months: Mapped[int] = mapped_column(Integer, nullable=False, default=12, server_default="12")
+    last_service_mileage_km: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_service_at_utc: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="driver_vehicles")
+    fuel_entries = relationship(
+        "DriverFuelEntry",
+        back_populates="vehicle",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="DriverFuelEntry.filled_at_utc.desc()",
+    )
+
+    __table_args__ = (
+        Index("ix_driver_vehicles_user_created", "user_id", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DriverVehicle(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
+
+
+class DriverFuelEntry(Base):
+    """Fuel log entry for a vehicle."""
+
+    __tablename__ = "driver_fuel_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vehicle_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("driver_vehicles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    mileage_km: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    liters: Mapped[float] = mapped_column(Float, nullable=False)
+    total_cost: Mapped[float] = mapped_column(Float, nullable=False)
+    price_per_liter: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_full_tank: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False, index=True)
+    station: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    consumption_l_per_100: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cost_per_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    filled_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="driver_fuel_entries")
+    vehicle = relationship("DriverVehicle", back_populates="fuel_entries")
+
+    __table_args__ = (
+        Index("ix_driver_fuel_vehicle_mileage", "vehicle_id", "mileage_km"),
+        Index("ix_driver_fuel_user_filled", "user_id", "filled_at_utc"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DriverFuelEntry(id={self.id}, vehicle_id={self.vehicle_id}, mileage={self.mileage_km})>"
 
 
 class Reminder(Base):
