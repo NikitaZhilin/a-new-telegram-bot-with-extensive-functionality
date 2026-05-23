@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from src.db.models import MedicationIntakeStatus, Reminder, ReminderStatus, RepeatRule, User
-from src.bot.handlers.medications import _normalize_hhmm, _parse_local_time_list
+from src.bot.handlers.medications import _extract_time_tokens, _normalize_hhmm, _parse_local_time_list
 from src.services.medication_service import MedicationService
 
 
@@ -163,15 +163,23 @@ async def test_medication_importance_defaults_and_validation(db_session):
 
 
 def test_medication_frequency_time_parser():
-    """Medication frequency flow should require exact user-provided times."""
+    """Medication frequency flow should accept human-friendly time lists."""
     assert _normalize_hhmm("9") == "0900"
     assert _normalize_hhmm("09:30") == "0930"
     assert _normalize_hhmm("930") == "0930"
+    assert _normalize_hhmm("9-30") == "0930"
 
     parsed = _parse_local_time_list("09:00, 21:30", 2, "Europe/Moscow")
+    no_comma = _parse_local_time_list("9 21", 2, "Europe/Moscow")
+    with_words = _parse_local_time_list("утром и вечером", 2, "Europe/Moscow")
+    triple = _parse_local_time_list("утром днем вечером", 3, "Europe/Moscow")
 
     assert len(parsed) == 2
+    assert len(no_comma) == 2
+    assert len(with_words) == 2
+    assert len(triple) == 3
     assert all(item.tzinfo is not None for item in parsed)
+    assert _extract_time_tokens("утром и вечером") == ["09:00", "21:00"]
 
     with pytest.raises(ValueError):
         _parse_local_time_list("09:00", 2, "Europe/Moscow")

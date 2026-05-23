@@ -93,11 +93,75 @@ async def _delete_user_message(update: Update) -> None:
 
 async def _send_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup) -> None:
     """Send a message without replying to a user input that may be deleted."""
-    await context.bot.send_message(
+    message = await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=text,
         reply_markup=reply_markup,
     )
+    _remember_wizard_message(context, message.chat_id, message.message_id)
+
+
+def _remember_wizard_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    message_id: int,
+) -> None:
+    """Remember the current medication wizard message for later edits."""
+    context.user_data["med_wizard_chat_id"] = chat_id
+    context.user_data["med_wizard_message_id"] = message_id
+
+
+async def _show_wizard_step(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    reply_markup,
+) -> None:
+    """Edit the current wizard message when possible, otherwise send a new one."""
+    query = update.callback_query
+    if query and query.message:
+        await query.edit_message_text(text, reply_markup=reply_markup)
+        _remember_wizard_message(context, query.message.chat_id, query.message.message_id)
+        return
+
+    chat_id = context.user_data.get("med_wizard_chat_id")
+    message_id = context.user_data.get("med_wizard_message_id")
+    if chat_id and message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            return
+        except Exception:
+            logger.debug("Could not edit medication wizard message", exc_info=True)
+
+    await _send_chat_message(update, context, text, reply_markup)
+
+
+def _wizard_summary(next_step: str, context: ContextTypes.DEFAULT_TYPE) -> str:
+    """Build a compact medication creation progress message."""
+    lines = ["💊 Новое лекарство"]
+
+    name = context.user_data.get("med_name")
+    dosage = context.user_data.get("med_dosage")
+    instructions = context.user_data.get("med_instructions")
+    importance = context.user_data.get("med_importance")
+
+    if name:
+        lines.append(f"Название: {name}")
+    if "med_dosage" in context.user_data:
+        lines.append(f"Дозировка: {dosage or 'пропущена'}")
+    if "med_instructions" in context.user_data:
+        lines.append(f"Инструкция: {instructions or 'пропущена'}")
+    if importance:
+        lines.append(f"Важность: {IMPORTANCE_LABELS.get(importance, IMPORTANCE_LABELS['normal'])}")
+
+    lines.append("")
+    lines.append(next_step)
+    return "\n".join(lines)
 
 
 async def _render_medications_page(user_id: int, page: int = 0) -> tuple[str, object]:
@@ -256,8 +320,10 @@ async def medication_create_start(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
-    await query.edit_message_text(
-        "💊 Новое лекарство\n\nВведите название препарата:",
+    await _show_wizard_step(
+        update,
+        context,
+        _wizard_summary("Шаг 1/5. Введите название препарата:", context),
         reply_markup=get_cancel_inline_keyboard(),
     )
     return MedicationStates.WAIT_NAME
@@ -268,11 +334,14 @@ async def medication_save_name(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["med_name"] = update.message.text.strip()
     await _delete_user_message(update)
 
-    await _send_chat_message(
+    await _show_wizard_step(
         update,
         context,
-        "Укажите дозировку или краткий комментарий.\n\n"
-        "Можно выбрать кнопку или написать свой вариант.",
+        _wizard_summary(
+            "Шаг 2/5. Укажите дозировку или краткий комментарий.\n\n"
+            "Можно выбрать кнопку или написать свой вариант.",
+            context,
+        ),
         reply_markup=get_medication_dosage_keyboard(),
     )
     return MedicationStates.WAIT_DOSAGE
@@ -280,11 +349,14 @@ async def medication_save_name(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def _ask_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for medication instructions."""
-    await _send_chat_message(
+    await _show_wizard_step(
         update,
         context,
-        "Добавьте важную инструкцию: до еды, после еды, запить водой, курс и т.п.\n\n"
-        "Можно выбрать кнопку или написать свой вариант.",
+        _wizard_summary(
+            "Шаг 3/5. Добавьте важную инструкцию: до еды, после еды, запить водой, курс и т.п.\n\n"
+            "Можно выбрать кнопку или написать свой вариант.",
+            context,
+        ),
         reply_markup=get_medication_instructions_keyboard(),
     )
     return MedicationStates.WAIT_INSTRUCTIONS
@@ -292,11 +364,14 @@ async def _ask_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def _ask_importance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for medication importance."""
-    await _send_chat_message(
+    await _show_wizard_step(
         update,
         context,
-        "Насколько это важно?\n\n"
-        "Это поможет визуально отделить БАДы от действительно важных лекарств.",
+        _wizard_summary(
+            "Шаг 4/5. Насколько это важно?\n\n"
+            "Это поможет визуально отделить БАДы от действительно важных лекарств.",
+            context,
+        ),
         reply_markup=get_medication_importance_keyboard(),
     )
     return MedicationStates.WAIT_IMPORTANCE
@@ -319,7 +394,6 @@ async def medication_dosage_preset_callback(update: Update, context: ContextType
     key = query.data.split(":", 1)[1]
     context.user_data["med_dosage"] = "" if key == "skip" else DOSAGE_PRESETS.get(key, "")
 
-    await query.edit_message_text("Дозировка сохранена." if key != "skip" else "Дозировка пропущена.")
     return await _ask_instructions(update, context)
 
 
@@ -340,7 +414,6 @@ async def medication_instructions_preset_callback(update: Update, context: Conte
     key = query.data.split(":", 1)[1]
     context.user_data["med_instructions"] = "" if key == "skip" else INSTRUCTION_PRESETS.get(key, "")
 
-    await query.edit_message_text("Инструкция сохранена." if key != "skip" else "Инструкция пропущена.")
     return await _ask_importance(update, context)
 
 
@@ -367,10 +440,15 @@ async def medication_importance_callback(update: Update, context: ContextTypes.D
         await session.commit()
         medication_id = medication.id
 
-    await query.edit_message_text(
-        "✅ Лекарство добавлено.\n\n"
-        "Теперь выберите, когда напоминать о приеме. "
-        "Если напоминание пока не нужно, нажмите «Пропустить».",
+    await _show_wizard_step(
+        update,
+        context,
+        _wizard_summary(
+            "Шаг 5/5. Лекарство добавлено.\n\n"
+            "Выберите, когда напоминать о приеме. "
+            "Если напоминание пока не нужно, нажмите «Пропустить».",
+            context,
+        ),
         reply_markup=get_medication_reminder_keyboard(medication_id),
     )
     context.user_data.clear()
@@ -517,7 +595,7 @@ def _normalize_hhmm(value: str) -> str:
         hour = int(padded[:2])
         minute = int(padded[2:])
     else:
-        match = re.fullmatch(r"(\d{1,2})[:.](\d{2})", value)
+        match = re.fullmatch(r"(\d{1,2})[:.\-](\d{2})", value)
         if not match:
             raise ValueError("invalid time")
         hour = int(match.group(1))
@@ -529,9 +607,37 @@ def _normalize_hhmm(value: str) -> str:
     return f"{hour:02d}{minute:02d}"
 
 
+TIME_WORD_PRESETS = {
+    "утро": "09:00",
+    "утром": "09:00",
+    "завтрак": "09:00",
+    "завтраком": "09:00",
+    "день": "14:00",
+    "днем": "14:00",
+    "днём": "14:00",
+    "обед": "14:00",
+    "обедом": "14:00",
+    "вечер": "21:00",
+    "вечером": "21:00",
+    "ужин": "21:00",
+    "ужином": "21:00",
+    "ночь": "23:00",
+    "ночью": "23:00",
+}
+
+
+def _extract_time_tokens(value: str) -> list[str]:
+    """Extract flexible local time tokens from user text."""
+    normalized = value.lower().replace("ё", "е")
+    for word, replacement in TIME_WORD_PRESETS.items():
+        normalized = re.sub(rf"\b{word.replace('ё', 'е')}\b", replacement, normalized)
+
+    return re.findall(r"\b\d{1,2}[:.\-]\d{2}\b|\b\d{3,4}\b|\b\d{1,2}\b", normalized)
+
+
 def _parse_local_time_list(value: str, expected_count: int, user_timezone: str) -> list[datetime]:
     """Parse several local HH:MM values into UTC datetimes."""
-    tokens = [token for token in re.split(r"[\s,;]+", value.strip()) if token]
+    tokens = _extract_time_tokens(value)
     if len(tokens) != expected_count:
         raise ValueError("wrong time count")
 
@@ -628,10 +734,12 @@ async def medication_reminder_frequency_callback(update: Update, context: Contex
         3: "08:00, 14:00, 22:00",
     }
     await query.edit_message_text(
-        f"Введите {count} {'время' if count == 1 else 'времени'} приема через запятую.\n\n"
+        f"Введите {count} {'время' if count == 1 else 'времени'} приема.\n\n"
+        "Можно без запятых: 9 21, 09:00 21:00, утром вечером.\n"
         f"Пример: {examples[count]}",
         reply_markup=get_cancel_inline_keyboard(),
     )
+    _remember_wizard_message(context, query.message.chat_id, query.message.message_id)
     return MedicationStates.WAIT_REMINDER_TIME
 
 
@@ -671,6 +779,7 @@ async def medication_reminder_custom_start(update: Update, context: ContextTypes
         "10\n10:30\nзавтра 10\nчерез 8 часов",
         reply_markup=get_cancel_inline_keyboard(),
     )
+    _remember_wizard_message(context, query.message.chat_id, query.message.message_id)
     return MedicationStates.WAIT_REMINDER_TIME
 
 
@@ -688,18 +797,19 @@ async def medication_reminder_custom_save(update: Update, context: ContextTypes.
             )
         except ValueError:
             await _delete_user_message(update)
-            await _send_chat_message(
+            await _show_wizard_step(
                 update,
                 context,
                 f"❌ Не понял время. Введите ровно {reminder_count} "
-                "значения через запятую, например: 09:00, 21:00",
+                "значения любым удобным способом.\n\n"
+                "Примеры: 9 21, 09:00 21:00, утром вечером.",
                 get_cancel_inline_keyboard(),
             )
             return MedicationStates.WAIT_REMINDER_TIME
 
         await _delete_user_message(update)
         ok, text = await _create_medication_reminders(update, medication_id, remind_at_utcs)
-        await _send_chat_message(
+        await _show_wizard_step(
             update,
             context,
             text,
@@ -712,7 +822,7 @@ async def medication_reminder_custom_save(update: Update, context: ContextTypes.
         remind_at_utc = _parse_flexible_datetime(update.message.text.strip(), context)
     except ValueError:
         await _delete_user_message(update)
-        await _send_chat_message(
+        await _show_wizard_step(
             update,
             context,
             "❌ Не понял время. Попробуйте так: 10, 10:30, завтра 10, через 8 часов",
@@ -723,7 +833,7 @@ async def medication_reminder_custom_save(update: Update, context: ContextTypes.
     await _delete_user_message(update)
 
     ok, text = await _create_medication_reminder(update, medication_id, remind_at_utc)
-    await _send_chat_message(
+    await _show_wizard_step(
         update,
         context,
         text,
