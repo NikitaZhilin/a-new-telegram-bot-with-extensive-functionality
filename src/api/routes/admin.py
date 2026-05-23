@@ -46,15 +46,6 @@ class UsersListResponse(BaseModel):
     page_size: int
 
 
-class StatsResponse(BaseModel):
-    """System statistics."""
-    users: StatsCount
-    notes: StatsCount
-    lists: StatsCount
-    reminders: StatsReminders
-    generated_at: str
-
-
 class StatsCount(BaseModel):
     """Simple count statistic."""
     total: int
@@ -70,6 +61,15 @@ class StatsReminders(BaseModel):
     canceled: int
     missed: int
     due_soon: int  # Due in next hour
+
+
+class StatsResponse(BaseModel):
+    """System statistics."""
+    users: StatsCount
+    notes: StatsCount
+    lists: StatsCount
+    reminders: StatsReminders
+    generated_at: str
 
 
 class UserRecordsResponse(BaseModel):
