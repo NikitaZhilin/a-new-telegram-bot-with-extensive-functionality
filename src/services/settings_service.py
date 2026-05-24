@@ -61,41 +61,87 @@ class SettingsService:
         """
         Get user statistics.
         
-        Returns dict with counts of notes, lists, reminders.
+        Returns dict with counts of notes, lists, reminders, medications.
         """
         from sqlalchemy import func
-        from src.db.models import Note, TodoList, Reminder, ReminderStatus
-        
-        # Notes count
-        notes_query = select(func.count(Note.id)).where(Note.user_id == user_id)
-        notes_result = await self.db.execute(notes_query)
-        notes_count = notes_result.scalar() or 0
-        
-        # Lists count
-        lists_query = select(func.count(TodoList.id)).where(TodoList.user_id == user_id)
-        lists_result = await self.db.execute(lists_query)
-        lists_count = lists_result.scalar() or 0
-        
-        # Reminders count by status
-        active_query = select(func.count(Reminder.id)).where(
-            Reminder.user_id == user_id,
-            Reminder.status == ReminderStatus.ACTIVE,
+        from src.db.models import (
+            ListMember,
+            Medication,
+            Note,
+            Reminder,
+            ReminderStatus,
+            TodoList,
         )
-        active_result = await self.db.execute(active_query)
-        active_count = active_result.scalar() or 0
-        
-        done_query = select(func.count(Reminder.id)).where(
-            Reminder.user_id == user_id,
-            Reminder.status == ReminderStatus.DONE,
+
+        async def count(query) -> int:
+            result = await self.db.execute(query)
+            return result.scalar() or 0
+
+        notes_active = await count(
+            select(func.count(Note.id)).where(Note.user_id == user_id, Note.is_archived.is_(False))
         )
-        done_result = await self.db.execute(done_query)
-        done_count = done_result.scalar() or 0
+        notes_archived = await count(
+            select(func.count(Note.id)).where(Note.user_id == user_id, Note.is_archived.is_(True))
+        )
+
+        owned_lists = await count(select(func.count(TodoList.id)).where(TodoList.user_id == user_id))
+        shared_lists = await count(select(func.count(ListMember.id)).where(ListMember.user_id == user_id))
+
+        reminders_active = await count(
+            select(func.count(Reminder.id)).where(
+                Reminder.user_id == user_id,
+                Reminder.status == ReminderStatus.ACTIVE,
+            )
+        )
+        reminders_done = await count(
+            select(func.count(Reminder.id)).where(
+                Reminder.user_id == user_id,
+                Reminder.status == ReminderStatus.DONE,
+            )
+        )
+        reminders_canceled = await count(
+            select(func.count(Reminder.id)).where(
+                Reminder.user_id == user_id,
+                Reminder.status == ReminderStatus.CANCELED,
+            )
+        )
+        reminders_missed = await count(
+            select(func.count(Reminder.id)).where(
+                Reminder.user_id == user_id,
+                Reminder.status == ReminderStatus.MISSED,
+            )
+        )
+
+        medications_active = await count(
+            select(func.count(Medication.id)).where(
+                Medication.user_id == user_id,
+                Medication.is_active.is_(True),
+            )
+        )
+        medications_archived = await count(
+            select(func.count(Medication.id)).where(
+                Medication.user_id == user_id,
+                Medication.is_active.is_(False),
+            )
+        )
         
         return {
-            "notes": notes_count,
-            "lists": lists_count,
+            "notes": {
+                "active": notes_active,
+                "archived": notes_archived,
+            },
+            "lists": {
+                "owned": owned_lists,
+                "shared": shared_lists,
+            },
             "reminders": {
-                "active": active_count,
-                "done": done_count,
+                "active": reminders_active,
+                "done": reminders_done,
+                "canceled": reminders_canceled,
+                "missed": reminders_missed,
+            },
+            "medications": {
+                "active": medications_active,
+                "archived": medications_archived,
             },
         }

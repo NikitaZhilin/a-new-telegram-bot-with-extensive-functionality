@@ -35,7 +35,7 @@ class UserResponse(BaseModel):
     timezone: str
     is_admin: bool
     onboarding_source: Optional[str]
-    created_at: str
+    created_at: datetime
 
 
 class UsersListResponse(BaseModel):

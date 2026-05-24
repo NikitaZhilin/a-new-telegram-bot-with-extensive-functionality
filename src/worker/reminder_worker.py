@@ -441,6 +441,7 @@ class ReminderWorkerService:
             next_time = calculate_next_occurrence(
                 reminder.remind_at_utc,
                 reminder.repeat_rule,
+                self._get_user_timezone(reminder),
             )
             
             await repo.create_next_occurrence(reminder, next_time)

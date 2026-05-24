@@ -233,6 +233,44 @@ async def test_worker_skips_daily_medication_reminder_when_slot_already_marked()
 
 
 @pytest.mark.asyncio
+async def test_worker_recurring_reminder_uses_user_timezone_for_next_occurrence():
+    """Worker should schedule the next repeat using the reminder owner's timezone."""
+    now = datetime(2026, 3, 7, 14, 0, tzinfo=timezone.utc)  # 09:00 New York
+    session = FakeSession()
+    bot = FakeBot()
+    reminder = SimpleNamespace(
+        id=48,
+        user_id=7,
+        title="DST check",
+        text="Keep local time",
+        remind_at_utc=now,
+        repeat_rule=RepeatRule.DAILY,
+        list_id=None,
+        medication_id=None,
+        medication=None,
+        todo_list=None,
+        user=SimpleNamespace(telegram_id=123456, timezone="America/New_York"),
+    )
+    repo = FakeReminderRepository(session, [reminder])
+
+    worker = ReminderWorkerService(
+        bot=bot,
+        batch_size=10,
+        poll_interval=1,
+        session_factory=lambda: session,
+        repository_factory=lambda db_session: repo,
+        clock=lambda: now,
+    )
+
+    result = await worker.process_cycle()
+
+    assert result == WorkerCycleResult(total=1, processed=1, failed=0)
+    assert repo.next_occurrences == [
+        (48, datetime(2026, 3, 8, 13, 0, tzinfo=timezone.utc))
+    ]
+
+
+@pytest.mark.asyncio
 async def test_worker_retries_transient_telegram_errors_without_marking_notified():
     now = datetime(2026, 5, 22, 12, 0, tzinfo=timezone.utc)
     session = FakeSession()

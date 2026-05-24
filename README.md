@@ -134,13 +134,29 @@ STARTUP_UPDATE_MESSAGE=Добавлен автомобильный журнал:
 
 ### Запуск
 
-Локальный сценарий:
+Рекомендуемый локальный сценарий:
+
+```powershell
+.\start-local.ps1
+```
+
+Docker Compose поднимает PostgreSQL, одноразовый `init-db`, API, bot и worker:
+
+```powershell
+docker-compose up -d
+```
+
+Ручной сценарий:
 
 ```powershell
 docker-compose up -d postgres
 python -B -m src.main init-db
 python -B -m src.main bot
 ```
+
+`init-db` запускает Alembic migrations до `head`. Для старых локальных баз,
+которые были созданы прежним `create_all`, команда безопасно доводит схему и
+ставит Alembic stamp, чтобы следующие запуски шли обычным миграционным путём.
 
 Отдельные режимы:
 
@@ -175,7 +191,9 @@ python -B -m pytest -p no:cacheprovider tests
 - не публикуйте Admin API без HTTPS, firewall и строгого CORS;
 - используйте SSH-ключи для серверного доступа;
 - делайте backup базы перед рискованными миграциями;
-- запускайте worker в одном экземпляре, чтобы не дублировать уведомления.
+- запускайте polling bot только в одном экземпляре на один Telegram token;
+- запускайте worker в одном экземпляре, чтобы не дублировать уведомления;
+- для production держите `API_BIND_HOST=127.0.0.1`, `API_DOCS_ENABLED=false`, `CORS_ORIGINS=`.
 
 ### Развитие
 
@@ -319,13 +337,30 @@ STARTUP_UPDATE_MESSAGE=Driver journal added: vehicles, service plan, fuel histor
 
 ### Running
 
-Local flow:
+Recommended local flow:
+
+```powershell
+.\start-local.ps1
+```
+
+Docker Compose starts PostgreSQL, one-shot `init-db`, API, bot, and worker:
+
+```powershell
+docker-compose up -d
+```
+
+Manual flow:
 
 ```powershell
 docker-compose up -d postgres
 python -B -m src.main init-db
 python -B -m src.main bot
 ```
+
+`init-db` runs Alembic migrations up to `head`. For older local databases
+created by the previous `create_all` bootstrap, it safely normalizes the schema
+and stamps the current Alembic revision so future starts use the regular
+migration path.
 
 Individual modes:
 
@@ -360,7 +395,9 @@ python -B -m pytest -p no:cacheprovider tests
 - do not expose the Admin API without HTTPS, firewall, and strict CORS;
 - use SSH keys for server access;
 - back up the database before risky migrations;
-- run only one worker instance to avoid duplicate notifications.
+- run only one polling bot instance per Telegram token;
+- run only one worker instance to avoid duplicate notifications;
+- for production keep `API_BIND_HOST=127.0.0.1`, `API_DOCS_ENABLED=false`, `CORS_ORIGINS=`.
 
 ### Roadmap
 

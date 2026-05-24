@@ -14,8 +14,11 @@ Usage:
 import asyncio
 import sys
 import logging
+from pathlib import Path
 from contextlib import suppress
 import structlog
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import text
 
 from src.config import settings
@@ -49,8 +52,45 @@ def setup_logging(level: str = "INFO") -> None:
     logging.getLogger("telegram.request").setLevel(logging.WARNING)
 
 
-async def init_db() -> None:
-    """Initialize database tables (for development only)."""
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _make_alembic_config() -> Config:
+    """Build an Alembic config that uses the active application DATABASE_URL."""
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+    return config
+
+
+async def _database_has_table(table_name: str) -> bool:
+    """Return whether a table exists in the current PostgreSQL database."""
+    query = text(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_name = :table_name
+        )
+        """
+    )
+    async with engine.begin() as conn:
+        result = await conn.execute(query, {"table_name": table_name})
+        return bool(result.scalar())
+
+
+async def _run_alembic_upgrade_head() -> None:
+    """Run Alembic upgrade head without nesting event loops."""
+    await asyncio.to_thread(command.upgrade, _make_alembic_config(), "head")
+
+
+async def _run_alembic_stamp_head() -> None:
+    """Stamp an already-compatible legacy database as migrated."""
+    await asyncio.to_thread(command.stamp, _make_alembic_config(), "head")
+
+
+async def _ensure_legacy_unversioned_schema() -> None:
+    """Bring old create_all-based databases to the current schema before stamping."""
     # Import models before create_all so SQLAlchemy registers every table.
     import src.db.models  # noqa: F401
 
@@ -67,6 +107,19 @@ async def init_db() -> None:
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_source VARCHAR(100)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_is_admin ON users (is_admin)"))
+
+
+async def init_db() -> None:
+    """Initialize or migrate the database schema to the latest Alembic revision."""
+    has_alembic_version = await _database_has_table("alembic_version")
+    has_existing_app_schema = await _database_has_table("users")
+
+    if has_alembic_version or not has_existing_app_schema:
+        await _run_alembic_upgrade_head()
+        return
+
+    await _ensure_legacy_unversioned_schema()
+    await _run_alembic_stamp_head()
 
 
 async def check_db_connection() -> None:

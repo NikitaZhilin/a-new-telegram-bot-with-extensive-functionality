@@ -1,8 +1,10 @@
 """Reminder repository with atomic operations for worker."""
 
+import calendar
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Sequence
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -213,7 +215,8 @@ class ReminderRepository(BaseRepository[Reminder]):
 
 def calculate_next_occurrence(
     remind_at: datetime,
-    repeat_rule: RepeatRule
+    repeat_rule: RepeatRule,
+    timezone_name: str = "UTC",
 ) -> datetime:
     """
     Calculate next occurrence time for a recurring reminder.
@@ -221,25 +224,43 @@ def calculate_next_occurrence(
     Args:
         remind_at: Current reminder time (UTC)
         repeat_rule: Repeat rule
+        timezone_name: User timezone for preserving local wall-clock time
         
     Returns:
         Next occurrence time (UTC)
     """
+    if remind_at.tzinfo is None:
+        remind_at = remind_at.replace(tzinfo=timezone.utc)
+
+    try:
+        user_tz = ZoneInfo(timezone_name or "UTC")
+    except ZoneInfoNotFoundError:
+        user_tz = ZoneInfo("UTC")
+
+    local_time = remind_at.astimezone(user_tz)
+
     if repeat_rule == RepeatRule.DAILY:
-        return remind_at + timedelta(days=1)
+        next_local = local_time + timedelta(days=1)
     elif repeat_rule == RepeatRule.WEEKLY:
-        return remind_at + timedelta(weeks=1)
+        next_local = local_time + timedelta(weeks=1)
     elif repeat_rule == RepeatRule.MONTHLY:
-        # Add 1 month, handling year overflow
-        year = remind_at.year + (remind_at.month // 12)
-        month = (remind_at.month % 12) + 1
-        day = min(remind_at.day, 28)  # Safe day for all months
-        
-        # Handle months with different days
-        while True:
-            try:
-                return remind_at.replace(year=year, month=month, day=day)
-            except ValueError:
-                day -= 1
+        next_local = _add_one_month_preserving_wall_time(local_time)
     else:
         raise ValueError(f"Invalid repeat rule: {repeat_rule}")
+
+    return next_local.astimezone(timezone.utc)
+
+
+def _add_one_month_preserving_wall_time(value: datetime) -> datetime:
+    """Add one calendar month and keep local time as stable as possible."""
+    year = value.year + (value.month // 12)
+    month = (value.month % 12) + 1
+    current_last_day = calendar.monthrange(value.year, value.month)[1]
+    target_last_day = calendar.monthrange(year, month)[1]
+
+    if value.day == current_last_day:
+        day = target_last_day
+    else:
+        day = min(value.day, target_last_day)
+
+    return value.replace(year=year, month=month, day=day)

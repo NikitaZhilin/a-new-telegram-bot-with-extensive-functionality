@@ -171,10 +171,17 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
     
     text = (
         "📊 Статистика\n\n"
-        f"📋 Списков: {stats['lists']}\n"
+        f"📋 Списки: {stats['lists']['owned']}\n"
+        f"👥 Общие списки: {stats['lists']['shared']}\n"
+        f"💊 Лекарства: {stats['medications']['active']} активных, "
+        f"{stats['medications']['archived']} в архиве\n"
         f"⏰ Напоминаний:\n"
         f"  • Активных: {stats['reminders']['active']}\n"
         f"  • Выполненных: {stats['reminders']['done']}\n"
+        f"  • Отменённых: {stats['reminders']['canceled']}\n"
+        f"  • Пропущенных: {stats['reminders']['missed']}\n"
+        f"📝 Заметки (скрытый модуль): {stats['notes']['active']} активных, "
+        f"{stats['notes']['archived']} в архиве\n"
     )
     
     await query.edit_message_text(

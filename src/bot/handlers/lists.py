@@ -437,6 +437,13 @@ async def list_share_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = await _get_app_user_id(update, session)
         list_service = ListService(session)
         text = await list_service.format_list_as_text(list_id, user_id)
+        can_manage = await list_service.can_manage(list_id, user_id)
+        if text and not can_manage:
+            await query.edit_message_text(
+                "❌ Поделиться списком может только владелец.",
+                reply_markup=get_list_share_keyboard(list_id),
+            )
+            return ConversationHandler.END
         share = await list_service.create_share_token(list_id, user_id)
         editor_share = await list_service.create_collaboration_token(list_id, user_id, role="editor")
         viewer_share = await list_service.create_collaboration_token(list_id, user_id, role="viewer")

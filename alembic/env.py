@@ -29,6 +29,7 @@ from src.config import settings
 
 # Alembic Config object
 config = context.config
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:

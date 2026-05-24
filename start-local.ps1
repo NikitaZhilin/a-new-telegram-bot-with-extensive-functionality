@@ -78,11 +78,16 @@ function Assert-RequiredEnv {
 function Wait-Postgres {
     param([int]$TimeoutSeconds = 60)
 
+    $containerId = (& docker-compose ps -q postgres) 2>$null
+    if ([string]::IsNullOrWhiteSpace($containerId)) {
+        throw "PostgreSQL container was not created by docker-compose."
+    }
+
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         $status = ""
         try {
-            $status = (& docker inspect --format "{{.State.Health.Status}}" rememberme-postgres) 2>$null
+            $status = (& docker inspect --format "{{.State.Health.Status}}" $containerId.Trim()) 2>$null
         }
         catch {
             $status = ""
@@ -113,7 +118,16 @@ if (-not $SkipDocker) {
     }
 
     docker-compose config --quiet
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker-compose config failed. Check docker-compose.yml and .env syntax."
+    }
+
     docker-compose up -d postgres
+    if ($LASTEXITCODE -ne 0) {
+        $portHint = [Environment]::GetEnvironmentVariable("POSTGRES_PORT", "Process")
+        throw "docker-compose could not start PostgreSQL. Check whether local port $portHint is already in use, or change POSTGRES_PORT and DATABASE_URL in .env."
+    }
+
     Wait-Postgres -TimeoutSeconds 90
 }
 else {

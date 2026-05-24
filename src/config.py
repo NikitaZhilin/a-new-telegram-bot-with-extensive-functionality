@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     )
     API_HOST: str = Field(default="0.0.0.0", description="API host")
     API_PORT: int = Field(default=8000, description="API port")
-    API_DOCS_ENABLED: bool = Field(default=True, description="Expose FastAPI docs and OpenAPI schema")
+    API_DOCS_ENABLED: bool = Field(default=False, description="Expose FastAPI docs and OpenAPI schema")
     CORS_ORIGINS: str = Field(
-        default="*",
+        default="",
         description="Comma-separated allowed CORS origins, or * for local development"
     )
     
@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         """Parse comma-separated CORS origins."""
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
-        return origins or ["*"]
+        return origins
 
 
 # Global settings instance

@@ -348,8 +348,7 @@ class ListService:
         max_uses: int = 20,
     ) -> Optional[ListShareToken]:
         """Create a token that lets another user copy this list."""
-        list_obj = await self.get_list(list_id, user_id)
-        if not list_obj:
+        if not await self.can_manage(list_id, user_id):
             return None
 
         token = secrets.token_urlsafe(12)

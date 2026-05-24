@@ -5,7 +5,15 @@ from datetime import datetime, timezone
 import pytest
 
 from src.bot.keyboards.builder import get_list_view_keyboard
-from src.db.models import RepeatRule, User
+from src.db.models import (
+    ListMember,
+    Medication,
+    Note,
+    Reminder,
+    ReminderStatus,
+    RepeatRule,
+    User,
+)
 from src.services.list_service import ListService
 from src.services.reminder_service import ReminderService
 
@@ -205,6 +213,34 @@ async def test_shared_list_roles_control_access(db_session):
 
 
 @pytest.mark.asyncio
+async def test_shared_list_copy_token_is_owner_only(db_session):
+    """Viewers and editors must not create tokens that re-export someone else's list."""
+    owner = User(telegram_id=8051, timezone="UTC")
+    editor = User(telegram_id=8052, timezone="UTC")
+    viewer = User(telegram_id=8053, timezone="UTC")
+    db_session.add_all([owner, editor, viewer])
+    await db_session.flush()
+
+    service = ListService(db_session)
+    shared = await service.create_list(owner.id, "Private shared list")
+    db_session.add_all(
+        [
+            ListMember(list_id=shared.id, user_id=editor.id, role="editor"),
+            ListMember(list_id=shared.id, user_id=viewer.id, role="viewer"),
+        ]
+    )
+    await db_session.flush()
+
+    owner_token = await service.create_share_token(shared.id, owner.id)
+    editor_token = await service.create_share_token(shared.id, editor.id)
+    viewer_token = await service.create_share_token(shared.id, viewer.id)
+
+    assert owner_token is not None
+    assert editor_token is None
+    assert viewer_token is None
+
+
+@pytest.mark.asyncio
 async def test_shared_list_owner_can_manage_members(db_session):
     """Owners should see members, change roles, and revoke access."""
     owner = User(telegram_id=8101, username="owner", timezone="UTC")
@@ -234,3 +270,49 @@ async def test_shared_list_owner_can_manage_members(db_session):
     assert await service.remove_member(shared.id, outsider.id, member_id) is False
     assert await service.remove_member(shared.id, owner.id, member_id) is True
     assert await service.get_access_role(shared.id, member_user.id) is None
+
+
+@pytest.mark.asyncio
+async def test_settings_stats_cover_visible_and_hidden_domains(db_session):
+    """User statistics should include medications, shared lists and hidden notes."""
+    from src.services.settings_service import SettingsService
+
+    owner = User(telegram_id=8201, timezone="UTC")
+    member = User(telegram_id=8202, timezone="UTC")
+    db_session.add_all([owner, member])
+    await db_session.flush()
+
+    list_service = ListService(db_session)
+    owned = await list_service.create_list(owner.id, "Owned")
+    shared = await list_service.create_list(member.id, "Shared")
+    db_session.add(ListMember(list_id=shared.id, user_id=owner.id, role="viewer"))
+    db_session.add_all(
+        [
+            Note(user_id=owner.id, title="Visible note", is_archived=False),
+            Note(user_id=owner.id, title="Archived note", is_archived=True),
+            Medication(user_id=owner.id, name="Active med", is_active=True),
+            Medication(user_id=owner.id, name="Archived med", is_active=False),
+            Reminder(
+                user_id=owner.id,
+                text="Active reminder",
+                remind_at_utc=datetime(2026, 5, 24, 8, 0, tzinfo=timezone.utc),
+                status=ReminderStatus.ACTIVE,
+            ),
+            Reminder(
+                user_id=owner.id,
+                text="Done reminder",
+                remind_at_utc=datetime(2026, 5, 24, 9, 0, tzinfo=timezone.utc),
+                status=ReminderStatus.DONE,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    stats = await SettingsService(db_session).get_stats(owner.id)
+
+    assert owned.id is not None
+    assert stats["lists"] == {"owned": 1, "shared": 1}
+    assert stats["notes"] == {"active": 1, "archived": 1}
+    assert stats["medications"] == {"active": 1, "archived": 1}
+    assert stats["reminders"]["active"] == 1
+    assert stats["reminders"]["done"] == 1
