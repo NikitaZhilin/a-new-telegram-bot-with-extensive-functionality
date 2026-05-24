@@ -309,14 +309,17 @@ async def _show_driver_step(
 
 def _clear_driver_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Remove driver flow data without touching unrelated bot state."""
-    for key in DRIVER_CONTEXT_KEYS:
-        context.user_data.pop(key, None)
+    for key in list(context.user_data):
+        if key.startswith("driver_"):
+            context.user_data.pop(key, None)
 
 
 def _format_section_text(section_key: str) -> str:
     """Build text for a driver subsection."""
     title, items = DRIVER_SECTIONS[section_key]
     lines = [title, ""]
+    lines.append("Это раздел-шаблон: пока он помогает быстро создать список или напоминание.")
+    lines.append("")
     lines.extend(f"• {item}" for item in items)
     lines.extend(["", "Для быстрых действий можно создать список или обычное напоминание."])
     return "\n".join(lines)
@@ -528,6 +531,76 @@ async def _render_fuel_history(
     return ConversationHandler.END
 
 
+async def _render_driver_costs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Render real driver cost overview based on fuel journal."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        overview = await service.get_user_overview(user_id)
+
+    lines = [
+        "💰 Расходы",
+        "",
+        "Сейчас учитывается топливо из журнала заправок.",
+        f"Авто: {overview['vehicles_count']}",
+        f"Заправок: {overview['fuel_entries_count']}",
+        f"Всего на топливо: {_format_money(overview['fuel_total_cost'])}",
+    ]
+    if overview["avg_cost_per_km"] is not None:
+        lines.append(f"Средняя стоимость километра: {overview['avg_cost_per_km']:.2f} ₽/км")
+    else:
+        lines.append("Стоимость километра появится после двух полных заправок.")
+
+    await update.callback_query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=get_driver_section_keyboard(),
+    )
+    return ConversationHandler.END
+
+
+async def _render_driver_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Render real driver statistics from vehicles and fuel history."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        overview = await service.get_user_overview(user_id)
+        vehicles = await service.get_vehicles(user_id)
+
+    lines = [
+        "📊 Статистика",
+        "",
+        f"Авто: {overview['vehicles_count']}",
+        f"Максимальный пробег: {overview['max_mileage_km']:,} км".replace(",", " "),
+        f"Заправок: {overview['fuel_entries_count']}",
+        f"Топливо: {_format_money(overview['fuel_total_cost'])}",
+    ]
+    if overview["avg_consumption"] is not None:
+        lines.append(f"Средний расход: {overview['avg_consumption']:.1f} л/100 км")
+    else:
+        lines.append("Средний расход появится после двух полных заправок.")
+    if overview["avg_cost_per_km"] is not None:
+        lines.append(f"Средняя стоимость: {overview['avg_cost_per_km']:.2f} ₽/км")
+
+    due_lines = []
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        for vehicle in vehicles:
+            plan = await service.get_service_plan(vehicle.id, user_id)
+            if plan and (plan["mileage_status"] in {"soon", "overdue"} or plan["date_status"] in {"soon", "overdue"}):
+                due_lines.append(f"• {vehicle.title}: ТО {_status_text(plan['mileage_status'])}/{_status_text(plan['date_status'])}")
+
+    if due_lines:
+        lines.extend(["", "Ближайшее ТО:"])
+        lines.extend(due_lines)
+
+    await update.callback_query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=get_driver_section_keyboard(),
+    )
+    return ConversationHandler.END
+
+
 async def driver_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show the driver assistant hub."""
     query = update.callback_query
@@ -555,6 +628,10 @@ async def driver_section_callback(update: Update, context: ContextTypes.DEFAULT_
         return await _render_vehicles(update, context)
     if section_key == "fuel":
         return await _render_fuel(update, context)
+    if section_key == "costs":
+        return await _render_driver_costs(update, context)
+    if section_key == "stats":
+        return await _render_driver_stats(update, context)
     if section_key not in DRIVER_SECTIONS:
         await query.edit_message_text(DRIVER_MENU_TEXT, reply_markup=get_driver_menu_keyboard())
         return ConversationHandler.END

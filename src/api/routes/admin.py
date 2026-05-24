@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.auth import require_admin
 from src.db.session import get_db
 from src.db.models import Medication, Note, TodoList, Reminder, ReminderStatus, User
+from src.services.driver_service import DriverService
 from src.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class UserRecordsResponse(BaseModel):
     lists: List[dict]
     reminders: List[dict]
     medications: List[dict]
+    driver: dict
 
 
 # === Routes ===
@@ -190,6 +192,8 @@ async def get_user_records(
 
     subscription_service = SubscriptionService(db)
     access = await subscription_service.get_access_context(user_id)
+    driver_service = DriverService(db)
+    driver_overview = await driver_service.get_user_overview(user_id)
 
     lists_result = await db.execute(
         select(TodoList)
@@ -212,6 +216,7 @@ async def get_user_records(
     lists = lists_result.scalars().all()
     reminders = reminders_result.scalars().all()
     medications = medications_result.scalars().all()
+    vehicles = await driver_service.get_vehicles(user_id)
 
     return UserRecordsResponse(
         user=UserResponse.model_validate(user),
@@ -245,6 +250,21 @@ async def get_user_records(
             }
             for item in medications
         ],
+        driver={
+            "overview": driver_overview,
+            "vehicles": [
+                {
+                    "id": vehicle.id,
+                    "title": vehicle.title,
+                    "current_mileage_km": vehicle.current_mileage_km,
+                    "manual_mileage_km": vehicle.manual_mileage_km,
+                    "service_interval_km": vehicle.service_interval_km,
+                    "service_interval_months": vehicle.service_interval_months,
+                    "updated_at": vehicle.updated_at.isoformat(),
+                }
+                for vehicle in vehicles[:50]
+            ],
+        },
     )
 
 

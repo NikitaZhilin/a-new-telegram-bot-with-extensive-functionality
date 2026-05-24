@@ -9,6 +9,7 @@ from src.api.app import create_application
 from src.config import settings
 from src.db.models import Medication, Reminder, ReminderStatus, RepeatRule, TodoList, User
 from src.db.session import get_db
+from src.services.driver_service import DriverService
 
 
 @pytest.mark.asyncio
@@ -35,6 +36,9 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     medication = Medication(user_id=user.id, name="API visible medication", importance="normal")
     db_session.add_all([todo_list, reminder, medication])
     await db_session.flush()
+    driver_service = DriverService(db_session)
+    vehicle = await driver_service.create_vehicle(user.id, "API visible vehicle", current_mileage_km=1000)
+    await driver_service.add_fuel_entry(user.id, vehicle.id, 1500, 30, 1800, True)
 
     app = create_application()
 
@@ -68,3 +72,6 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     assert records_payload["lists"][0]["title"] == "API visible list"
     assert records_payload["reminders"][0]["text"] == "API visible reminder"
     assert records_payload["medications"][0]["name"] == "API visible medication"
+    assert records_payload["driver"]["overview"]["vehicles_count"] == 1
+    assert records_payload["driver"]["overview"]["fuel_entries_count"] == 1
+    assert records_payload["driver"]["vehicles"][0]["title"] == "API visible vehicle"

@@ -58,6 +58,8 @@ README намеренно не содержит токенов, адресов �
 - удаление авто и заправок с подтверждением;
 - расчет цены за литр, расхода и стоимости километра;
 - учет неполных заправок между полными баками;
+- экран расходов и статистики на основе журнала топлива;
+- шаблонные разделы для документов, жидкостей, запчастей, мойки и шин;
 - быстрые шаблоны списков и авто-напоминаний.
 
 **Настройки и многопользовательский режим**
@@ -261,6 +263,8 @@ The bot is a tracking aid only and does not replace medical advice.
 - vehicle and fuel entry deletion with confirmation;
 - price per liter, fuel consumption, and cost per kilometer;
 - partial refuels are included between full-tank measurements;
+- cost and statistics screens based on the fuel journal;
+- template sections for documents, fluids, parts, wash, and tires;
 - quick list and vehicle reminder templates.
 
 **Settings and Multi-User Mode**

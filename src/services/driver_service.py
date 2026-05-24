@@ -28,15 +28,17 @@ class DriverService:
         year: Optional[int] = None,
     ) -> DriverVehicle:
         """Create a vehicle profile."""
+        self._validate_vehicle_values(current_mileage_km, service_interval_km, service_interval_months, year)
         vehicle = DriverVehicle(
             user_id=user_id,
             title=title,
             make=make,
             model=model,
             year=year,
-            current_mileage_km=max(0, current_mileage_km),
-            service_interval_km=max(1, service_interval_km),
-            service_interval_months=max(1, service_interval_months),
+            manual_mileage_km=current_mileage_km,
+            current_mileage_km=current_mileage_km,
+            service_interval_km=service_interval_km,
+            service_interval_months=service_interval_months,
         )
         self.db.add(vehicle)
         await self.db.flush()
@@ -76,12 +78,14 @@ class DriverService:
         if not vehicle:
             return None
 
+        self._validate_vehicle_values(current_mileage_km, service_interval_km, service_interval_months)
         vehicle.title = title
-        vehicle.current_mileage_km = max(0, current_mileage_km)
-        vehicle.service_interval_km = max(1, service_interval_km)
-        vehicle.service_interval_months = max(1, service_interval_months)
+        vehicle.manual_mileage_km = current_mileage_km
+        vehicle.service_interval_km = service_interval_km
+        vehicle.service_interval_months = service_interval_months
         vehicle.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
+        await self._recalculate_vehicle_current_mileage(vehicle)
         await self.db.refresh(vehicle)
         return vehicle
 
@@ -106,9 +110,11 @@ class DriverService:
         if not vehicle:
             return None
 
-        vehicle.current_mileage_km = max(0, mileage_km)
+        self._validate_mileage(mileage_km)
+        vehicle.manual_mileage_km = mileage_km
         vehicle.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
+        await self._recalculate_vehicle_current_mileage(vehicle)
         await self.db.refresh(vehicle)
         return vehicle
 
@@ -128,6 +134,7 @@ class DriverService:
         if not vehicle:
             return None
 
+        self._validate_fuel_values(mileage_km, liters, total_cost)
         previous_full = await self._get_previous_full_fuel_entry(
             user_id,
             vehicle_id,
@@ -152,10 +159,10 @@ class DriverService:
         entry = DriverFuelEntry(
             user_id=user_id,
             vehicle_id=vehicle_id,
-            mileage_km=max(0, mileage_km),
+            mileage_km=mileage_km,
             liters=liters,
             total_cost=total_cost,
-            price_per_liter=total_cost / liters if liters > 0 else None,
+            price_per_liter=total_cost / liters,
             is_full_tank=is_full_tank,
             station=station,
             note=note,
@@ -164,12 +171,9 @@ class DriverService:
         )
         self.db.add(entry)
 
-        if mileage_km > vehicle.current_mileage_km:
-            vehicle.current_mileage_km = mileage_km
-            vehicle.updated_at = datetime.now(timezone.utc)
-
         await self.db.flush()
         await self._recalculate_vehicle_fuel_stats(user_id, vehicle_id)
+        await self._recalculate_vehicle_current_mileage(vehicle)
         await self.db.refresh(entry)
         return entry
 
@@ -230,19 +234,17 @@ class DriverService:
         if not vehicle:
             return None
 
-        entry.mileage_km = max(0, mileage_km)
+        self._validate_fuel_values(mileage_km, liters, total_cost)
+        entry.mileage_km = mileage_km
         entry.liters = liters
         entry.total_cost = total_cost
-        entry.price_per_liter = total_cost / liters if liters > 0 else None
+        entry.price_per_liter = total_cost / liters
         entry.is_full_tank = is_full_tank
         entry.station = station
 
-        if mileage_km > vehicle.current_mileage_km:
-            vehicle.current_mileage_km = mileage_km
-            vehicle.updated_at = datetime.now(timezone.utc)
-
         await self.db.flush()
         await self._recalculate_vehicle_fuel_stats(user_id, entry.vehicle_id)
+        await self._recalculate_vehicle_current_mileage(vehicle)
         await self.db.refresh(entry)
         return entry
 
@@ -253,9 +255,12 @@ class DriverService:
             return False
 
         vehicle_id = entry.vehicle_id
+        vehicle = await self.get_vehicle(vehicle_id, user_id)
         await self.db.delete(entry)
         await self.db.flush()
         await self._recalculate_vehicle_fuel_stats(user_id, vehicle_id)
+        if vehicle:
+            await self._recalculate_vehicle_current_mileage(vehicle)
         return True
 
     async def get_fuel_summary(self, user_id: int, vehicle_id: Optional[int] = None) -> dict:
@@ -278,6 +283,25 @@ class DriverService:
             "avg_cost_per_km": float(avg_cost_per_km) if avg_cost_per_km is not None else None,
         }
 
+    async def get_user_overview(self, user_id: int) -> dict:
+        """Return compact driver overview for settings/admin screens."""
+        vehicles_result = await self.db.execute(
+            select(
+                func.count(DriverVehicle.id),
+                func.max(DriverVehicle.current_mileage_km),
+            ).where(DriverVehicle.user_id == user_id)
+        )
+        vehicles_count, max_mileage = vehicles_result.one()
+        fuel_summary = await self.get_fuel_summary(user_id)
+        return {
+            "vehicles_count": int(vehicles_count or 0),
+            "fuel_entries_count": fuel_summary["count"],
+            "fuel_total_cost": fuel_summary["total_cost"],
+            "avg_consumption": fuel_summary["avg_consumption"],
+            "avg_cost_per_km": fuel_summary["avg_cost_per_km"],
+            "max_mileage_km": int(max_mileage or 0),
+        }
+
     async def mark_service_done(
         self,
         vehicle_id: int,
@@ -290,14 +314,65 @@ class DriverService:
         if not vehicle:
             return None
 
-        vehicle.last_service_mileage_km = max(0, service_mileage_km)
+        self._validate_mileage(service_mileage_km)
+        vehicle.last_service_mileage_km = service_mileage_km
         vehicle.last_service_at_utc = serviced_at_utc or datetime.now(timezone.utc)
-        if service_mileage_km > vehicle.current_mileage_km:
-            vehicle.current_mileage_km = service_mileage_km
+        if service_mileage_km > vehicle.manual_mileage_km:
+            vehicle.manual_mileage_km = service_mileage_km
         vehicle.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
+        await self._recalculate_vehicle_current_mileage(vehicle)
         await self.db.refresh(vehicle)
         return vehicle
+
+    def _validate_mileage(self, mileage_km: int) -> None:
+        """Reject invalid odometer values at the service boundary."""
+        if mileage_km < 0:
+            raise ValueError("mileage_km must be non-negative")
+
+    def _validate_vehicle_values(
+        self,
+        current_mileage_km: int,
+        service_interval_km: int,
+        service_interval_months: int,
+        year: Optional[int] = None,
+    ) -> None:
+        """Reject invalid vehicle profile values."""
+        self._validate_mileage(current_mileage_km)
+        if service_interval_km <= 0:
+            raise ValueError("service_interval_km must be positive")
+        if service_interval_months <= 0:
+            raise ValueError("service_interval_months must be positive")
+        if year is not None and not 1886 <= year <= 2100:
+            raise ValueError("year must be between 1886 and 2100")
+
+    def _validate_fuel_values(
+        self,
+        mileage_km: int,
+        liters: float,
+        total_cost: float,
+    ) -> None:
+        """Reject invalid fuel values at the service boundary."""
+        self._validate_mileage(mileage_km)
+        if liters <= 0:
+            raise ValueError("liters must be positive")
+        if total_cost <= 0:
+            raise ValueError("total_cost must be positive")
+
+    async def _recalculate_vehicle_current_mileage(self, vehicle: DriverVehicle) -> None:
+        """Keep current mileage derived from manual baseline and fuel history."""
+        result = await self.db.execute(
+            select(func.max(DriverFuelEntry.mileage_km)).where(
+                DriverFuelEntry.user_id == vehicle.user_id,
+                DriverFuelEntry.vehicle_id == vehicle.id,
+            )
+        )
+        max_fuel_mileage = result.scalar()
+        calculated = max(vehicle.manual_mileage_km or 0, max_fuel_mileage or 0)
+        if vehicle.current_mileage_km != calculated:
+            vehicle.current_mileage_km = calculated
+            vehicle.updated_at = datetime.now(timezone.utc)
+            await self.db.flush()
 
     async def get_service_plan(
         self,

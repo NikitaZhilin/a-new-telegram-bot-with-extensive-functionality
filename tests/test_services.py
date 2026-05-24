@@ -283,8 +283,14 @@ async def test_settings_stats_cover_visible_and_hidden_domains(db_session):
     await db_session.flush()
 
     list_service = ListService(db_session)
+    from src.services.driver_service import DriverService
+
+    driver_service = DriverService(db_session)
     owned = await list_service.create_list(owner.id, "Owned")
     shared = await list_service.create_list(member.id, "Shared")
+    vehicle = await driver_service.create_vehicle(owner.id, "Stats car", current_mileage_km=1000)
+    await driver_service.add_fuel_entry(owner.id, vehicle.id, 1000, 40, 2400, True)
+    await driver_service.add_fuel_entry(owner.id, vehicle.id, 1500, 35, 2100, True)
     db_session.add(ListMember(list_id=shared.id, user_id=owner.id, role="viewer"))
     db_session.add_all(
         [
@@ -316,3 +322,7 @@ async def test_settings_stats_cover_visible_and_hidden_domains(db_session):
     assert stats["medications"] == {"active": 1, "archived": 1}
     assert stats["reminders"]["active"] == 1
     assert stats["reminders"]["done"] == 1
+    assert stats["driver"]["vehicles_count"] == 1
+    assert stats["driver"]["fuel_entries_count"] == 2
+    assert stats["driver"]["fuel_total_cost"] == pytest.approx(4500)
+    assert stats["driver"]["avg_consumption"] == pytest.approx(7.0)

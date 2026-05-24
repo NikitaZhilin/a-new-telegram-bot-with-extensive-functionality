@@ -11,6 +11,7 @@ from typing import Optional
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
@@ -374,6 +375,7 @@ class DriverVehicle(Base):
     make: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    manual_mileage_km: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     current_mileage_km: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     service_interval_km: Mapped[int] = mapped_column(Integer, nullable=False, default=10000, server_default="10000")
     service_interval_months: Mapped[int] = mapped_column(Integer, nullable=False, default=12, server_default="12")
@@ -401,6 +403,15 @@ class DriverVehicle(Base):
     )
 
     __table_args__ = (
+        CheckConstraint("manual_mileage_km >= 0", name="ck_driver_vehicles_manual_mileage_non_negative"),
+        CheckConstraint("current_mileage_km >= 0", name="ck_driver_vehicles_current_mileage_non_negative"),
+        CheckConstraint("service_interval_km > 0", name="ck_driver_vehicles_service_interval_km_positive"),
+        CheckConstraint("service_interval_months > 0", name="ck_driver_vehicles_service_interval_months_positive"),
+        CheckConstraint("year IS NULL OR (year >= 1886 AND year <= 2100)", name="ck_driver_vehicles_year_reasonable"),
+        CheckConstraint(
+            "last_service_mileage_km IS NULL OR last_service_mileage_km >= 0",
+            name="ck_driver_vehicles_last_service_mileage_non_negative",
+        ),
         Index("ix_driver_vehicles_user_created", "user_id", "created_at"),
     )
 
@@ -451,6 +462,21 @@ class DriverFuelEntry(Base):
     vehicle = relationship("DriverVehicle", back_populates="fuel_entries")
 
     __table_args__ = (
+        CheckConstraint("mileage_km >= 0", name="ck_driver_fuel_entries_mileage_non_negative"),
+        CheckConstraint("liters > 0", name="ck_driver_fuel_entries_liters_positive"),
+        CheckConstraint("total_cost > 0", name="ck_driver_fuel_entries_total_cost_positive"),
+        CheckConstraint(
+            "price_per_liter IS NULL OR price_per_liter > 0",
+            name="ck_driver_fuel_entries_price_positive",
+        ),
+        CheckConstraint(
+            "consumption_l_per_100 IS NULL OR consumption_l_per_100 >= 0",
+            name="ck_driver_fuel_entries_consumption_non_negative",
+        ),
+        CheckConstraint(
+            "cost_per_km IS NULL OR cost_per_km >= 0",
+            name="ck_driver_fuel_entries_cost_per_km_non_negative",
+        ),
         Index("ix_driver_fuel_vehicle_mileage", "vehicle_id", "mileage_km"),
         Index("ix_driver_fuel_user_filled", "user_id", "filled_at_utc"),
     )

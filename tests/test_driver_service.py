@@ -190,6 +190,89 @@ async def test_fuel_history_recalculates_after_update_and_delete(db_session):
 
 
 @pytest.mark.asyncio
+async def test_fuel_entry_update_down_recalculates_vehicle_current_mileage(db_session):
+    """Editing the highest fuel mileage down should lower derived current mileage."""
+    user = User(telegram_id=7008, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(user_id=user.id, title="Mileage car", current_mileage_km=1000)
+    entry = await service.add_fuel_entry(user.id, vehicle.id, 2000, 40, 2400, True)
+
+    assert vehicle.current_mileage_km == 2000
+
+    updated = await service.update_fuel_entry(
+        entry_id=entry.id,
+        user_id=user.id,
+        mileage_km=1500,
+        liters=40,
+        total_cost=2400,
+        is_full_tank=True,
+    )
+    vehicle = await service.get_vehicle(vehicle.id, user.id)
+
+    assert updated is not None
+    assert vehicle.manual_mileage_km == 1000
+    assert vehicle.current_mileage_km == 1500
+
+
+@pytest.mark.asyncio
+async def test_fuel_entry_delete_max_recalculates_vehicle_current_mileage(db_session):
+    """Deleting the highest fuel mileage should fall back to next fuel entry or manual mileage."""
+    user = User(telegram_id=7009, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(user_id=user.id, title="Delete mileage car", current_mileage_km=1000)
+    lower = await service.add_fuel_entry(user.id, vehicle.id, 1500, 30, 1800, True)
+    higher = await service.add_fuel_entry(user.id, vehicle.id, 2000, 35, 2100, True)
+
+    assert vehicle.current_mileage_km == 2000
+
+    assert await service.delete_fuel_entry(higher.id, user.id) is True
+    vehicle = await service.get_vehicle(vehicle.id, user.id)
+    assert vehicle.current_mileage_km == 1500
+
+    assert await service.delete_fuel_entry(lower.id, user.id) is True
+    vehicle = await service.get_vehicle(vehicle.id, user.id)
+    assert vehicle.current_mileage_km == 1000
+
+
+@pytest.mark.asyncio
+async def test_driver_service_rejects_invalid_vehicle_and_fuel_values(db_session):
+    """Service layer should reject invalid values even if handlers are bypassed."""
+    user = User(telegram_id=7010, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = DriverService(db_session)
+
+    with pytest.raises(ValueError):
+        await service.create_vehicle(user.id, "Bad mileage", current_mileage_km=-1)
+    with pytest.raises(ValueError):
+        await service.create_vehicle(user.id, "Bad interval", service_interval_km=0)
+    with pytest.raises(ValueError):
+        await service.create_vehicle(user.id, "Bad months", service_interval_months=0)
+
+    vehicle = await service.create_vehicle(user.id, "Valid car", current_mileage_km=1000)
+
+    invalid_values = [
+        {"mileage_km": -1, "liters": 10, "total_cost": 1000},
+        {"mileage_km": 1000, "liters": 0, "total_cost": 1000},
+        {"mileage_km": 1000, "liters": 10, "total_cost": 0},
+    ]
+    for values in invalid_values:
+        with pytest.raises(ValueError):
+            await service.add_fuel_entry(user.id, vehicle.id, **values)
+
+    entry = await service.add_fuel_entry(user.id, vehicle.id, 1100, 10, 1000, True)
+    with pytest.raises(ValueError):
+        await service.update_fuel_entry(entry.id, user.id, 1200, -5, 1000, True)
+
+
+@pytest.mark.asyncio
 async def test_vehicle_update_delete_and_service_plan(db_session):
     """Vehicle profile supports editing, deletion, and service planning."""
     user = User(telegram_id=7007, timezone="Europe/Moscow")

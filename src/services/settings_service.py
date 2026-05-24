@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from src.db.models import User
 from src.repositories.user_repo import UserRepository
+from src.services.driver_service import DriverService
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,7 @@ class SettingsService:
                 Medication.is_active.is_(False),
             )
         )
+        driver_overview = await DriverService(self.db).get_user_overview(user_id)
         
         return {
             "notes": {
@@ -144,4 +146,5 @@ class SettingsService:
                 "active": medications_active,
                 "archived": medications_archived,
             },
+            "driver": driver_overview,
         }

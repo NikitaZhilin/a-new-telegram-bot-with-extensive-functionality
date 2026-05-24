@@ -66,7 +66,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Я бот-напоминалка. Я помогу тебе:\n"
         f"📋 Вести списки дел\n"
         f"💊 Следить за приемом лекарств\n"
-        f"⏰ Создавать напоминания\n\n"
+        f"⏰ Создавать напоминания\n"
+        f"🚗 Вести автомобильный журнал\n\n"
         f"Выбери раздел в меню ниже 👇",
         reply_markup=get_main_menu_keyboard(),
     )

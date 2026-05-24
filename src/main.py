@@ -107,6 +107,111 @@ async def _ensure_legacy_unversioned_schema() -> None:
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_source VARCHAR(100)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_is_admin ON users (is_admin)"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS manual_mileage_km INTEGER NOT NULL DEFAULT 0"))
+        await conn.execute(
+            text(
+                """
+                UPDATE driver_vehicles
+                SET
+                    manual_mileage_km = GREATEST(COALESCE(manual_mileage_km, current_mileage_km, 0), 0),
+                    current_mileage_km = GREATEST(COALESCE(current_mileage_km, 0), 0),
+                    service_interval_km = GREATEST(COALESCE(service_interval_km, 10000), 1),
+                    service_interval_months = GREATEST(COALESCE(service_interval_months, 12), 1),
+                    last_service_mileage_km = CASE
+                        WHEN last_service_mileage_km IS NULL THEN NULL
+                        ELSE GREATEST(last_service_mileage_km, 0)
+                    END
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE driver_fuel_entries
+                SET
+                    mileage_km = GREATEST(COALESCE(mileage_km, 0), 0),
+                    liters = CASE WHEN liters <= 0 THEN 0.01 ELSE liters END,
+                    total_cost = CASE WHEN total_cost <= 0 THEN 0.01 ELSE total_cost END,
+                    price_per_liter = CASE
+                        WHEN liters > 0 AND total_cost > 0 THEN total_cost / liters
+                        ELSE NULL
+                    END,
+                    consumption_l_per_100 = CASE
+                        WHEN consumption_l_per_100 IS NULL THEN NULL
+                        ELSE GREATEST(consumption_l_per_100, 0)
+                    END,
+                    cost_per_km = CASE
+                        WHEN cost_per_km IS NULL THEN NULL
+                        ELSE GREATEST(cost_per_km, 0)
+                    END
+                """
+            )
+        )
+        legacy_constraints = {
+            "ck_driver_vehicles_manual_mileage_non_negative": (
+                "driver_vehicles",
+                "manual_mileage_km >= 0",
+            ),
+            "ck_driver_vehicles_current_mileage_non_negative": (
+                "driver_vehicles",
+                "current_mileage_km >= 0",
+            ),
+            "ck_driver_vehicles_service_interval_km_positive": (
+                "driver_vehicles",
+                "service_interval_km > 0",
+            ),
+            "ck_driver_vehicles_service_interval_months_positive": (
+                "driver_vehicles",
+                "service_interval_months > 0",
+            ),
+            "ck_driver_vehicles_year_reasonable": (
+                "driver_vehicles",
+                "year IS NULL OR (year >= 1886 AND year <= 2100)",
+            ),
+            "ck_driver_vehicles_last_service_mileage_non_negative": (
+                "driver_vehicles",
+                "last_service_mileage_km IS NULL OR last_service_mileage_km >= 0",
+            ),
+            "ck_driver_fuel_entries_mileage_non_negative": (
+                "driver_fuel_entries",
+                "mileage_km >= 0",
+            ),
+            "ck_driver_fuel_entries_liters_positive": (
+                "driver_fuel_entries",
+                "liters > 0",
+            ),
+            "ck_driver_fuel_entries_total_cost_positive": (
+                "driver_fuel_entries",
+                "total_cost > 0",
+            ),
+            "ck_driver_fuel_entries_price_positive": (
+                "driver_fuel_entries",
+                "price_per_liter IS NULL OR price_per_liter > 0",
+            ),
+            "ck_driver_fuel_entries_consumption_non_negative": (
+                "driver_fuel_entries",
+                "consumption_l_per_100 IS NULL OR consumption_l_per_100 >= 0",
+            ),
+            "ck_driver_fuel_entries_cost_per_km_non_negative": (
+                "driver_fuel_entries",
+                "cost_per_km IS NULL OR cost_per_km >= 0",
+            ),
+        }
+        for name, (table, expression) in legacy_constraints.items():
+            await conn.execute(
+                text(
+                    f"""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = '{name}'
+                        ) THEN
+                            ALTER TABLE {table} ADD CONSTRAINT {name} CHECK ({expression});
+                        END IF;
+                    END $$;
+                    """
+                )
+            )
 
 
 async def init_db() -> None:
