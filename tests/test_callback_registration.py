@@ -115,6 +115,7 @@ def test_important_callback_patterns_are_registered():
         "^rem_confirm_back$",
         "^settings_timezone$",
         "^settings_subscription$",
+        "^settings_web_login$",
         "^tz_custom$",
         "^driver_menu$",
         "^driver_section:",

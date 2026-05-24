@@ -17,6 +17,7 @@ from src.db.session import get_db
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
 from src.services.reminder_service import ReminderService
+from src.services.web_auth_service import WebAuthService
 
 
 def _telegram_init_data(user_payload: dict) -> str:
@@ -112,6 +113,45 @@ async def test_user_api_rejects_invalid_init_data(db_session):
         response = await client.get("/me", headers={"X-Telegram-Init-Data": "user={\"id\":1}"})
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_user_api_accepts_bot_issued_web_login_key(db_session):
+    """Standalone web UI should authenticate with a hashed key issued by the bot."""
+    user = User(telegram_id=93501, username="web_key_user", first_name="Key", timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+    login_key = await WebAuthService(db_session).create_login_key(user.id)
+    await db_session.commit()
+
+    app = create_application()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/me", headers={"X-Web-Login-Token": login_key.token})
+        invalid_response = await client.get("/me", headers={"X-Web-Login-Token": "invalid"})
+
+    assert response.status_code == 200
+    assert response.json()["telegram_id"] == user.telegram_id
+    assert invalid_response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_web_login_key_rotation_disables_previous_key(db_session):
+    """Creating a new web key should make the previous key stop working."""
+    user = User(telegram_id=93502, username="web_key_rotate", first_name="Rotate", timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+    service = WebAuthService(db_session)
+    first_key = await service.create_login_key(user.id)
+    second_key = await service.create_login_key(user.id)
+
+    assert await service.authenticate(first_key.token) is None
+    assert (await service.authenticate(second_key.token)).id == user.id
 
 
 @pytest.mark.asyncio

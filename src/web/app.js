@@ -2,6 +2,7 @@ const state = {
   section: "dashboard",
   auth: {
     initData: "",
+    webLoginToken: localStorage.getItem("rememberme.webLoginToken") || "",
     adminToken: localStorage.getItem("rememberme.adminToken") || "",
     telegramId: localStorage.getItem("rememberme.telegramId") || "",
     firstName: localStorage.getItem("rememberme.firstName") || "",
@@ -51,6 +52,9 @@ function authHeaders() {
   if (state.auth.initData) {
     return { "X-Telegram-Init-Data": state.auth.initData };
   }
+  if (state.auth.webLoginToken) {
+    return { "X-Web-Login-Token": state.auth.webLoginToken };
+  }
   return {
     "X-Admin-Token": state.auth.adminToken,
     "X-Web-Test-Telegram-Id": state.auth.telegramId,
@@ -94,6 +98,7 @@ async function adminApi(path) {
 }
 
 function saveAuth() {
+  localStorage.setItem("rememberme.webLoginToken", state.auth.webLoginToken);
   localStorage.setItem("rememberme.adminToken", state.auth.adminToken);
   localStorage.setItem("rememberme.telegramId", state.auth.telegramId);
   localStorage.setItem("rememberme.firstName", state.auth.firstName);
@@ -101,9 +106,11 @@ function saveAuth() {
 
 function clearAuth() {
   state.auth.initData = "";
+  state.auth.webLoginToken = "";
   state.auth.adminToken = "";
   state.auth.telegramId = "";
   state.auth.firstName = "";
+  localStorage.removeItem("rememberme.webLoginToken");
   localStorage.removeItem("rememberme.adminToken");
   localStorage.removeItem("rememberme.telegramId");
   localStorage.removeItem("rememberme.firstName");
@@ -113,6 +120,7 @@ function clearAuth() {
 }
 
 function updateAuthUi() {
+  $("#webLoginTokenInput").value = state.auth.webLoginToken;
   $("#adminTokenInput").value = state.auth.adminToken;
   $("#telegramIdInput").value = state.auth.telegramId;
   $("#firstNameInput").value = state.auth.firstName;
@@ -385,11 +393,12 @@ async function loadSection(section) {
 }
 
 async function handleLogin() {
+  state.auth.webLoginToken = $("#webLoginTokenInput").value.trim();
   state.auth.adminToken = $("#adminTokenInput").value.trim();
   state.auth.telegramId = $("#telegramIdInput").value.trim();
   state.auth.firstName = $("#firstNameInput").value.trim();
-  if (!state.auth.adminToken || !state.auth.telegramId) {
-    showMessage("Укажите admin token и Telegram ID.", true);
+  if (!state.auth.webLoginToken && (!state.auth.adminToken || !state.auth.telegramId)) {
+    showMessage("Вставьте web-ключ из Telegram или укажите admin token и Telegram ID.", true);
     return;
   }
   saveAuth();
@@ -596,6 +605,14 @@ function bindEvents() {
 async function boot() {
   document.documentElement.dataset.theme = localStorage.getItem("rememberme.theme") || "light";
   $("#reminderCreateForm input[name='remind_at_local']").value = defaultReminderTime();
+  const url = new URL(window.location.href);
+  const tokenFromLink = url.searchParams.get("token");
+  if (tokenFromLink) {
+    state.auth.webLoginToken = tokenFromLink.trim();
+    localStorage.setItem("rememberme.webLoginToken", state.auth.webLoginToken);
+    url.searchParams.delete("token");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
   const telegram = window.Telegram?.WebApp;
   if (telegram?.initData) {
     state.auth.initData = telegram.initData;
@@ -603,7 +620,7 @@ async function boot() {
   }
   bindEvents();
   updateAuthUi();
-  if (state.auth.initData || (state.auth.adminToken && state.auth.telegramId)) {
+  if (state.auth.initData || state.auth.webLoginToken || (state.auth.adminToken && state.auth.telegramId)) {
     try {
       await loadSummary();
       await loadSection(state.section);

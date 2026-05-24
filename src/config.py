@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     # Webhook (optional)
     WEBHOOK_URL: Optional[str] = Field(default=None, description="Webhook URL for production")
     APP_BASE_URL: Optional[str] = Field(default=None, description="Base URL of the application")
+    WEB_PUBLIC_URL: Optional[str] = Field(
+        default=None,
+        description="Public base URL used in Telegram-issued web login links"
+    )
+    WEB_LOGIN_TOKEN_TTL_DAYS: int = Field(
+        default=30,
+        description="How long Telegram-issued web login keys stay active"
+    )
     
     # Worker
     WORKER_INTERVAL: int = Field(default=60, description="Worker check interval in seconds")

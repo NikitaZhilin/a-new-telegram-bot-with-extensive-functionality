@@ -14,6 +14,7 @@ from src.config import settings
 from src.db.models import User
 from src.db.session import get_db
 from src.repositories.user_repo import UserRepository
+from src.services.web_auth_service import WebAuthService
 
 
 class TelegramAuthData(dict):
@@ -62,6 +63,7 @@ def verify_telegram_webapp_init_data(
 
 async def get_current_web_user(
     x_telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
+    x_web_login_token: str | None = Header(default=None, alias="X-Web-Login-Token"),
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     x_web_test_telegram_id: str | None = Header(default=None, alias="X-Web-Test-Telegram-Id"),
     x_web_test_username: str | None = Header(default=None, alias="X-Web-Test-Username"),
@@ -70,6 +72,16 @@ async def get_current_web_user(
 ) -> User:
     """Resolve current user from validated Telegram WebApp initData."""
     repo = UserRepository(db)
+
+    if x_web_login_token:
+        user = await WebAuthService(db).authenticate(x_web_login_token)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired web login key",
+            )
+        await db.commit()
+        return user
 
     if settings.WEB_TEST_LOGIN_ENABLED and x_admin_token and x_web_test_telegram_id:
         if not hmac.compare_digest(x_admin_token, settings.ADMIN_TOKEN):

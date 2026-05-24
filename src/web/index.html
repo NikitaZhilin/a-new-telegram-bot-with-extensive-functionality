@@ -50,7 +50,16 @@
 
       <section id="loginPanel" class="panel">
         <h2>Вход</h2>
-        <div class="form-grid">
+        <p class="hint">Основной вход: получите ключ в Telegram через Настройки -> Web-версия. Если ссылка содержит ключ, вход выполнится автоматически.</p>
+        <div class="form-grid login-grid">
+          <label class="wide-field">
+            <span>Web-ключ из Telegram</span>
+            <input id="webLoginTokenInput" type="password" autocomplete="one-time-code" placeholder="Вставьте ключ или откройте ссылку из бота">
+          </label>
+        </div>
+        <details class="dev-login">
+          <summary>Тестовый вход для локальной отладки</summary>
+          <div class="form-grid">
           <label>
             <span>Admin token</span>
             <input id="adminTokenInput" type="password" autocomplete="current-password">
@@ -63,7 +72,8 @@
             <span>Имя</span>
             <input id="firstNameInput" type="text" autocomplete="name">
           </label>
-        </div>
+          </div>
+        </details>
         <div class="actions">
           <button id="loginButton" type="button">Войти</button>
         </div>

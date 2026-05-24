@@ -1144,6 +1144,9 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💳 Подписка", callback_data="settings_subscription"),
         ],
         [
+            InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login"),
+        ],
+        [
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ],
     ]

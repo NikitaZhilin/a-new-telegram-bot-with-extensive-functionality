@@ -99,6 +99,7 @@ from src.bot.handlers.settings import (
     settings_menu_callback,
     settings_stats_callback,
     settings_subscription_callback,
+    settings_web_login_callback,
 )
 from src.bot.handlers.driver import (
     driver_fuel_delete_callback,
@@ -223,6 +224,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(settings_menu_callback, pattern="^settings_menu$"))
     application.add_handler(CallbackQueryHandler(settings_stats_callback, pattern="^settings_stats$"))
     application.add_handler(CallbackQueryHandler(settings_subscription_callback, pattern="^settings_subscription$"))
+    application.add_handler(CallbackQueryHandler(settings_web_login_callback, pattern="^settings_web_login$"))
 
     # Driver callbacks
     application.add_handler(CallbackQueryHandler(driver_menu_callback, pattern="^driver_menu$"))

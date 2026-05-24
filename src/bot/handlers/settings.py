@@ -15,6 +15,7 @@ from telegram.ext import (
     filters,
 )
 
+from src.config import settings
 from src.bot.keyboards import (
     get_settings_keyboard,
     get_timezone_keyboard,
@@ -26,6 +27,7 @@ from src.bot.states import SettingsStates
 from src.db.session import async_session_maker
 from src.services.settings_service import SettingsService
 from src.services.subscription_service import SubscriptionService
+from src.services.web_auth_service import WebAuthService
 from src.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -297,6 +299,52 @@ async def settings_subscription_callback(update: Update, context: ContextTypes.D
     await query.edit_message_text(
         text,
         reply_markup=get_back_home_inline_keyboard(),
+    )
+
+    return ConversationHandler.END
+
+
+async def settings_web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Issue a personal key for the standalone web client."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_user = update.effective_user
+
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_or_create(
+            telegram_id=telegram_user.id,
+            username=telegram_user.username,
+            first_name=telegram_user.first_name,
+            last_name=telegram_user.last_name,
+        )
+        login_key = await WebAuthService(session).create_login_key(user.id)
+        await session.commit()
+
+    expires_at = login_key.expires_at_utc.strftime("%d.%m.%Y %H:%M UTC")
+    link_block = (
+        f"\n\nСсылка для входа:\n{login_key.url}"
+        if login_key.url
+        else (
+            "\n\nПубличный адрес web-версии еще не настроен. "
+            "Откройте web-страницу проекта и вставьте ключ вручную."
+        )
+    )
+    text = (
+        "🌐 Web-версия\n\n"
+        "Я выпустил персональный ключ для входа в web-приложение. "
+        "Он привязан только к вашему Telegram-пользователю.\n\n"
+        f"Ключ:\n{login_key.token}\n\n"
+        f"Действует до: {expires_at}"
+        f"{link_block}\n\n"
+        "Если создать новый ключ, предыдущий ключ перестанет работать."
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=get_back_home_inline_keyboard(),
+        disable_web_page_preview=True,
     )
 
     return ConversationHandler.END

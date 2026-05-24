@@ -77,7 +77,7 @@ README намеренно не содержит токенов, адресов �
 - Admin API с `X-Admin-Token`;
 - простая web-админка `/admin/ui` для активности и воронок;
 - web-сайт `/web` для списков, напоминаний, лекарств, водительского журнала и админ-сводки;
-- user-scoped API `/me/...` для web-клиента, защищенный Telegram WebApp `initData` или тестовым входом через `ADMIN_TOKEN`;
+- user-scoped API `/me/...` для web-клиента, защищенный Telegram WebApp `initData`, персональным web-ключом из бота или тестовым входом через `ADMIN_TOKEN`;
 - GitHub Actions workflow для тестов и деплоя на VPS.
 
 ### Архитектура
@@ -130,6 +130,8 @@ BOT_TOKEN=...
 BOT_USERNAME=...
 ADMIN_TOKEN=...
 ADMIN_TELEGRAM_IDS=...
+WEB_PUBLIC_URL=http://127.0.0.1:8000
+WEB_LOGIN_TOKEN_TTL_DAYS=30
 POSTGRES_USER=...
 POSTGRES_PASSWORD=...
 POSTGRES_DB=...
@@ -201,7 +203,9 @@ Web-сайт:
 http://127.0.0.1:8000/web
 ```
 
-В Telegram WebApp сайт использует `initData`. Для обычного браузера в тестовом режиме включен вход через `ADMIN_TOKEN` и Telegram ID пользователя.
+Основной вход для обычного браузера: в Telegram откройте `Настройки` -> `Web-версия`, получите персональный ключ и вставьте его на странице `/web`. Если задан `WEB_PUBLIC_URL`, бот также выдаст прямую ссылку вида `/web?token=...`.
+
+В Telegram WebApp сайт использует `initData`. Для закрытой локальной отладки остается доступен вход через `ADMIN_TOKEN` и Telegram ID пользователя, если `WEB_TEST_LOGIN_ENABLED=true`.
 
 Админская web-страница:
 
@@ -242,7 +246,7 @@ POST /me/driver/vehicles/{id}/fuel
 DELETE /me/driver/fuel/{id}
 ```
 
-Эти endpoints требуют заголовок `X-Telegram-Init-Data` с валидным Telegram WebApp `initData`. Для закрытого тестирования можно использовать `X-Admin-Token` + `X-Web-Test-Telegram-Id`, если `WEB_TEST_LOGIN_ENABLED=true`.
+Эти endpoints требуют один из вариантов авторизации: `X-Telegram-Init-Data` с валидным Telegram WebApp `initData`, `X-Web-Login-Token` с ключом из Telegram-бота, либо `X-Admin-Token` + `X-Web-Test-Telegram-Id` для закрытого тестирования при `WEB_TEST_LOGIN_ENABLED=true`.
 
 Тесты:
 
@@ -348,7 +352,7 @@ The bot is a tracking aid only and does not replace medical advice.
 - Admin API with `X-Admin-Token`;
 - simple `/admin/ui` web admin for activity and funnels;
 - `/web` web site for lists, reminders, medications, vehicle journal, and admin overview;
-- user-scoped `/me/...` API for the web client, protected by Telegram WebApp `initData` or test login with `ADMIN_TOKEN`;
+- user-scoped `/me/...` API for the web client, protected by Telegram WebApp `initData`, a bot-issued personal web key, or test login with `ADMIN_TOKEN`;
 - GitHub Actions workflow for tests and VPS deployment.
 
 ### Architecture
@@ -401,6 +405,8 @@ BOT_TOKEN=...
 BOT_USERNAME=...
 ADMIN_TOKEN=...
 ADMIN_TELEGRAM_IDS=...
+WEB_PUBLIC_URL=http://127.0.0.1:8000
+WEB_LOGIN_TOKEN_TTL_DAYS=30
 POSTGRES_USER=...
 POSTGRES_PASSWORD=...
 POSTGRES_DB=...
@@ -473,7 +479,9 @@ Web site:
 http://127.0.0.1:8000/web
 ```
 
-Inside Telegram WebApp, the site uses `initData`. In a regular browser during private testing, it can use `ADMIN_TOKEN` plus a Telegram user ID.
+Primary browser login: open `Settings` -> `Web version` in Telegram, get a personal key, and paste it on `/web`. If `WEB_PUBLIC_URL` is configured, the bot also sends a direct `/web?token=...` login link.
+
+Inside Telegram WebApp, the site uses `initData`. For closed local debugging, `ADMIN_TOKEN` plus a Telegram user ID is still available when `WEB_TEST_LOGIN_ENABLED=true`.
 
 Admin web page:
 
@@ -514,7 +522,7 @@ POST /me/driver/vehicles/{id}/fuel
 DELETE /me/driver/fuel/{id}
 ```
 
-These endpoints require `X-Telegram-Init-Data` with valid Telegram WebApp `initData`. For private testing, `X-Admin-Token` + `X-Web-Test-Telegram-Id` is available when `WEB_TEST_LOGIN_ENABLED=true`.
+These endpoints require one of the supported auth methods: `X-Telegram-Init-Data` with valid Telegram WebApp `initData`, `X-Web-Login-Token` with a key issued by the Telegram bot, or `X-Admin-Token` + `X-Web-Test-Telegram-Id` for closed testing when `WEB_TEST_LOGIN_ENABLED=true`.
 
 Tests:
 

@@ -107,16 +107,16 @@ label span {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 236px 1fr;
 }
 
 .sidebar {
   background: var(--surface);
   border-right: 1px solid var(--line);
-  padding: 20px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 16px;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -151,7 +151,7 @@ label span {
 
 .nav {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .nav-button {
@@ -184,17 +184,18 @@ label span {
 }
 
 .content {
-  padding: 26px;
-  max-width: 1480px;
+  padding: 20px;
+  max-width: 1240px;
   width: 100%;
+  margin: 0 auto;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
   align-items: flex-start;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 h1,
@@ -253,8 +254,8 @@ h3 {
   color: var(--warning);
   background: rgba(245, 158, 11, 0.12);
   border-radius: 8px;
-  padding: 12px 14px;
-  margin-bottom: 16px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
   font-weight: 700;
 }
 
@@ -262,7 +263,7 @@ h3 {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 18px;
+  padding: 14px;
   box-shadow: var(--shadow);
 }
 
@@ -281,32 +282,58 @@ h3 {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
+}
+
+.login-grid {
+  grid-template-columns: 1fr;
+  max-width: 720px;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.hint {
+  color: var(--muted);
+  margin: -4px 0 12px;
+  line-height: 1.45;
+}
+
+.dev-login {
+  margin-top: 10px;
+}
+
+.dev-login summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
 .stack {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .split-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 }
 
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .metric {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 18px;
+  padding: 14px;
   box-shadow: var(--shadow);
 }
 
@@ -324,14 +351,14 @@ h3 {
 
 .item-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .item-card {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
-  padding: 14px;
+  padding: 12px;
 }
 
 .item-card-header {
@@ -402,6 +429,7 @@ h3 {
     height: auto;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    gap: 12px;
   }
 
   .nav {
@@ -421,11 +449,11 @@ h3 {
 
 @media (max-width: 560px) {
   .content {
-    padding: 16px;
+    padding: 12px;
   }
 
   .sidebar {
-    padding: 16px;
+    padding: 12px;
   }
 
   .nav {
