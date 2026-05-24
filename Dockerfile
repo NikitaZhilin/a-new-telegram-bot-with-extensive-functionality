@@ -44,6 +44,8 @@ RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
 # Copy source code
 COPY --from=builder /app/src ./src
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 # Change ownership
 RUN chown -R appuser:appgroup /app
