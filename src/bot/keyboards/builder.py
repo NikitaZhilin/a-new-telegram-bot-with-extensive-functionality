@@ -43,8 +43,7 @@ def get_cancel_inline_keyboard() -> InlineKeyboardMarkup:
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Main menu reply keyboard."""
     keyboard = [
-        ["📋 Списки", "💊 Лекарства"],
-        ["⏰ Напоминания", "🚗 Для водителя"],
+        ["📋 Списки", "💊 Лекарства", "⏰ Напоминания", "🚗 Для водителя"],
         ["⚙️ Настройки", "👥 Поделиться ботом"],
         ["❓ Помощь"],
     ]
@@ -62,13 +61,11 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("📋 Списки", callback_data="lists_list"),
             InlineKeyboardButton("💊 Лекарства", callback_data="medications_list"),
-        ],
-        [
             InlineKeyboardButton("⏰ Напоминания", callback_data="reminders_list"),
-            InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
+            InlineKeyboardButton("🚗 Для водителя", callback_data="driver_menu"),
         ],
         [
-            InlineKeyboardButton("🚗 Для водителя", callback_data="driver_menu"),
+            InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
         ],
         [
             InlineKeyboardButton("👥 Поделиться ботом", callback_data="share_bot"),

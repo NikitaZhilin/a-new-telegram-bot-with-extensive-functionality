@@ -98,8 +98,60 @@ async def _ensure_legacy_unversioned_schema() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS list_id INTEGER"))
         await conn.execute(text("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS medication_id INTEGER"))
+        await conn.execute(text("ALTER TABLE lists ADD COLUMN IF NOT EXISTS source_module VARCHAR(30) NOT NULL DEFAULT 'general'"))
+        await conn.execute(text("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS source_module VARCHAR(30) NOT NULL DEFAULT 'general'"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_list_id ON reminders (list_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_medication_id ON reminders (medication_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lists_source_module ON lists (source_module)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_source_module ON reminders (source_module)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_user_source_status ON reminders (user_id, source_module, status)"))
+        await conn.execute(
+            text(
+                """
+                UPDATE lists
+                SET source_module = 'driver'
+                WHERE title IN (
+                    '🚗 Запчасти к покупке',
+                    '🚗 Проверка перед поездкой',
+                    '💧 Проверка жидкостей'
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE reminders
+                SET source_module = 'medication'
+                WHERE medication_id IS NOT NULL
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE reminders
+                SET source_module = 'list'
+                WHERE list_id IS NOT NULL
+                  AND source_module = 'general'
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE reminders
+                SET source_module = 'driver'
+                WHERE text IN (
+                    'Заменить моторное масло и масляный фильтр',
+                    'Проверить уровни жидкостей: масло, антифриз, тормозная, омывайка',
+                    'Помыть кузов и убрать салон',
+                    'Проверить давление в шинах',
+                    'Запланировать прохождение ТО'
+                )
+                """
+            )
+        )
         await conn.execute(text("ALTER TABLE medication_intakes ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'TAKEN'"))
         await conn.execute(text("ALTER TABLE medications ADD COLUMN IF NOT EXISTS importance VARCHAR(20) NOT NULL DEFAULT 'normal'"))
         await conn.execute(text("ALTER TABLE list_share_tokens ADD COLUMN IF NOT EXISTS token_type VARCHAR(20) NOT NULL DEFAULT 'copy'"))

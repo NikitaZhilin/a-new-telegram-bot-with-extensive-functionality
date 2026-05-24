@@ -283,6 +283,7 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
         template_key = query.data.split(":", 1)[1]
         context.user_data.pop("linked_list_id", None)
         context.user_data.pop("linked_list_title", None)
+        context.user_data["reminder_source_module"] = "driver"
         context.user_data["reminder_text"] = DRIVER_REMINDER_TEMPLATES.get(
             template_key,
             "Автомобильное напоминание",
@@ -316,6 +317,7 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
 
         context.user_data["linked_list_id"] = list_id
         context.user_data["linked_list_title"] = list_obj.title
+        context.user_data["reminder_source_module"] = "list"
         context.user_data["reminder_text"] = f"Напомнить про список: {list_obj.title}"
 
         await query.edit_message_text(
@@ -326,6 +328,7 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     context.user_data.pop("linked_list_id", None)
     context.user_data.pop("linked_list_title", None)
+    context.user_data.pop("reminder_source_module", None)
 
     async with async_session_maker() as session:
         context.user_data["user_timezone"] = await _get_user_timezone(update, session)
@@ -596,6 +599,7 @@ async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_
     remind_at_str = context.user_data.get("remind_at_utc")
     repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
     linked_list_id = context.user_data.get("linked_list_id")
+    source_module = context.user_data.get("reminder_source_module")
     
     if not remind_at_str:
         await query.edit_message_text("❌ Ошибка: не указано время")
@@ -614,6 +618,7 @@ async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_
             remind_at_utc=remind_at_utc,
             repeat_rule=repeat_rule,
             list_id=linked_list_id,
+            source_module=source_module,
         )
         if reminder is None:
             await session.rollback()

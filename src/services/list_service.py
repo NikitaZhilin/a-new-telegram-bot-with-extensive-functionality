@@ -33,11 +33,13 @@ class ListService:
         self,
         user_id: int,
         title: str,
+        source_module: str = "general",
     ) -> TodoList:
         """Create a new TodoList."""
         list_obj = TodoList(
             user_id=user_id,
             title=title,
+            source_module=source_module,
         )
         self.db.add(list_obj)
         await self.db.flush()
@@ -87,12 +89,20 @@ class ListService:
         user_id: int,
         page: int = 0,
         page_size: int = 10,
+        source_module: str = "general",
     ) -> tuple[list[TodoList], int]:
         """Get paginated list of TodoLists."""
         offset = page * page_size
 
-        lists = list(await self.repo.get_accessible_by_user(user_id, limit=page_size, offset=offset))
-        total = await self.repo.count_accessible_by_user(user_id)
+        lists = list(
+            await self.repo.get_accessible_by_user(
+                user_id,
+                limit=page_size,
+                offset=offset,
+                source_module=source_module,
+            )
+        )
+        total = await self.repo.count_accessible_by_user(user_id, source_module=source_module)
         for list_obj in lists:
             setattr(list_obj, "_access_role", await self.get_access_role(list_obj.id, user_id))
         return lists, total
@@ -581,6 +591,7 @@ class ListService:
         new_list = await self.create_list(
             user_id=recipient_user_id,
             title=f"{source.title} (копия)",
+            source_module=source.source_module,
         )
         items = await self.get_list_items(source.id, share.created_by_user_id)
         for item in items:

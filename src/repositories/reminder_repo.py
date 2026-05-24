@@ -165,6 +165,7 @@ class ReminderRepository(BaseRepository[Reminder]):
             text=reminder.text,
             list_id=reminder.list_id,
             medication_id=reminder.medication_id,
+            source_module=reminder.source_module,
             remind_at_utc=next_time,
             repeat_rule=reminder.repeat_rule,
             status=ReminderStatus.ACTIVE,

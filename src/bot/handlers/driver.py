@@ -13,6 +13,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from sqlalchemy import func, select
 
 from src.bot.keyboards import (
     get_back_home_inline_keyboard,
@@ -30,6 +31,7 @@ from src.bot.keyboards import (
     get_driver_vehicle_view_keyboard,
     get_driver_vehicles_keyboard,
 )
+from src.db.models import Reminder, ReminderStatus, TodoList
 from src.bot.states import DriverStates
 from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
@@ -45,6 +47,30 @@ DRIVER_MENU_TEXT = (
     "Автомобильный журнал: пробег, топливо, ТО, запчасти, документы и регулярный уход.\n\n"
     "Выберите раздел:"
 )
+
+
+def _format_driver_menu_text(
+    overview: dict,
+    driver_lists_count: int = 0,
+    active_driver_reminders_count: int = 0,
+) -> str:
+    """Build driver hub text with an autonomous domain summary."""
+    lines = [
+        "🚗 Для водителя",
+        "",
+        "Автомобильный журнал: пробег, топливо, ТО, запчасти, документы и регулярный уход.",
+        "",
+        "Краткая сводка:",
+        f"• авто: {overview['vehicles_count']}",
+        f"• заправок: {overview['fuel_entries_count']}",
+        f"• топливо: {_format_money(overview['fuel_total_cost'])}",
+        f"• авто-списков: {driver_lists_count}",
+        f"• авто-напоминаний: {active_driver_reminders_count}",
+    ]
+    if overview["avg_consumption"] is not None:
+        lines.append(f"• средний расход: {overview['avg_consumption']:.1f} л/100 км")
+    lines.extend(["", "Выберите раздел:"])
+    return "\n".join(lines)
 
 DRIVER_LIST_TEMPLATES = {
     "parts": (
@@ -604,11 +630,38 @@ async def _render_driver_stats(update: Update, context: ContextTypes.DEFAULT_TYP
 async def driver_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show the driver assistant hub."""
     query = update.callback_query
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        overview = await DriverService(session).get_user_overview(user_id)
+        driver_lists_count = (
+            await session.execute(
+                select(func.count(TodoList.id)).where(
+                    TodoList.user_id == user_id,
+                    TodoList.source_module == "driver",
+                )
+            )
+        ).scalar() or 0
+        active_driver_reminders_count = (
+            await session.execute(
+                select(func.count(Reminder.id)).where(
+                    Reminder.user_id == user_id,
+                    Reminder.source_module == "driver",
+                    Reminder.status == ReminderStatus.ACTIVE,
+                )
+            )
+        ).scalar() or 0
+
+    text = _format_driver_menu_text(
+        overview,
+        driver_lists_count=driver_lists_count,
+        active_driver_reminders_count=active_driver_reminders_count,
+    )
+
     if query:
         await query.answer()
-        await query.edit_message_text(DRIVER_MENU_TEXT, reply_markup=get_driver_menu_keyboard())
+        await query.edit_message_text(text, reply_markup=get_driver_menu_keyboard())
     else:
-        await update.message.reply_text(DRIVER_MENU_TEXT, reply_markup=get_driver_menu_keyboard())
+        await update.message.reply_text(text, reply_markup=get_driver_menu_keyboard())
     return ConversationHandler.END
 
 
@@ -658,7 +711,7 @@ async def driver_list_template_callback(update: Update, context: ContextTypes.DE
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         service = ListService(session)
-        list_obj = await service.create_list(user_id, title)
+        list_obj = await service.create_list(user_id, title, source_module="driver")
         await service.add_items_bulk(list_obj.id, user_id, items)
         await session.commit()
 

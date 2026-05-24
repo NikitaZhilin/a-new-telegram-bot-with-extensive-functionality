@@ -14,6 +14,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from sqlalchemy import func, select
 
 from src.bot.handlers.reminders import (
     _get_user_timezone,
@@ -31,6 +32,7 @@ from src.bot.keyboards import (
     get_medications_list_keyboard,
 )
 from src.bot.states import MedicationStates
+from src.db.models import Medication, Reminder, ReminderStatus
 from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.medication_service import MedicationService
@@ -175,6 +177,24 @@ async def _render_medications_page(user_id: int, page: int = 0) -> tuple[str, ob
             page=page,
             page_size=ITEMS_PER_PAGE,
         )
+        active_reminders = (
+            await session.execute(
+                select(func.count(Reminder.id)).where(
+                    Reminder.user_id == user_id,
+                    Reminder.source_module == "medication",
+                    Reminder.status == ReminderStatus.ACTIVE,
+                )
+            )
+        ).scalar() or 0
+        critical_count = (
+            await session.execute(
+                select(func.count(Medication.id)).where(
+                    Medication.user_id == user_id,
+                    Medication.is_active.is_(True),
+                    Medication.importance == "critical",
+                )
+            )
+        ).scalar() or 0
 
     if not medications and page > 0:
         return await _render_medications_page(user_id, page - 1)
@@ -184,6 +204,8 @@ async def _render_medications_page(user_id: int, page: int = 0) -> tuple[str, ob
         text = (
             f"💊 Приём лекарств ({total} всего)\n"
             f"Страница {page + 1}/{total_pages}\n\n"
+            f"Кратко: активных напоминаний {active_reminders}, "
+            f"критичных препаратов {critical_count}.\n\n"
             "Важно: бот только напоминает и фиксирует ваши отметки. "
             "Дозировки и режим приема задавайте по назначению врача."
         )

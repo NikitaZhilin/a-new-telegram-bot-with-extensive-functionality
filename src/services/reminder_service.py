@@ -37,6 +37,7 @@ class ReminderService:
         repeat_rule: RepeatRule = RepeatRule.NONE,
         list_id: Optional[int] = None,
         medication_id: Optional[int] = None,
+        source_module: Optional[str] = None,
     ) -> Optional[Reminder]:
         """
         Create a new reminder.
@@ -49,6 +50,7 @@ class ReminderService:
             repeat_rule: Repeat rule
             list_id: Optional linked TodoList ID owned by the same user
             medication_id: Optional linked Medication ID owned by the same user
+            source_module: Domain that owns the reminder in user-facing lists
             
         Returns:
             Created Reminder
@@ -76,6 +78,14 @@ class ReminderService:
         # Ensure UTC timezone
         if remind_at_utc.tzinfo is None:
             remind_at_utc = remind_at_utc.replace(tzinfo=timezone.utc)
+
+        if source_module is None:
+            if medication_id is not None:
+                source_module = "medication"
+            elif list_id is not None:
+                source_module = "list"
+            else:
+                source_module = "general"
         
         reminder = Reminder(
             user_id=user_id,
@@ -83,6 +93,7 @@ class ReminderService:
             text=text,
             list_id=list_id,
             medication_id=medication_id,
+            source_module=source_module,
             remind_at_utc=remind_at_utc,
             repeat_rule=repeat_rule,
             status=ReminderStatus.ACTIVE,
@@ -108,6 +119,7 @@ class ReminderService:
         active: bool = True,
         page: int = 0,
         page_size: int = 20,
+        source_module: Optional[str] = "general",
     ) -> Tuple[List[Reminder], int]:
         """Get paginated list of reminders."""
         from sqlalchemy import func
@@ -116,23 +128,26 @@ class ReminderService:
         status = ReminderStatus.ACTIVE if active else None
         
         # Get reminders
-        query = select(Reminder).where(
-            and_(
-                Reminder.user_id == user_id,
-                Reminder.status == status if status else Reminder.status != ReminderStatus.ACTIVE,
-            )
-        ).order_by(Reminder.remind_at_utc.asc()).offset(offset).limit(page_size)
+        conditions = [
+            Reminder.user_id == user_id,
+            Reminder.status == status if status else Reminder.status != ReminderStatus.ACTIVE,
+        ]
+        if source_module is not None:
+            conditions.append(Reminder.source_module == source_module)
+
+        query = (
+            select(Reminder)
+            .where(and_(*conditions))
+            .order_by(Reminder.remind_at_utc.asc())
+            .offset(offset)
+            .limit(page_size)
+        )
         
         result = await self.db.execute(query)
         reminders = result.scalars().all()
         
         # Get total count
-        count_query = select(func.count(Reminder.id)).where(
-            and_(
-                Reminder.user_id == user_id,
-                Reminder.status == status if status else Reminder.status != ReminderStatus.ACTIVE,
-            )
-        )
+        count_query = select(func.count(Reminder.id)).where(and_(*conditions))
         count_result = await self.db.execute(count_query)
         total = count_result.scalar() or 0
         

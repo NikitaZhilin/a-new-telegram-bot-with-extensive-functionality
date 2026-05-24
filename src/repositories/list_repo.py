@@ -23,6 +23,7 @@ class ListRepository(BaseRepository[TodoList]):
         user_id: int,
         limit: int = 50,
         offset: int = 0,
+        source_module: Optional[str] = None,
     ) -> Sequence[TodoList]:
         """Get TodoLists for a user."""
         query = (
@@ -32,6 +33,8 @@ class ListRepository(BaseRepository[TodoList]):
             .offset(offset)
             .limit(limit)
         )
+        if source_module is not None:
+            query = query.where(TodoList.source_module == source_module)
         result = await self.db.execute(query)
         return result.scalars().all()
 
@@ -40,6 +43,7 @@ class ListRepository(BaseRepository[TodoList]):
         user_id: int,
         limit: int = 50,
         offset: int = 0,
+        source_module: Optional[str] = "general",
     ) -> Sequence[TodoList]:
         """Get owned and shared TodoLists for a user."""
         query = (
@@ -57,16 +61,24 @@ class ListRepository(BaseRepository[TodoList]):
             .offset(offset)
             .limit(limit)
         )
+        if source_module is not None:
+            query = query.where(TodoList.source_module == source_module)
         result = await self.db.execute(query)
         return result.scalars().unique().all()
 
-    async def count_by_user(self, user_id: int) -> int:
+    async def count_by_user(self, user_id: int, source_module: Optional[str] = None) -> int:
         """Count TodoLists for a user."""
         query = select(func.count(TodoList.id)).where(TodoList.user_id == user_id)
+        if source_module is not None:
+            query = query.where(TodoList.source_module == source_module)
         result = await self.db.execute(query)
         return result.scalar() or 0
 
-    async def count_accessible_by_user(self, user_id: int) -> int:
+    async def count_accessible_by_user(
+        self,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> int:
         """Count owned and shared TodoLists for a user."""
         query = (
             select(func.count(func.distinct(TodoList.id)))
@@ -79,6 +91,8 @@ class ListRepository(BaseRepository[TodoList]):
             )
             .where(or_(TodoList.user_id == user_id, ListMember.user_id == user_id))
         )
+        if source_module is not None:
+            query = query.where(TodoList.source_module == source_module)
         result = await self.db.execute(query)
         return result.scalar() or 0
 

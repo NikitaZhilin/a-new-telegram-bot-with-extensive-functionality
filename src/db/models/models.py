@@ -220,6 +220,13 @@ class TodoList(Base):
         index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_module: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="general",
+        server_default="general",
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -515,6 +522,13 @@ class Reminder(Base):
         nullable=True,
         index=True
     )
+    source_module: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="general",
+        server_default="general",
+        index=True,
+    )
     remind_at_utc: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -556,6 +570,7 @@ class Reminder(Base):
     __table_args__ = (
         Index("ix_reminders_user_status", "user_id", "status"),
         Index("ix_reminders_remind_at_status", "remind_at_utc", "status"),
+        Index("ix_reminders_user_source_status", "user_id", "source_module", "status"),
     )
 
     def __repr__(self) -> str:

@@ -168,6 +168,9 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
         
         settings_service = SettingsService(session)
         stats = await settings_service.get_stats(user.id if user else user_id)
+        admin_activity = None
+        if user and user.is_admin:
+            admin_activity = await settings_service.get_admin_activity_stats(user.id)
     
     text = (
         "📊 Статистика\n\n"
@@ -186,6 +189,24 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
         f"📝 Заметки (скрытый модуль): {stats['notes']['active']} активных, "
         f"{stats['notes']['archived']} в архиве\n"
     )
+
+    if admin_activity:
+        text += (
+            "\n👥 Пользователи и активность\n"
+            f"• всего пользователей: {admin_activity['users']['total']}\n"
+            f"• кроме вас: {admin_activity['users']['other']}\n"
+            f"• списки: {admin_activity['lists']['other_users']} польз., "
+            f"{admin_activity['lists']['records']} записей\n"
+            f"• общие списки: {admin_activity['shared_lists']['other_users']} польз., "
+            f"{admin_activity['shared_lists']['records']} доступов\n"
+            f"• напоминания: {admin_activity['reminders']['other_users']} польз., "
+            f"{admin_activity['reminders']['records']} записей\n"
+            f"• лекарства: {admin_activity['medications']['other_users']} польз., "
+            f"{admin_activity['medications']['records']} препаратов\n"
+            f"• авто: {admin_activity['driver']['vehicle_users']} польз., "
+            f"{admin_activity['driver']['vehicles']} авто, "
+            f"{admin_activity['driver']['fuel_entries']} заправок\n"
+        )
     
     await query.edit_message_text(
         text,
