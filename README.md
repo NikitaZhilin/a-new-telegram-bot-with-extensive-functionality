@@ -67,6 +67,7 @@ README намеренно не содержит токенов, адресов �
 - каждый пользователь видит только свои данные;
 - общие данные появляются только через явное приглашение;
 - настройка часового пояса;
+- приватная аналитика действий без хранения текста сообщений;
 - экран текущего плана;
 - базовый слой для будущей монетизации.
 
@@ -148,6 +149,12 @@ Docker Compose поднимает PostgreSQL, одноразовый `init-db`, 
 docker-compose up -d
 ```
 
+Если на сервере нет `docker compose`/`docker-compose`, используйте изолированный fallback:
+
+```bash
+bash deploy-vps-manual.sh
+```
+
 Ручной сценарий:
 
 ```powershell
@@ -200,12 +207,14 @@ python -B -m pytest -p no:cacheprovider tests
 ### Развитие
 
 - платежная интеграция и тарифные ограничения;
-- web-панель администратора;
+- user API, PWA/web-кабинет и затем мобильное приложение;
 - расширенная история приема лекарств;
 - экспорт автомобильных расходов;
 - уведомления и audit log для совместных списков;
 - CI/CD с автоматическим тестом и деплоем;
 - локализация интерфейса бота.
+
+План развития web/app: [docs/WEB_APP_ROADMAP.md](docs/WEB_APP_ROADMAP.md).
 
 <a id="en"></a>
 
@@ -272,6 +281,7 @@ The bot is a tracking aid only and does not replace medical advice.
 - users are isolated by default;
 - shared data exists only after explicit invitation;
 - timezone settings;
+- privacy-safe action analytics without storing message text;
 - current plan screen;
 - base layer for future monetization.
 
@@ -353,6 +363,12 @@ Docker Compose starts PostgreSQL, one-shot `init-db`, API, bot, and worker:
 docker-compose up -d
 ```
 
+If the server has no `docker compose`/`docker-compose`, use the isolated fallback:
+
+```bash
+bash deploy-vps-manual.sh
+```
+
 Manual flow:
 
 ```powershell
@@ -406,9 +422,11 @@ python -B -m pytest -p no:cacheprovider tests
 ### Roadmap
 
 - payment integration and real plan limits;
-- admin web panel;
+- user API, PWA/web cabinet, then mobile app;
 - extended medication intake history;
 - vehicle expense export;
 - notifications and audit log for shared lists;
 - CI/CD with automated tests and deployment;
 - bot UI localization.
+
+Web/app roadmap: [docs/WEB_APP_ROADMAP.md](docs/WEB_APP_ROADMAP.md).

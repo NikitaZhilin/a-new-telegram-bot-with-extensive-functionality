@@ -108,6 +108,32 @@ async def _ensure_legacy_unversioned_schema() -> None:
         await conn.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS bot_activity_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    telegram_id BIGINT,
+                    source VARCHAR(30) NOT NULL DEFAULT 'telegram',
+                    event_type VARCHAR(30) NOT NULL,
+                    event_name VARCHAR(120) NOT NULL,
+                    domain VARCHAR(30) NOT NULL DEFAULT 'general',
+                    metadata_json JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+        )
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_events_user_id ON bot_activity_events (user_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_events_telegram_id ON bot_activity_events (telegram_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_events_event_type ON bot_activity_events (event_type)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_events_event_name ON bot_activity_events (event_name)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_events_domain ON bot_activity_events (domain)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_events_created_at ON bot_activity_events (created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_user_created ON bot_activity_events (user_id, created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_domain_created ON bot_activity_events (domain, created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bot_activity_event_created ON bot_activity_events (event_name, created_at)"))
+        await conn.execute(
+            text(
+                """
                 UPDATE lists
                 SET source_module = 'driver'
                 WHERE title IN (

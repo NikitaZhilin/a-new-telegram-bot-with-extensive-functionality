@@ -191,6 +191,15 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
     )
 
     if admin_activity:
+        activity = admin_activity["activity"]
+        top_domains = "\n".join(
+            f"  • {item['label']}: {item['count']}"
+            for item in activity["top_domains"][:5]
+        ) or "  • пока нет событий"
+        top_actions = "\n".join(
+            f"  • {item['label']}: {item['count']}"
+            for item in activity["top_actions"][:5]
+        ) or "  • пока нет событий"
         text += (
             "\n👥 Пользователи и активность\n"
             f"• всего пользователей: {admin_activity['users']['total']}\n"
@@ -206,6 +215,16 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
             f"• авто: {admin_activity['driver']['vehicle_users']} польз., "
             f"{admin_activity['driver']['vehicles']} авто, "
             f"{admin_activity['driver']['fuel_entries']} заправок\n"
+            "\n📈 Поведение в боте\n"
+            f"• событий за 24 часа: {activity['events_24h']}\n"
+            f"• событий за {activity['period_days']} дней: {activity['events_period']}\n"
+            f"• активных других пользователей за 24 часа: {activity['active_other_users_24h']}\n"
+            f"• активных других пользователей за {activity['period_days']} дней: "
+            f"{activity['active_other_users_period']}\n"
+            "Топ разделов:\n"
+            f"{top_domains}\n"
+            "Топ действий:\n"
+            f"{top_actions}\n"
         )
     
     await query.edit_message_text(

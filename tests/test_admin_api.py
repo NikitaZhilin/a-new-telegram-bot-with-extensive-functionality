@@ -10,6 +10,7 @@ from src.config import settings
 from src.db.models import Medication, Reminder, ReminderStatus, RepeatRule, TodoList, User
 from src.db.session import get_db
 from src.services.driver_service import DriverService
+from src.services.activity_service import ActivityService
 
 
 @pytest.mark.asyncio
@@ -39,6 +40,13 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     driver_service = DriverService(db_session)
     vehicle = await driver_service.create_vehicle(user.id, "API visible vehicle", current_mileage_km=1000)
     await driver_service.add_fuel_entry(user.id, vehicle.id, 1500, 30, 1800, True)
+    await ActivityService(db_session).record_event(
+        user_id=user.id,
+        telegram_id=user.telegram_id,
+        event_type="callback",
+        event_name="driver_menu",
+        domain="driver",
+    )
 
     app = create_application()
 
@@ -53,10 +61,12 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
         users_response = await client.get("/admin/users", headers=headers)
         user_response = await client.get(f"/admin/users/{user.id}", headers=headers)
         records_response = await client.get(f"/admin/users/{user.id}/records", headers=headers)
+        activity_response = await client.get(f"/admin/activity?current_user_id={user.id}", headers=headers)
 
     assert users_response.status_code == 200
     assert user_response.status_code == 200
     assert records_response.status_code == 200
+    assert activity_response.status_code == 200
 
     users_payload = users_response.json()
     assert users_payload["total"] == 1
@@ -75,3 +85,7 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     assert records_payload["driver"]["overview"]["vehicles_count"] == 1
     assert records_payload["driver"]["overview"]["fuel_entries_count"] == 1
     assert records_payload["driver"]["vehicles"][0]["title"] == "API visible vehicle"
+
+    activity_payload = activity_response.json()
+    assert activity_payload["events_period"] == 1
+    assert activity_payload["top_domains"][0]["domain"] == "driver"

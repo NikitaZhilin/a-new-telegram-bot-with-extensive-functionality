@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.auth import require_admin
 from src.db.session import get_db
 from src.db.models import Medication, Note, TodoList, Reminder, ReminderStatus, User
+from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
 from src.services.subscription_service import SubscriptionService
 
@@ -82,6 +83,18 @@ class UserRecordsResponse(BaseModel):
     reminders: List[dict]
     medications: List[dict]
     driver: dict
+
+
+class ActivitySummaryResponse(BaseModel):
+    """Sanitized behavior analytics summary."""
+
+    period_days: int
+    events_24h: int
+    events_period: int
+    active_other_users_24h: int
+    active_other_users_period: int
+    top_domains: List[dict]
+    top_actions: List[dict]
 
 
 # === Routes ===
@@ -266,6 +279,25 @@ async def get_user_records(
             ],
         },
     )
+
+
+@router.get(
+    "/activity",
+    response_model=ActivitySummaryResponse,
+    summary="Get bot activity summary",
+    description="Admin-only privacy-safe interaction analytics",
+)
+async def get_activity_summary(
+    current_user_id: int = Query(0, ge=0, description="Internal admin user ID to exclude from active-other-user counts"),
+    days: int = Query(7, ge=1, le=30, description="Lookback period in days"),
+    db: AsyncSession = Depends(get_db),
+) -> ActivitySummaryResponse:
+    """Return sanitized aggregate activity without message text."""
+    summary = await ActivityService(db).get_admin_event_summary(
+        current_user_id=current_user_id,
+        days=days,
+    )
+    return ActivitySummaryResponse(**summary)
 
 
 @router.get(

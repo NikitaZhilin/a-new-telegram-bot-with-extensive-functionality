@@ -11,6 +11,7 @@ from sqlalchemy import distinct, func, select
 
 from src.db.models import User
 from src.repositories.user_repo import UserRepository
+from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,7 @@ class SettingsService:
         driver_fuel_users = await count(
             select(func.count(distinct(DriverFuelEntry.user_id))).where(DriverFuelEntry.user_id != current_user_id)
         )
+        activity = await ActivityService(self.db).get_admin_event_summary(current_user_id)
 
         return {
             "users": {
@@ -256,4 +258,5 @@ class SettingsService:
                 "fuel_entries": driver_fuel_total,
                 "fuel_users": driver_fuel_users,
             },
+            "activity": activity,
         }

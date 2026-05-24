@@ -18,6 +18,7 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     func,
@@ -124,6 +125,13 @@ class User(Base):
         lazy="selectin",
         order_by="DriverFuelEntry.filled_at_utc.desc()",
     )
+    activity_events = relationship(
+        "BotActivityEvent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="BotActivityEvent.created_at.desc()",
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id})>"
@@ -205,6 +213,43 @@ class UserSubscription(Base):
 
     def __repr__(self) -> str:
         return f"<UserSubscription(user_id={self.user_id}, plan='{self.plan_code}', status='{self.status}')>"
+
+
+class BotActivityEvent(Base):
+    """Sanitized bot interaction event for admin diagnostics."""
+
+    __tablename__ = "bot_activity_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="telegram", server_default="telegram")
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    event_name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    domain: Mapped[str] = mapped_column(String(30), nullable=False, default="general", server_default="general", index=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    user = relationship("User", back_populates="activity_events")
+
+    __table_args__ = (
+        Index("ix_bot_activity_user_created", "user_id", "created_at"),
+        Index("ix_bot_activity_domain_created", "domain", "created_at"),
+        Index("ix_bot_activity_event_created", "event_name", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<BotActivityEvent(user_id={self.user_id}, event='{self.event_name}')>"
 
 
 class TodoList(Base):

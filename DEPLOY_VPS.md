@@ -80,7 +80,34 @@ docker compose --project-name rememberme_bot up -d --build
 docker compose logs -f bot worker
 ```
 
-## 6. Security Checklist
+## 6. Fallback Without Docker Compose
+
+Some VPS images have Docker but no `docker compose` plugin. In that case use the manual deploy script from the project directory:
+
+```bash
+cd /opt/bots/rememberme
+bash deploy-vps-manual.sh
+```
+
+The script:
+
+- pulls the latest git revision;
+- synchronizes `.env` database credentials with the existing `rememberme_bot-postgres` container without printing secrets;
+- builds app and worker images;
+- runs `init-db`;
+- recreates only `rememberme_bot-bot`, `rememberme_bot-api`, and `rememberme_bot-worker`;
+- leaves VPN, MTProto, nginx, systemd, and unrelated containers untouched.
+
+You can override names if needed:
+
+```bash
+PROJECT_DIR=/opt/bots/rememberme \
+NETWORK=rememberme_bot_network \
+POSTGRES_CONTAINER=rememberme_bot-postgres \
+bash deploy-vps-manual.sh
+```
+
+## 7. Security Checklist
 
 - Add SSH key access and disable root password login when ready.
 - Change the root password after initial setup if it was shared in chat.

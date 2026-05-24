@@ -6,6 +6,7 @@ All models are defined in models.py and re-exported here.
 
 from src.db.models.models import (
     Base,
+    BotActivityEvent,
     User,
     UserSubscription,
     Note,
@@ -25,6 +26,7 @@ from src.db.models.models import (
 
 __all__ = [
     "Base",
+    "BotActivityEvent",
     "User",
     "UserSubscription",
     "Note",

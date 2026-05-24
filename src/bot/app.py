@@ -5,12 +5,14 @@ Creates and configures the PTB application with all handlers.
 """
 
 import logging
+from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     ApplicationBuilder,
     CallbackQueryHandler,
     ContextTypes,
+    TypeHandler,
 )
 
 from src.config import settings
@@ -113,6 +115,7 @@ from src.bot.handlers.driver import (
 )
 from src.bot.handlers.navigation import menu_button_handler
 from src.bot.handlers.navigation import removed_notes_callback, share_bot_callback
+from src.bot.handlers.activity import activity_event_handler
 
 
 def create_application() -> Application:
@@ -132,6 +135,11 @@ def create_application() -> Application:
         .connect_timeout(10)
         .pool_timeout(10)
         .build()
+    )
+
+    application.add_handler(
+        TypeHandler(Update, activity_event_handler, block=False),
+        group=-1,
     )
     
     # === Command Handlers ===
