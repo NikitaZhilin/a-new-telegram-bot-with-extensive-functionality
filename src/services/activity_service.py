@@ -25,6 +25,53 @@ DOMAIN_LABELS = {
     "unknown": "прочее",
 }
 
+FUNNEL_DEFINITIONS = [
+    {
+        "key": "lists",
+        "label": "Списки",
+        "stages": [
+            ("open", "Открыли раздел", ["menu:lists", "lists_list"]),
+            ("create_start", "Начали создание", ["list_create"]),
+            ("item_add", "Добавляли пункт", ["list_add_item:{id}", "list_add_bulk:{id}"]),
+            ("share", "Открывали шаринг", ["list_share:{id}"]),
+        ],
+    },
+    {
+        "key": "reminders",
+        "label": "Напоминания",
+        "stages": [
+            ("open", "Открыли раздел", ["menu:reminders", "reminders_list"]),
+            ("create_start", "Начали создание", ["reminder_create", "list_remind:{id}"]),
+            ("date", "Выбрали дату", ["rem_date_today", "rem_date_tomorrow", "rem_date_after_tomorrow", "rem_date_next_week", "rem_date_custom"]),
+            ("time", "Выбрали время", ["rem_time_10min", "rem_time_30min", "rem_time_1hour", "rem_time_2hour", "rem_time_clock_0900", "rem_time_clock_1200", "rem_time_clock_1800", "rem_time_clock_2100", "rem_time_custom"]),
+            ("confirm", "Подтвердили", ["rem_confirm_create"]),
+        ],
+    },
+    {
+        "key": "medications",
+        "label": "Лекарства",
+        "stages": [
+            ("open", "Открыли раздел", ["menu:medications", "medications_list"]),
+            ("create_start", "Начали создание", ["med_create"]),
+            ("dosage", "Указали дозировку", ["med_dosage:tablet1", "med_dosage:tablet_half", "med_dosage:drop1", "med_dosage:ml5", "med_dosage:skip"]),
+            ("instructions", "Указали инструкцию", ["med_instr:after_food", "med_instr:during_food", "med_instr:before_food", "med_instr:with_water", "med_instr:separate", "med_instr:skip"]),
+            ("importance", "Выбрали важность", ["med_importance:supplement", "med_importance:normal", "med_importance:important", "med_importance:critical"]),
+            ("reminder", "Настраивали время", ["med_rem_freq:{id}:{id}", "med_rem_custom:{id}", "med_rem_time:{id}:{id}"]),
+        ],
+    },
+    {
+        "key": "driver",
+        "label": "Для водителя",
+        "stages": [
+            ("open", "Открыли раздел", ["menu:driver", "driver_menu"]),
+            ("vehicle_create", "Создавали авто", ["driver_vehicle_create"]),
+            ("fuel_add", "Добавляли заправку", ["driver_fuel_add:{id}"]),
+            ("service_done", "Отмечали ТО", ["driver_service_done:{id}"]),
+            ("templates", "Использовали шаблоны", ["driver_list_template:parts", "driver_list_template:trip_check", "driver_list_template:fluids_check", "driver_reminder_template:oil", "driver_reminder_template:fluids", "driver_reminder_template:wash", "driver_reminder_template:tire_pressure"]),
+        ],
+    },
+]
+
 
 class ActivityService:
     """Record and aggregate sanitized bot interaction events."""
@@ -161,6 +208,51 @@ class ActivityService:
                 }
                 for domain, event_name, count in actions_result.all()
             ],
+        }
+
+    async def get_funnel_summary(self, days: int = 7) -> dict:
+        """Return basic product funnels from sanitized activity events."""
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        funnels = []
+
+        for definition in FUNNEL_DEFINITIONS:
+            previous_count: Optional[int] = None
+            stages = []
+            for key, label, event_names in definition["stages"]:
+                result = await self.db.execute(
+                    select(func.count(BotActivityEvent.id)).where(
+                        BotActivityEvent.created_at >= since,
+                        BotActivityEvent.event_name.in_(event_names),
+                    )
+                )
+                count = result.scalar() or 0
+                drop_from_previous = None
+                conversion_from_previous = None
+                if previous_count is not None:
+                    drop_from_previous = max(previous_count - count, 0)
+                    conversion_from_previous = round((count / previous_count) * 100, 1) if previous_count else 0.0
+                stages.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "count": count,
+                        "drop_from_previous": drop_from_previous,
+                        "conversion_from_previous": conversion_from_previous,
+                    }
+                )
+                previous_count = count
+
+            funnels.append(
+                {
+                    "key": definition["key"],
+                    "label": definition["label"],
+                    "stages": stages,
+                }
+            )
+
+        return {
+            "period_days": days,
+            "funnels": funnels,
         }
 
 

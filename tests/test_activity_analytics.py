@@ -79,3 +79,9 @@ async def test_activity_summary_counts_top_domains_and_actions(db_session):
         "menu:driver",
         "driver_fuel_add:{id}",
     }
+
+    funnels = await service.get_funnel_summary(days=7)
+    driver_funnel = next(item for item in funnels["funnels"] if item["key"] == "driver")
+
+    assert driver_funnel["stages"][0]["count"] == 1
+    assert driver_funnel["stages"][2]["count"] == 1

@@ -47,6 +47,13 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
         event_name="driver_menu",
         domain="driver",
     )
+    await ActivityService(db_session).record_event(
+        user_id=user.id,
+        telegram_id=user.telegram_id,
+        event_type="callback",
+        event_name="driver_fuel_add:{id}",
+        domain="driver",
+    )
 
     app = create_application()
 
@@ -62,11 +69,15 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
         user_response = await client.get(f"/admin/users/{user.id}", headers=headers)
         records_response = await client.get(f"/admin/users/{user.id}/records", headers=headers)
         activity_response = await client.get(f"/admin/activity?current_user_id={user.id}", headers=headers)
+        funnels_response = await client.get("/admin/funnels", headers=headers)
+        ui_response = await client.get("/admin/ui")
 
     assert users_response.status_code == 200
     assert user_response.status_code == 200
     assert records_response.status_code == 200
     assert activity_response.status_code == 200
+    assert funnels_response.status_code == 200
+    assert ui_response.status_code == 200
 
     users_payload = users_response.json()
     assert users_payload["total"] == 1
@@ -87,5 +98,11 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     assert records_payload["driver"]["vehicles"][0]["title"] == "API visible vehicle"
 
     activity_payload = activity_response.json()
-    assert activity_payload["events_period"] == 1
+    assert activity_payload["events_period"] == 2
     assert activity_payload["top_domains"][0]["domain"] == "driver"
+
+    funnels_payload = funnels_response.json()
+    driver_funnel = next(item for item in funnels_payload["funnels"] if item["key"] == "driver")
+    assert driver_funnel["stages"][0]["key"] == "open"
+    assert driver_funnel["stages"][2]["key"] == "fuel_add"
+    assert "RememberMe Admin" in ui_response.text

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import health, admin
+from src.api.routes import health, admin, admin_ui, me
 from src.config import settings
 from src.db.session import engine
 
@@ -57,7 +57,9 @@ def create_application() -> FastAPI:
 
     # Include routers
     app.include_router(health.router, tags=["Health"])
+    app.include_router(admin_ui.router, tags=["Admin UI"])
     app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+    app.include_router(me.router, tags=["User"])
 
     logger.info("FastAPI application created")
 

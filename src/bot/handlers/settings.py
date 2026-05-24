@@ -200,6 +200,18 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
             f"  • {item['label']}: {item['count']}"
             for item in activity["top_actions"][:5]
         ) or "  • пока нет событий"
+        funnel_lines = []
+        for funnel in admin_activity["funnels"]["funnels"][:4]:
+            stages = funnel["stages"]
+            if not stages:
+                continue
+            first = stages[0]
+            last = stages[-1]
+            conversion = round((last["count"] / first["count"]) * 100, 1) if first["count"] else 0.0
+            funnel_lines.append(
+                f"  • {funnel['label']}: {first['count']} → {last['count']} ({conversion}%)"
+            )
+        funnel_text = "\n".join(funnel_lines) or "  • пока нет данных"
         text += (
             "\n👥 Пользователи и активность\n"
             f"• всего пользователей: {admin_activity['users']['total']}\n"
@@ -225,6 +237,8 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
             f"{top_domains}\n"
             "Топ действий:\n"
             f"{top_actions}\n"
+            "Воронки:\n"
+            f"{funnel_text}\n"
         )
     
     await query.edit_message_text(

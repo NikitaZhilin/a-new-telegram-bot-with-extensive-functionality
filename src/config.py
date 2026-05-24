@@ -42,6 +42,10 @@ class Settings(BaseSettings):
         default="",
         description="Comma-separated allowed CORS origins, or * for local development"
     )
+    USER_AUTH_MAX_AGE_SECONDS: int = Field(
+        default=86400,
+        description="Max age for Telegram WebApp initData used by user API"
+    )
     
     # Application
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
@@ -50,6 +54,14 @@ class Settings(BaseSettings):
     STARTUP_UPDATE_MESSAGE: str = Field(
         default="Можно продолжать пользоваться.",
         description="Short changelog sent with startup menu"
+    )
+    TESTING_NOTICE_ENABLED: bool = Field(
+        default=True,
+        description="Show a user-facing notice that the bot is in testing"
+    )
+    TESTING_NOTICE_TEXT: str = Field(
+        default="⚠️ Бот находится в тестировании. Данные могут быть изменены или утеряны.",
+        description="Short user-facing testing notice"
     )
     
     # Webhook (optional)

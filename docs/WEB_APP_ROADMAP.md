@@ -13,21 +13,25 @@
 
 1. User API
 
-   Добавить пользовательские endpoints поверх текущих сервисов:
+   Базовые read-only endpoints уже добавлены:
 
    - `GET /me`
-   - `GET/POST /me/lists`
-   - `GET/POST /me/reminders`
-   - `GET/POST /me/medications`
-   - `GET/POST /me/driver/vehicles`
-   - `GET /me/activity-summary`
-   - `GET /me/subscription`
+   - `GET /me/summary`
+   - `GET /me/lists`
+   - `GET /me/reminders`
+   - `GET /me/medications`
+   - `GET /me/driver`
+
+   Текущая реализация покрывает `GET /me`, `GET /me/summary`, `GET /me/lists`,
+   `GET /me/reminders`, `GET /me/medications`, `GET /me/driver`.
+   Следующий шаг - добавить write endpoints после стабилизации web UI.
 
    Важно: не давать frontend прямой доступ к admin endpoints.
 
 2. Авторизация
 
-   Самый мягкий вариант для MVP:
+   MVP-авторизация уже заложена через Telegram WebApp `initData`.
+   Для внешней PWA вне Telegram нужно добавить отдельный login-flow:
 
    - Telegram Login Widget для web;
    - deep-link из бота с одноразовым login token;

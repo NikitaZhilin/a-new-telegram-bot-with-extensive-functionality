@@ -107,7 +107,37 @@ POSTGRES_CONTAINER=rememberme_bot-postgres \
 bash deploy-vps-manual.sh
 ```
 
-## 7. Security Checklist
+## 7. GitHub Actions Deploy
+
+The repository includes `.github/workflows/ci-deploy.yml`.
+
+On every push to `main` it:
+
+- installs dependencies;
+- runs the full test suite;
+- runs API/bot/worker/all dry-runs;
+- deploys to VPS only after tests pass.
+
+Required GitHub Secrets:
+
+```text
+VPS_HOST
+VPS_USER
+VPS_SSH_KEY
+VPS_PROJECT_DIR
+```
+
+`VPS_PROJECT_DIR` can be omitted if the project lives at `/opt/bots/rememberme`.
+
+The workflow calls:
+
+```bash
+cd "$VPS_PROJECT_DIR" && bash deploy-vps-manual.sh
+```
+
+Do not store `.env`, bot tokens, database passwords, or admin tokens in GitHub Actions variables unless they are needed by the workflow as encrypted secrets.
+
+## 8. Security Checklist
 
 - Add SSH key access and disable root password login when ready.
 - Change the root password after initial setup if it was shared in chat.

@@ -229,7 +229,9 @@ class SettingsService:
         driver_fuel_users = await count(
             select(func.count(distinct(DriverFuelEntry.user_id))).where(DriverFuelEntry.user_id != current_user_id)
         )
-        activity = await ActivityService(self.db).get_admin_event_summary(current_user_id)
+        activity_service = ActivityService(self.db)
+        activity = await activity_service.get_admin_event_summary(current_user_id)
+        funnels = await activity_service.get_funnel_summary()
 
         return {
             "users": {
@@ -259,4 +261,5 @@ class SettingsService:
                 "fuel_users": driver_fuel_users,
             },
             "activity": activity,
+            "funnels": funnels,
         }

@@ -97,6 +97,13 @@ class ActivitySummaryResponse(BaseModel):
     top_actions: List[dict]
 
 
+class FunnelSummaryResponse(BaseModel):
+    """Product funnel summary."""
+
+    period_days: int
+    funnels: List[dict]
+
+
 # === Routes ===
 
 @router.get(
@@ -298,6 +305,21 @@ async def get_activity_summary(
         days=days,
     )
     return ActivitySummaryResponse(**summary)
+
+
+@router.get(
+    "/funnels",
+    response_model=FunnelSummaryResponse,
+    summary="Get product funnels",
+    description="Admin-only funnel overview built from sanitized activity analytics",
+)
+async def get_funnel_summary(
+    days: int = Query(7, ge=1, le=30, description="Lookback period in days"),
+    db: AsyncSession = Depends(get_db),
+) -> FunnelSummaryResponse:
+    """Return basic funnel stages for core bot domains."""
+    summary = await ActivityService(db).get_funnel_summary(days=days)
+    return FunnelSummaryResponse(**summary)
 
 
 @router.get(

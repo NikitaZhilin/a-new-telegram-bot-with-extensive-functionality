@@ -430,11 +430,17 @@ async def run_bot() -> None:
                     .strip()
                     or "Можно продолжать пользоваться."
                 )
+                testing_notice = (
+                    f"\n\n{settings.TESTING_NOTICE_TEXT}"
+                    if settings.TESTING_NOTICE_ENABLED
+                    else ""
+                )
                 await bot_app.bot.send_message(
                     chat_id=telegram_id,
                     text=(
                         f"Бот обновлен до версии {settings.APP_VERSION} и перезапущен.\n\n"
                         f"{update_message}"
+                        f"{testing_notice}"
                     ),
                     reply_markup=get_main_menu_keyboard(),
                 )

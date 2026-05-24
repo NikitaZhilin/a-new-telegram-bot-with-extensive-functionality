@@ -68,8 +68,16 @@ README намеренно не содержит токенов, адресов �
 - общие данные появляются только через явное приглашение;
 - настройка часового пояса;
 - приватная аналитика действий без хранения текста сообщений;
+- предупреждение о тестовом режиме и возможной потере данных;
 - экран текущего плана;
 - базовый слой для будущей монетизации.
+
+**API и администрирование**
+
+- Admin API с `X-Admin-Token`;
+- простая web-админка `/admin/ui` для активности и воронок;
+- user-scoped API `/me/...` для будущего web/PWA, защищенный Telegram WebApp `initData`;
+- GitHub Actions workflow для тестов и деплоя на VPS.
 
 ### Архитектура
 
@@ -186,6 +194,27 @@ python -B -m src.main worker --dry-run
 python -B -m src.main all --dry-run
 ```
 
+Админская web-страница:
+
+```text
+http://127.0.0.1:8000/admin/ui
+```
+
+Страница не хранит токен на сервере. `X-Admin-Token` вводится в браузере и используется только для запросов к Admin API.
+
+User API для будущего web/PWA:
+
+```text
+GET /me
+GET /me/summary
+GET /me/lists
+GET /me/reminders
+GET /me/medications
+GET /me/driver
+```
+
+Эти endpoints требуют заголовок `X-Telegram-Init-Data` с валидным Telegram WebApp `initData`.
+
 Тесты:
 
 ```powershell
@@ -207,11 +236,10 @@ python -B -m pytest -p no:cacheprovider tests
 ### Развитие
 
 - платежная интеграция и тарифные ограничения;
-- user API, PWA/web-кабинет и затем мобильное приложение;
+- полноценный PWA/web-кабинет поверх `/me/...`;
 - расширенная история приема лекарств;
 - экспорт автомобильных расходов;
 - уведомления и audit log для совместных списков;
-- CI/CD с автоматическим тестом и деплоем;
 - локализация интерфейса бота.
 
 План развития web/app: [docs/WEB_APP_ROADMAP.md](docs/WEB_APP_ROADMAP.md).
@@ -282,8 +310,16 @@ The bot is a tracking aid only and does not replace medical advice.
 - shared data exists only after explicit invitation;
 - timezone settings;
 - privacy-safe action analytics without storing message text;
+- testing-mode notice about possible data loss;
 - current plan screen;
 - base layer for future monetization.
+
+**API and Administration**
+
+- Admin API with `X-Admin-Token`;
+- simple `/admin/ui` web admin for activity and funnels;
+- user-scoped `/me/...` API for future web/PWA, protected by Telegram WebApp `initData`;
+- GitHub Actions workflow for tests and VPS deployment.
 
 ### Architecture
 
@@ -401,6 +437,27 @@ python -B -m src.main worker --dry-run
 python -B -m src.main all --dry-run
 ```
 
+Admin web page:
+
+```text
+http://127.0.0.1:8000/admin/ui
+```
+
+The page does not store the token on the server. `X-Admin-Token` is entered in the browser and used only for Admin API requests.
+
+Future web/PWA user API:
+
+```text
+GET /me
+GET /me/summary
+GET /me/lists
+GET /me/reminders
+GET /me/medications
+GET /me/driver
+```
+
+These endpoints require `X-Telegram-Init-Data` with valid Telegram WebApp `initData`.
+
 Tests:
 
 ```powershell
@@ -422,11 +479,10 @@ python -B -m pytest -p no:cacheprovider tests
 ### Roadmap
 
 - payment integration and real plan limits;
-- user API, PWA/web cabinet, then mobile app;
+- full PWA/web cabinet on top of `/me/...`;
 - extended medication intake history;
 - vehicle expense export;
 - notifications and audit log for shared lists;
-- CI/CD with automated tests and deployment;
 - bot UI localization.
 
 Web/app roadmap: [docs/WEB_APP_ROADMAP.md](docs/WEB_APP_ROADMAP.md).

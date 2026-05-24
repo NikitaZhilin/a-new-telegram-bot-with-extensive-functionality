@@ -26,6 +26,13 @@ from src.db.session import async_session_maker
 logger = logging.getLogger(__name__)
 
 
+def _testing_notice() -> str:
+    """Return the testing notice shown to users when enabled."""
+    if not settings.TESTING_NOTICE_ENABLED:
+        return ""
+    return f"\n\n{settings.TESTING_NOTICE_TEXT}"
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user = update.effective_user
@@ -68,7 +75,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"💊 Следить за приемом лекарств\n"
         f"⏰ Создавать напоминания\n"
         f"🚗 Вести автомобильный журнал\n\n"
-        f"Выбери раздел в меню ниже 👇",
+        f"Выбери раздел в меню ниже 👇"
+        f"{_testing_notice()}",
         reply_markup=get_main_menu_keyboard(),
     )
     
@@ -236,7 +244,7 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await query.answer()
 
     await query.edit_message_text(
-        text="Выберите раздел:",
+        text=f"Выберите раздел:{_testing_notice()}",
         reply_markup=get_main_menu_inline_keyboard(),
     )
     return
@@ -256,7 +264,7 @@ async def home_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     context.user_data.clear()
 
     await query.edit_message_text(
-        text="🏠 Главное меню\n\nВыберите раздел:",
+        text=f"🏠 Главное меню\n\nВыберите раздел:{_testing_notice()}",
         reply_markup=get_main_menu_inline_keyboard(),
     )
     return
