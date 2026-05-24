@@ -1,10 +1,11 @@
-"""User-scoped API for future web/PWA clients."""
+"""User-scoped API for web clients."""
 
-from datetime import datetime
+from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,8 +14,12 @@ from src.api.user_auth import get_current_web_user
 from src.db.models import DriverVehicle, Medication, Reminder, ReminderStatus, TodoList, User
 from src.db.session import get_db
 from src.services.driver_service import DriverService
+from src.services.list_service import ListService
+from src.services.medication_service import MedicationService
+from src.services.reminder_service import ReminderService
 from src.services.settings_service import SettingsService
 from src.services.subscription_service import SubscriptionService
+from src.db.models import RepeatRule
 
 
 router = APIRouter()
@@ -46,9 +51,51 @@ class ListSummaryResponse(BaseModel):
     id: int
     title: str
     source_module: str
+    access_role: str = "owner"
     items_total: int
     items_done: int
     updated_at: datetime
+
+
+class ListItemResponse(BaseModel):
+    """Todo list item."""
+
+    id: int
+    text: str
+    is_completed: bool
+    position: Optional[int]
+    created_at: datetime
+
+
+class ListDetailResponse(ListSummaryResponse):
+    """Todo list with items."""
+
+    items: List[ListItemResponse]
+
+
+class ListCreateRequest(BaseModel):
+    """Create a list."""
+
+    title: str = Field(min_length=1, max_length=255)
+
+
+class ListUpdateRequest(BaseModel):
+    """Update a list."""
+
+    title: str = Field(min_length=1, max_length=255)
+
+
+class ListItemCreateRequest(BaseModel):
+    """Create one or many list items."""
+
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class ListItemUpdateRequest(BaseModel):
+    """Update a list item."""
+
+    text: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    is_completed: Optional[bool] = None
 
 
 class ReminderSummaryResponse(BaseModel):
@@ -63,6 +110,15 @@ class ReminderSummaryResponse(BaseModel):
     repeat_rule: str
 
 
+class ReminderCreateRequest(BaseModel):
+    """Create a reminder."""
+
+    text: str = Field(min_length=1, max_length=2000)
+    title: Optional[str] = Field(default=None, max_length=255)
+    remind_at_local: datetime
+    repeat_rule: str = "none"
+
+
 class MedicationSummaryResponse(BaseModel):
     """Medication summary."""
 
@@ -72,7 +128,34 @@ class MedicationSummaryResponse(BaseModel):
     instructions: Optional[str]
     importance: str
     is_active: bool
+    daily_times_local: List[str] = Field(default_factory=list)
     updated_at: datetime
+
+
+class MedicationCreateRequest(BaseModel):
+    """Create medication."""
+
+    name: str = Field(min_length=1, max_length=255)
+    dosage: Optional[str] = Field(default=None, max_length=255)
+    instructions: Optional[str] = Field(default=None, max_length=1000)
+    importance: str = "normal"
+    daily_times_local: List[str] = Field(default_factory=list)
+
+
+class MedicationUpdateRequest(BaseModel):
+    """Update medication."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    dosage: Optional[str] = Field(default=None, max_length=255)
+    instructions: Optional[str] = Field(default=None, max_length=1000)
+    importance: Optional[str] = None
+    daily_times_local: Optional[List[str]] = None
+
+
+class MutationResponse(BaseModel):
+    """Generic mutation response."""
+
+    ok: bool
 
 
 class DriverVehicleSummaryResponse(BaseModel):
@@ -86,11 +169,97 @@ class DriverVehicleSummaryResponse(BaseModel):
     updated_at: datetime
 
 
+class DriverFuelEntryResponse(BaseModel):
+    """Vehicle fuel entry."""
+
+    id: int
+    vehicle_id: int
+    mileage_km: int
+    liters: float
+    total_cost: float
+    price_per_liter: Optional[float]
+    is_full_tank: bool
+    station: Optional[str]
+    consumption_l_per_100: Optional[float]
+    cost_per_km: Optional[float]
+    filled_at_utc: datetime
+
+
 class DriverDashboardResponse(BaseModel):
     """Driver dashboard summary."""
 
     overview: dict
     vehicles: List[DriverVehicleSummaryResponse]
+
+
+class DriverVehicleCreateRequest(BaseModel):
+    """Create vehicle."""
+
+    title: str = Field(min_length=1, max_length=255)
+    current_mileage_km: int = Field(default=0, ge=0)
+    service_interval_km: int = Field(default=10000, gt=0)
+    service_interval_months: int = Field(default=12, gt=0)
+    make: Optional[str] = Field(default=None, max_length=120)
+    model: Optional[str] = Field(default=None, max_length=120)
+    year: Optional[int] = Field(default=None, ge=1886, le=2100)
+
+
+class DriverFuelCreateRequest(BaseModel):
+    """Create fuel entry."""
+
+    mileage_km: int = Field(ge=0)
+    liters: float = Field(gt=0)
+    total_cost: float = Field(gt=0)
+    is_full_tank: bool = True
+    station: Optional[str] = Field(default=None, max_length=255)
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+def _repeat_rule(value: str) -> RepeatRule:
+    """Parse repeat rule from user API input."""
+    try:
+        return RepeatRule(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repeat_rule",
+        ) from None
+
+
+def _local_datetime_to_utc(value: datetime, user_timezone: str) -> datetime:
+    """Convert browser-local datetime to UTC."""
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc)
+    return value.replace(tzinfo=ZoneInfo(user_timezone)).astimezone(timezone.utc)
+
+
+def _local_time_to_next_utc(value: str, user_timezone: str) -> datetime:
+    """Convert HH:MM to next local occurrence in UTC."""
+    try:
+        parsed = time.fromisoformat(value.strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Daily time must be HH:MM",
+        ) from None
+
+    tz = ZoneInfo(user_timezone)
+    now_local = datetime.now(tz)
+    local_dt = datetime.combine(now_local.date(), parsed, tzinfo=tz)
+    if local_dt <= now_local:
+        local_dt = local_dt + timedelta(days=1)
+    return local_dt.astimezone(timezone.utc)
+
+
+def _item_response(item) -> ListItemResponse:
+    """Serialize list item."""
+    return ListItemResponse(
+        id=item.id,
+        text=item.text,
+        is_completed=item.is_completed,
+        position=item.position,
+        created_at=item.created_at,
+    )
 
 
 def _user_response(user: User) -> MeResponse:
@@ -104,6 +273,32 @@ def _user_response(user: User) -> MeResponse:
         is_admin=user.is_admin,
         created_at=user.created_at,
     )
+
+
+async def _list_response(list_obj: TodoList, user_id: int, service: ListService) -> ListDetailResponse:
+    """Serialize list with items and access role."""
+    role = await service.get_access_role(list_obj.id, user_id) or "viewer"
+    return ListDetailResponse(
+        id=list_obj.id,
+        title=list_obj.title,
+        source_module=list_obj.source_module,
+        access_role=role,
+        items_total=len(list_obj.items),
+        items_done=sum(1 for item in list_obj.items if item.is_completed),
+        updated_at=list_obj.updated_at,
+        items=[_item_response(item) for item in list_obj.items],
+    )
+
+
+async def _fresh_list(db: AsyncSession, list_id: int) -> Optional[TodoList]:
+    """Load a list with fresh item relationship state."""
+    result = await db.execute(
+        select(TodoList)
+        .options(selectinload(TodoList.items))
+        .where(TodoList.id == list_id)
+        .execution_options(populate_existing=True)
+    )
+    return result.scalars().unique().one_or_none()
 
 
 @router.get("/me", response_model=MeResponse)
@@ -134,6 +329,7 @@ async def get_my_lists(
     db: AsyncSession = Depends(get_db),
 ) -> List[ListSummaryResponse]:
     """Return current user's generic lists."""
+    list_service = ListService(db)
     result = await db.execute(
         select(TodoList)
         .options(selectinload(TodoList.items))
@@ -147,12 +343,146 @@ async def get_my_lists(
             id=item.id,
             title=item.title,
             source_module=item.source_module,
+            access_role=await list_service.get_access_role(item.id, current_user.id) or "viewer",
             items_total=len(item.items),
             items_done=sum(1 for list_item in item.items if list_item.is_completed),
             updated_at=item.updated_at,
         )
         for item in lists
     ]
+
+
+@router.post("/me/lists", response_model=ListDetailResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_list(
+    payload: ListCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListDetailResponse:
+    """Create a generic user list."""
+    service = ListService(db)
+    list_obj = await service.create_list(current_user.id, payload.title.strip(), source_module="general")
+    list_obj = await _fresh_list(db, list_obj.id)
+    await db.commit()
+    if not list_obj:
+        raise HTTPException(status_code=500, detail="List was not created")
+    return await _list_response(list_obj, current_user.id, service)
+
+
+@router.get("/me/lists/{list_id}", response_model=ListDetailResponse)
+async def get_my_list(
+    list_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListDetailResponse:
+    """Return one generic list with items."""
+    service = ListService(db)
+    list_obj = await service.get_list(list_id, current_user.id)
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    return await _list_response(list_obj, current_user.id, service)
+
+
+@router.patch("/me/lists/{list_id}", response_model=ListDetailResponse)
+async def update_my_list(
+    list_id: int,
+    payload: ListUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListDetailResponse:
+    """Rename a user-owned list."""
+    service = ListService(db)
+    existing = await service.get_list(list_id, current_user.id)
+    if not existing or existing.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    list_obj = await service.update_list_title(list_id, current_user.id, payload.title.strip())
+    if not list_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    list_obj = await _fresh_list(db, list_id)
+    await db.commit()
+    return await _list_response(list_obj, current_user.id, service)  # type: ignore[arg-type]
+
+
+@router.delete("/me/lists/{list_id}", response_model=MutationResponse)
+async def delete_my_list(
+    list_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Delete a user-owned generic list."""
+    service = ListService(db)
+    list_obj = await service.get_list(list_id, current_user.id)
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    ok = await service.delete_list(list_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)
+
+
+@router.post("/me/lists/{list_id}/items", response_model=ListDetailResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_list_items(
+    list_id: int,
+    payload: ListItemCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListDetailResponse:
+    """Add one or many items to a list."""
+    service = ListService(db)
+    list_obj = await service.get_list(list_id, current_user.id)
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    lines = [line.strip() for line in payload.text.splitlines() if line.strip()]
+    if len(lines) > 1:
+        await service.add_items_bulk(list_id, current_user.id, lines)
+    else:
+        await service.add_item(list_id, current_user.id, payload.text.strip())
+    list_obj = await _fresh_list(db, list_id)
+    await db.commit()
+    return await _list_response(list_obj, current_user.id, service)  # type: ignore[arg-type]
+
+
+@router.patch("/me/lists/items/{item_id}", response_model=ListDetailResponse)
+async def update_my_list_item(
+    item_id: int,
+    payload: ListItemUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListDetailResponse:
+    """Update a list item text or completion flag."""
+    service = ListService(db)
+    item = await service.get_item_by_id(item_id, current_user.id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    list_obj = await service.get_list(item.list_id, current_user.id)
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    if payload.text is not None:
+        await service.update_item_text_by_id(item_id, current_user.id, payload.text.strip())
+    if payload.is_completed is not None and item.is_completed != payload.is_completed:
+        await service.toggle_item_by_id(item_id, current_user.id)
+    list_obj = await _fresh_list(db, list_obj.id)
+    await db.commit()
+    return await _list_response(list_obj, current_user.id, service)  # type: ignore[arg-type]
+
+
+@router.delete("/me/lists/items/{item_id}", response_model=ListDetailResponse)
+async def delete_my_list_item(
+    item_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListDetailResponse:
+    """Delete a list item."""
+    service = ListService(db)
+    item = await service.get_item_by_id(item_id, current_user.id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    list_id = item.list_id
+    list_obj = await service.get_list(list_id, current_user.id)
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    await service.delete_item_by_id(item_id, current_user.id)
+    list_obj = await _fresh_list(db, list_id)
+    await db.commit()
+    return await _list_response(list_obj, current_user.id, service)  # type: ignore[arg-type]
 
 
 @router.get("/me/reminders", response_model=List[ReminderSummaryResponse])
@@ -190,6 +520,80 @@ async def get_my_reminders(
     ]
 
 
+@router.post("/me/reminders", response_model=ReminderSummaryResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_reminder(
+    payload: ReminderCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ReminderSummaryResponse:
+    """Create a generic reminder from web UI."""
+    service = ReminderService(db)
+    reminder = await service.create_reminder(
+        user_id=current_user.id,
+        text=payload.text.strip(),
+        title=payload.title.strip() if payload.title else None,
+        remind_at_utc=_local_datetime_to_utc(payload.remind_at_local, current_user.timezone),
+        repeat_rule=_repeat_rule(payload.repeat_rule),
+        source_module="general",
+    )
+    if not reminder:
+        raise HTTPException(status_code=400, detail="Reminder was not created")
+    await db.commit()
+    await db.refresh(reminder)
+    return ReminderSummaryResponse(
+        id=reminder.id,
+        title=reminder.title,
+        text=reminder.text,
+        source_module=reminder.source_module,
+        status=reminder.status.value if hasattr(reminder.status, "value") else reminder.status,
+        remind_at_utc=reminder.remind_at_utc,
+        repeat_rule=reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule,
+    )
+
+
+@router.post("/me/reminders/{reminder_id}/done", response_model=ReminderSummaryResponse)
+async def mark_my_reminder_done(
+    reminder_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ReminderSummaryResponse:
+    """Mark reminder as done."""
+    service = ReminderService(db)
+    existing = await service.get_reminder(reminder_id, current_user.id)
+    if not existing or existing.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
+    reminder = await service.mark_reminder_done(reminder_id, current_user.id)
+    if not reminder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
+    await db.commit()
+    await db.refresh(reminder)
+    return ReminderSummaryResponse(
+        id=reminder.id,
+        title=reminder.title,
+        text=reminder.text,
+        source_module=reminder.source_module,
+        status=reminder.status.value if hasattr(reminder.status, "value") else reminder.status,
+        remind_at_utc=reminder.remind_at_utc,
+        repeat_rule=reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule,
+    )
+
+
+@router.delete("/me/reminders/{reminder_id}", response_model=MutationResponse)
+async def delete_my_reminder(
+    reminder_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Delete a generic reminder."""
+    service = ReminderService(db)
+    reminder = await service.get_reminder(reminder_id, current_user.id)
+    if not reminder or reminder.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
+    ok = await service.delete_reminder(reminder_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)
+
+
 @router.get("/me/medications", response_model=List[MedicationSummaryResponse])
 async def get_my_medications(
     active_only: bool = Query(True),
@@ -198,6 +602,7 @@ async def get_my_medications(
     db: AsyncSession = Depends(get_db),
 ) -> List[MedicationSummaryResponse]:
     """Return current user's medications."""
+    medication_service = MedicationService(db)
     conditions = [Medication.user_id == current_user.id]
     if active_only:
         conditions.append(Medication.is_active.is_(True))
@@ -208,18 +613,135 @@ async def get_my_medications(
         .limit(limit)
     )
     medications = result.scalars().all()
-    return [
-        MedicationSummaryResponse(
+    rows = []
+    for item in medications:
+        schedule = await medication_service._get_daily_schedule_times(  # noqa: SLF001 - read-only web presentation helper
+            item.id,
+            current_user.id,
+            current_user.timezone,
+        )
+        rows.append(
+            MedicationSummaryResponse(
             id=item.id,
             name=item.name,
             dosage=item.dosage,
             instructions=item.instructions,
             importance=item.importance,
             is_active=item.is_active,
+            daily_times_local=[value.strftime("%H:%M") for value in schedule],
             updated_at=item.updated_at,
         )
-        for item in medications
-    ]
+        )
+    return rows
+
+
+@router.post("/me/medications", response_model=MedicationSummaryResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_medication(
+    payload: MedicationCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MedicationSummaryResponse:
+    """Create a medication and optional daily schedule."""
+    service = MedicationService(db)
+    medication = await service.create_medication(
+        user_id=current_user.id,
+        name=payload.name,
+        dosage=payload.dosage,
+        instructions=payload.instructions,
+        importance=payload.importance,
+    )
+    times = [_local_time_to_next_utc(value, current_user.timezone) for value in payload.daily_times_local if value.strip()]
+    if times:
+        await service.replace_daily_reminders(medication.id, current_user.id, times)
+    await db.commit()
+    schedule = await service._get_daily_schedule_times(medication.id, current_user.id, current_user.timezone)  # noqa: SLF001
+    await db.refresh(medication)
+    return MedicationSummaryResponse(
+        id=medication.id,
+        name=medication.name,
+        dosage=medication.dosage,
+        instructions=medication.instructions,
+        importance=medication.importance,
+        is_active=medication.is_active,
+        daily_times_local=[value.strftime("%H:%M") for value in schedule],
+        updated_at=medication.updated_at,
+    )
+
+
+@router.patch("/me/medications/{medication_id}", response_model=MedicationSummaryResponse)
+async def update_my_medication(
+    medication_id: int,
+    payload: MedicationUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MedicationSummaryResponse:
+    """Update medication details and schedule."""
+    service = MedicationService(db)
+    medication = await service.update_medication(
+        medication_id=medication_id,
+        user_id=current_user.id,
+        name=payload.name,
+        dosage=payload.dosage,
+        instructions=payload.instructions,
+        importance=payload.importance,
+    )
+    if not medication:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medication not found")
+    if payload.daily_times_local is not None:
+        times = [_local_time_to_next_utc(value, current_user.timezone) for value in payload.daily_times_local if value.strip()]
+        await service.replace_daily_reminders(medication.id, current_user.id, times)
+    await db.commit()
+    schedule = await service._get_daily_schedule_times(medication.id, current_user.id, current_user.timezone)  # noqa: SLF001
+    await db.refresh(medication)
+    return MedicationSummaryResponse(
+        id=medication.id,
+        name=medication.name,
+        dosage=medication.dosage,
+        instructions=medication.instructions,
+        importance=medication.importance,
+        is_active=medication.is_active,
+        daily_times_local=[value.strftime("%H:%M") for value in schedule],
+        updated_at=medication.updated_at,
+    )
+
+
+@router.post("/me/medications/{medication_id}/taken", response_model=MutationResponse)
+async def mark_my_medication_taken(
+    medication_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Mark current medication slot as taken."""
+    service = MedicationService(db)
+    intake, _ = await service.mark_taken_for_current_slot(medication_id, current_user.id, current_user.timezone)
+    await db.commit()
+    return MutationResponse(ok=intake is not None)
+
+
+@router.post("/me/medications/{medication_id}/skipped", response_model=MutationResponse)
+async def mark_my_medication_skipped(
+    medication_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Mark current medication slot as skipped."""
+    service = MedicationService(db)
+    intake, _ = await service.mark_skipped_for_current_slot(medication_id, current_user.id, current_user.timezone)
+    await db.commit()
+    return MutationResponse(ok=intake is not None)
+
+
+@router.delete("/me/medications/{medication_id}", response_model=MutationResponse)
+async def archive_my_medication(
+    medication_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Archive a medication."""
+    service = MedicationService(db)
+    ok = await service.archive_medication(medication_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)
 
 
 @router.get("/me/driver", response_model=DriverDashboardResponse)
@@ -251,3 +773,134 @@ async def get_my_driver_dashboard(
             for item in vehicles
         ],
     )
+
+
+@router.post("/me/driver/vehicles", response_model=DriverVehicleSummaryResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_driver_vehicle(
+    payload: DriverVehicleCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverVehicleSummaryResponse:
+    """Create a vehicle profile."""
+    service = DriverService(db)
+    try:
+        vehicle = await service.create_vehicle(
+            user_id=current_user.id,
+            title=payload.title.strip(),
+            current_mileage_km=payload.current_mileage_km,
+            service_interval_km=payload.service_interval_km,
+            service_interval_months=payload.service_interval_months,
+            make=payload.make,
+            model=payload.model,
+            year=payload.year,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    await db.commit()
+    await db.refresh(vehicle)
+    return DriverVehicleSummaryResponse(
+        id=vehicle.id,
+        title=vehicle.title,
+        current_mileage_km=vehicle.current_mileage_km,
+        service_interval_km=vehicle.service_interval_km,
+        service_interval_months=vehicle.service_interval_months,
+        updated_at=vehicle.updated_at,
+    )
+
+
+@router.delete("/me/driver/vehicles/{vehicle_id}", response_model=MutationResponse)
+async def delete_my_driver_vehicle(
+    vehicle_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Delete a vehicle profile."""
+    service = DriverService(db)
+    ok = await service.delete_vehicle(vehicle_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)
+
+
+@router.get("/me/driver/vehicles/{vehicle_id}/fuel", response_model=List[DriverFuelEntryResponse])
+async def get_my_driver_fuel_entries(
+    vehicle_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[DriverFuelEntryResponse]:
+    """Return recent fuel entries for one vehicle."""
+    service = DriverService(db)
+    vehicle = await service.get_vehicle(vehicle_id, current_user.id)
+    if not vehicle:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    entries = await service.get_fuel_entries(current_user.id, vehicle_id=vehicle_id, limit=limit)
+    return [
+        DriverFuelEntryResponse(
+            id=item.id,
+            vehicle_id=item.vehicle_id,
+            mileage_km=item.mileage_km,
+            liters=item.liters,
+            total_cost=item.total_cost,
+            price_per_liter=item.price_per_liter,
+            is_full_tank=item.is_full_tank,
+            station=item.station,
+            consumption_l_per_100=item.consumption_l_per_100,
+            cost_per_km=item.cost_per_km,
+            filled_at_utc=item.filled_at_utc,
+        )
+        for item in entries
+    ]
+
+
+@router.post("/me/driver/vehicles/{vehicle_id}/fuel", response_model=DriverFuelEntryResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_driver_fuel_entry(
+    vehicle_id: int,
+    payload: DriverFuelCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverFuelEntryResponse:
+    """Create a fuel journal entry."""
+    service = DriverService(db)
+    try:
+        entry = await service.add_fuel_entry(
+            user_id=current_user.id,
+            vehicle_id=vehicle_id,
+            mileage_km=payload.mileage_km,
+            liters=payload.liters,
+            total_cost=payload.total_cost,
+            is_full_tank=payload.is_full_tank,
+            station=payload.station,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    await db.commit()
+    await db.refresh(entry)
+    return DriverFuelEntryResponse(
+        id=entry.id,
+        vehicle_id=entry.vehicle_id,
+        mileage_km=entry.mileage_km,
+        liters=entry.liters,
+        total_cost=entry.total_cost,
+        price_per_liter=entry.price_per_liter,
+        is_full_tank=entry.is_full_tank,
+        station=entry.station,
+        consumption_l_per_100=entry.consumption_l_per_100,
+        cost_per_km=entry.cost_per_km,
+        filled_at_utc=entry.filled_at_utc,
+    )
+
+
+@router.delete("/me/driver/fuel/{entry_id}", response_model=MutationResponse)
+async def delete_my_driver_fuel_entry(
+    entry_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Delete a fuel entry."""
+    service = DriverService(db)
+    ok = await service.delete_fuel_entry(entry_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)

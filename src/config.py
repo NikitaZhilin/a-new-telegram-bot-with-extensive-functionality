@@ -46,6 +46,10 @@ class Settings(BaseSettings):
         default=86400,
         description="Max age for Telegram WebApp initData used by user API"
     )
+    WEB_TEST_LOGIN_ENABLED: bool = Field(
+        default=True,
+        description="Allow ADMIN_TOKEN-based browser login for test web UI"
+    )
     
     # Application
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")

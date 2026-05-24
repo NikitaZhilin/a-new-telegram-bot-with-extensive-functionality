@@ -50,6 +50,7 @@ class MedicationService:
             dosage=dosage.strip() if dosage else None,
             instructions=instructions.strip() if instructions else None,
             importance=importance if importance in {"supplement", "normal", "important", "critical"} else "normal",
+            is_active=True,
         )
         self.db.add(medication)
         await self.db.flush()

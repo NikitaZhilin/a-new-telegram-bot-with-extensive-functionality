@@ -112,3 +112,99 @@ async def test_user_api_rejects_invalid_init_data(db_session):
         response = await client.get("/me", headers={"X-Telegram-Init-Data": "user={\"id\":1}"})
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_web_ui_page_and_test_user_crud_api(db_session):
+    """Web UI should load and perform core user-scoped mutations through services."""
+    app = create_application()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    headers = {
+        "X-Admin-Token": settings.ADMIN_TOKEN,
+        "X-Web-Test-Telegram-Id": "94001",
+        "X-Web-Test-First-Name": "Browser",
+    }
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        web_response = await client.get("/web")
+        summary_response = await client.get("/me/summary", headers=headers)
+
+        list_response = await client.post("/me/lists", headers=headers, json={"title": "Web CRUD"})
+        list_id = list_response.json()["id"]
+        item_response = await client.post(
+            f"/me/lists/{list_id}/items",
+            headers=headers,
+            json={"text": "first\nsecond"},
+        )
+        item_id = item_response.json()["items"][0]["id"]
+        toggled_response = await client.patch(
+            f"/me/lists/items/{item_id}",
+            headers=headers,
+            json={"is_completed": True},
+        )
+
+        reminder_response = await client.post(
+            "/me/reminders",
+            headers=headers,
+            json={
+                "text": "Web reminder",
+                "title": "Web",
+                "remind_at_local": "2026-05-25T10:00:00",
+                "repeat_rule": "none",
+            },
+        )
+
+        medication_response = await client.post(
+            "/me/medications",
+            headers=headers,
+            json={
+                "name": "Web med",
+                "dosage": "1 tablet",
+                "instructions": "after meal",
+                "importance": "important",
+                "daily_times_local": ["09:00", "21:00"],
+            },
+        )
+
+        vehicle_response = await client.post(
+            "/me/driver/vehicles",
+            headers=headers,
+            json={"title": "Web car", "current_mileage_km": 1000},
+        )
+        vehicle_id = vehicle_response.json()["id"]
+        fuel_response = await client.post(
+            f"/me/driver/vehicles/{vehicle_id}/fuel",
+            headers=headers,
+            json={
+                "mileage_km": 1100,
+                "liters": 10,
+                "total_cost": 600,
+                "is_full_tank": True,
+            },
+        )
+
+        lists_response = await client.get("/me/lists", headers=headers)
+        reminders_response = await client.get("/me/reminders", headers=headers)
+        medications_response = await client.get("/me/medications", headers=headers)
+        driver_response = await client.get("/me/driver", headers=headers)
+
+    assert web_response.status_code == 200
+    assert "RememberMe Web" in web_response.text
+    assert summary_response.status_code == 200
+    assert list_response.status_code == 201
+    assert item_response.status_code == 201
+    assert toggled_response.json()["items"][0]["is_completed"] is True
+    assert reminder_response.status_code == 201
+    assert medication_response.status_code == 201
+    assert medication_response.json()["daily_times_local"] == ["09:00", "21:00"]
+    assert vehicle_response.status_code == 201
+    assert fuel_response.status_code == 201
+    assert lists_response.json()[0]["title"] == "Web CRUD"
+    assert reminders_response.json()[0]["text"] == "Web reminder"
+    assert medications_response.json()[0]["name"] == "Web med"
+    assert driver_response.json()["overview"]["vehicles_count"] == 1
+    assert driver_response.json()["overview"]["fuel_entries_count"] == 1

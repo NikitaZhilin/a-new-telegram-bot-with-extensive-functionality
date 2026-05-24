@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RememberMe Web</title>
+  <link rel="stylesheet" href="/web/assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div>
+          <div class="brand-title">RememberMe</div>
+          <div class="brand-subtitle">web</div>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Основные разделы">
+        <button class="nav-button active" data-section="dashboard">Сводка</button>
+        <button class="nav-button" data-section="lists">Списки</button>
+        <button class="nav-button" data-section="reminders">Напоминания</button>
+        <button class="nav-button" data-section="medications">Лекарства</button>
+        <button class="nav-button" data-section="driver">Водитель</button>
+        <button class="nav-button" data-section="admin">Админ</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="themeToggle" class="icon-button" type="button" title="Переключить тему">◐</button>
+        <button id="reloadButton" class="icon-button" type="button" title="Обновить данные">↻</button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1 id="sectionTitle">Сводка</h1>
+          <p id="sectionSubtitle">Текущие данные бота в web-версии.</p>
+        </div>
+        <div class="status-row">
+          <span id="authStatus" class="pill muted">не подключено</span>
+          <button id="logoutButton" class="secondary small" type="button">Выйти</button>
+        </div>
+      </header>
+
+      <section class="notice">
+        Бот находится в тестировании. Данные могут быть изменены или утеряны.
+      </section>
+
+      <section id="loginPanel" class="panel">
+        <h2>Вход</h2>
+        <div class="form-grid">
+          <label>
+            <span>Admin token</span>
+            <input id="adminTokenInput" type="password" autocomplete="current-password">
+          </label>
+          <label>
+            <span>Telegram ID</span>
+            <input id="telegramIdInput" type="number" inputmode="numeric">
+          </label>
+          <label>
+            <span>Имя</span>
+            <input id="firstNameInput" type="text" autocomplete="name">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="loginButton" type="button">Войти</button>
+        </div>
+      </section>
+
+      <section id="message" class="message hidden"></section>
+
+      <section id="dashboard" class="section active">
+        <div id="dashboardCards" class="metric-grid"></div>
+      </section>
+
+      <section id="lists" class="section">
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Новый список</h2>
+            <form id="listCreateForm" class="stack">
+              <input name="title" type="text" placeholder="Название списка" required>
+              <button type="submit">Создать</button>
+            </form>
+          </div>
+          <div class="panel">
+            <h2>Списки</h2>
+            <div id="listsContainer" class="item-list"></div>
+          </div>
+        </div>
+        <div id="listDetailPanel" class="panel hidden"></div>
+      </section>
+
+      <section id="reminders" class="section">
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Новое напоминание</h2>
+            <form id="reminderCreateForm" class="stack">
+              <input name="title" type="text" placeholder="Заголовок">
+              <textarea name="text" rows="3" placeholder="Текст напоминания" required></textarea>
+              <input name="remind_at_local" type="datetime-local" required>
+              <select name="repeat_rule">
+                <option value="none">Без повтора</option>
+                <option value="daily">Каждый день</option>
+                <option value="weekly">Каждую неделю</option>
+                <option value="monthly">Каждый месяц</option>
+              </select>
+              <button type="submit">Создать</button>
+            </form>
+          </div>
+          <div class="panel">
+            <h2>Напоминания</h2>
+            <div id="remindersContainer" class="item-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="medications" class="section">
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Новое лекарство</h2>
+            <form id="medicationCreateForm" class="stack">
+              <input name="name" type="text" placeholder="Название" required>
+              <input name="dosage" type="text" placeholder="Дозировка">
+              <textarea name="instructions" rows="3" placeholder="Комментарий: до еды, после еды, запить водой"></textarea>
+              <select name="importance">
+                <option value="normal">Обычное</option>
+                <option value="supplement">БАД</option>
+                <option value="important">Важное</option>
+                <option value="critical">Критичное</option>
+              </select>
+              <input name="daily_times_local" type="text" placeholder="Время: 09:00, 21:00">
+              <button type="submit">Создать</button>
+            </form>
+          </div>
+          <div class="panel">
+            <h2>Лекарства</h2>
+            <div id="medicationsContainer" class="item-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="driver" class="section">
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Автомобиль</h2>
+            <form id="vehicleCreateForm" class="stack">
+              <input name="title" type="text" placeholder="Название авто" required>
+              <input name="current_mileage_km" type="number" min="0" placeholder="Пробег, км">
+              <button type="submit">Добавить авто</button>
+            </form>
+            <div id="vehiclesContainer" class="item-list"></div>
+          </div>
+          <div class="panel">
+            <h2>Заправка</h2>
+            <form id="fuelCreateForm" class="stack">
+              <select name="vehicle_id" required></select>
+              <input name="mileage_km" type="number" min="0" placeholder="Пробег, км" required>
+              <input name="liters" type="number" min="0.01" step="0.01" placeholder="Литры" required>
+              <input name="total_cost" type="number" min="0.01" step="0.01" placeholder="Сумма" required>
+              <input name="station" type="text" placeholder="АЗС">
+              <label class="checkbox-row">
+                <input name="is_full_tank" type="checkbox" checked>
+                <span>Полный бак</span>
+              </label>
+              <button type="submit">Сохранить заправку</button>
+            </form>
+            <div id="fuelContainer" class="item-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="admin" class="section">
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Активность</h2>
+            <div id="adminActivity" class="item-list"></div>
+          </div>
+          <div class="panel">
+            <h2>Воронки</h2>
+            <div id="adminFunnels" class="item-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/web/assets/app.js"></script>
+</body>
+</html>

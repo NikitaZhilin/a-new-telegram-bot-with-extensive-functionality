@@ -1,5 +1,12 @@
 # Web / App roadmap
 
+Current web status:
+
+- `/web` is implemented as a lightweight server-served web site.
+- `/me/...` includes read and write endpoints for core lists, reminders, medications, and driver journal flows.
+- Browser auth supports Telegram WebApp `initData`; private testing can use `ADMIN_TOKEN` + Telegram ID when `WEB_TEST_LOGIN_ENABLED=true`.
+- The next web improvements are UX polish, inline editing, exports, HTTPS/domain setup, and a dedicated PWA shell.
+
 Документ описывает практичный путь развития бота в web-кабинет и отдельное приложение без переписывания текущей архитектуры.
 
 ## Текущая база

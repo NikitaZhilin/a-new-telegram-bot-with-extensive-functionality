@@ -76,7 +76,8 @@ README намеренно не содержит токенов, адресов �
 
 - Admin API с `X-Admin-Token`;
 - простая web-админка `/admin/ui` для активности и воронок;
-- user-scoped API `/me/...` для будущего web/PWA, защищенный Telegram WebApp `initData`;
+- web-сайт `/web` для списков, напоминаний, лекарств, водительского журнала и админ-сводки;
+- user-scoped API `/me/...` для web-клиента, защищенный Telegram WebApp `initData` или тестовым входом через `ADMIN_TOKEN`;
 - GitHub Actions workflow для тестов и деплоя на VPS.
 
 ### Архитектура
@@ -194,6 +195,14 @@ python -B -m src.main worker --dry-run
 python -B -m src.main all --dry-run
 ```
 
+Web-сайт:
+
+```text
+http://127.0.0.1:8000/web
+```
+
+В Telegram WebApp сайт использует `initData`. Для обычного браузера в тестовом режиме включен вход через `ADMIN_TOKEN` и Telegram ID пользователя.
+
 Админская web-страница:
 
 ```text
@@ -202,18 +211,38 @@ http://127.0.0.1:8000/admin/ui
 
 Страница не хранит токен на сервере. `X-Admin-Token` вводится в браузере и используется только для запросов к Admin API.
 
-User API для будущего web/PWA:
+User API для web-сайта:
 
 ```text
 GET /me
 GET /me/summary
 GET /me/lists
+POST /me/lists
+GET /me/lists/{id}
+PATCH /me/lists/{id}
+DELETE /me/lists/{id}
+POST /me/lists/{id}/items
+PATCH /me/lists/items/{id}
+DELETE /me/lists/items/{id}
 GET /me/reminders
+POST /me/reminders
+POST /me/reminders/{id}/done
+DELETE /me/reminders/{id}
 GET /me/medications
+POST /me/medications
+PATCH /me/medications/{id}
+POST /me/medications/{id}/taken
+POST /me/medications/{id}/skipped
+DELETE /me/medications/{id}
 GET /me/driver
+POST /me/driver/vehicles
+DELETE /me/driver/vehicles/{id}
+GET /me/driver/vehicles/{id}/fuel
+POST /me/driver/vehicles/{id}/fuel
+DELETE /me/driver/fuel/{id}
 ```
 
-Эти endpoints требуют заголовок `X-Telegram-Init-Data` с валидным Telegram WebApp `initData`.
+Эти endpoints требуют заголовок `X-Telegram-Init-Data` с валидным Telegram WebApp `initData`. Для закрытого тестирования можно использовать `X-Admin-Token` + `X-Web-Test-Telegram-Id`, если `WEB_TEST_LOGIN_ENABLED=true`.
 
 Тесты:
 
@@ -236,7 +265,7 @@ python -B -m pytest -p no:cacheprovider tests
 ### Развитие
 
 - платежная интеграция и тарифные ограничения;
-- полноценный PWA/web-кабинет поверх `/me/...`;
+- улучшение web-кабинета: фильтры, редактирование карточек без `prompt`, экспорт и мобильная верстка под Telegram WebApp;
 - расширенная история приема лекарств;
 - экспорт автомобильных расходов;
 - уведомления и audit log для совместных списков;
@@ -318,7 +347,8 @@ The bot is a tracking aid only and does not replace medical advice.
 
 - Admin API with `X-Admin-Token`;
 - simple `/admin/ui` web admin for activity and funnels;
-- user-scoped `/me/...` API for future web/PWA, protected by Telegram WebApp `initData`;
+- `/web` web site for lists, reminders, medications, vehicle journal, and admin overview;
+- user-scoped `/me/...` API for the web client, protected by Telegram WebApp `initData` or test login with `ADMIN_TOKEN`;
 - GitHub Actions workflow for tests and VPS deployment.
 
 ### Architecture
@@ -437,6 +467,14 @@ python -B -m src.main worker --dry-run
 python -B -m src.main all --dry-run
 ```
 
+Web site:
+
+```text
+http://127.0.0.1:8000/web
+```
+
+Inside Telegram WebApp, the site uses `initData`. In a regular browser during private testing, it can use `ADMIN_TOKEN` plus a Telegram user ID.
+
 Admin web page:
 
 ```text
@@ -445,18 +483,38 @@ http://127.0.0.1:8000/admin/ui
 
 The page does not store the token on the server. `X-Admin-Token` is entered in the browser and used only for Admin API requests.
 
-Future web/PWA user API:
+User API for the web site:
 
 ```text
 GET /me
 GET /me/summary
 GET /me/lists
+POST /me/lists
+GET /me/lists/{id}
+PATCH /me/lists/{id}
+DELETE /me/lists/{id}
+POST /me/lists/{id}/items
+PATCH /me/lists/items/{id}
+DELETE /me/lists/items/{id}
 GET /me/reminders
+POST /me/reminders
+POST /me/reminders/{id}/done
+DELETE /me/reminders/{id}
 GET /me/medications
+POST /me/medications
+PATCH /me/medications/{id}
+POST /me/medications/{id}/taken
+POST /me/medications/{id}/skipped
+DELETE /me/medications/{id}
 GET /me/driver
+POST /me/driver/vehicles
+DELETE /me/driver/vehicles/{id}
+GET /me/driver/vehicles/{id}/fuel
+POST /me/driver/vehicles/{id}/fuel
+DELETE /me/driver/fuel/{id}
 ```
 
-These endpoints require `X-Telegram-Init-Data` with valid Telegram WebApp `initData`.
+These endpoints require `X-Telegram-Init-Data` with valid Telegram WebApp `initData`. For private testing, `X-Admin-Token` + `X-Web-Test-Telegram-Id` is available when `WEB_TEST_LOGIN_ENABLED=true`.
 
 Tests:
 
@@ -479,7 +537,7 @@ python -B -m pytest -p no:cacheprovider tests
 ### Roadmap
 
 - payment integration and real plan limits;
-- full PWA/web cabinet on top of `/me/...`;
+- web cabinet improvements: filters, inline card editing without `prompt`, export, and Telegram WebApp mobile layout polish;
 - extended medication intake history;
 - vehicle expense export;
 - notifications and audit log for shared lists;

@@ -61,10 +61,44 @@ def verify_telegram_webapp_init_data(
 
 
 async def get_current_web_user(
-    x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data"),
+    x_telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    x_web_test_telegram_id: str | None = Header(default=None, alias="X-Web-Test-Telegram-Id"),
+    x_web_test_username: str | None = Header(default=None, alias="X-Web-Test-Username"),
+    x_web_test_first_name: str | None = Header(default=None, alias="X-Web-Test-First-Name"),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Resolve current user from validated Telegram WebApp initData."""
+    repo = UserRepository(db)
+
+    if settings.WEB_TEST_LOGIN_ENABLED and x_admin_token and x_web_test_telegram_id:
+        if not hmac.compare_digest(x_admin_token, settings.ADMIN_TOKEN):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid admin token",
+            )
+        try:
+            telegram_id = int(x_web_test_telegram_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid test Telegram ID",
+            ) from None
+
+        user = await repo.get_or_create(
+            telegram_id=telegram_id,
+            username=x_web_test_username or None,
+            first_name=x_web_test_first_name or "Web user",
+        )
+        await db.commit()
+        return user
+
+    if not x_telegram_init_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Telegram WebApp auth data is required",
+        )
+
     try:
         auth_data = verify_telegram_webapp_init_data(
             x_telegram_init_data,
@@ -78,7 +112,6 @@ async def get_current_web_user(
         ) from None
 
     telegram_user = auth_data["user"]
-    repo = UserRepository(db)
     user = await repo.get_or_create(
         telegram_id=int(telegram_user["id"]),
         username=telegram_user.get("username"),
