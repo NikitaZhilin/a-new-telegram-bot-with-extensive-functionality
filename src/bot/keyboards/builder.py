@@ -44,7 +44,8 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Main menu reply keyboard."""
     keyboard = [
         ["📋 Списки", "💊 Лекарства", "⏰ Напоминания", "🚗 Для водителя"],
-        ["⚙️ Настройки", "👥 Поделиться ботом"],
+        ["⚙️ Настройки", "🌐 Web-версия"],
+        ["👥 Поделиться ботом"],
         ["❓ Помощь"],
     ]
     return ReplyKeyboardMarkup(
@@ -66,6 +67,7 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
+            InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login"),
         ],
         [
             InlineKeyboardButton("👥 Поделиться ботом", callback_data="share_bot"),

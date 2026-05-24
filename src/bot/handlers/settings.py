@@ -5,6 +5,7 @@ Timezone selection, statistics, user preferences.
 """
 
 import logging
+from html import escape
 from telegram import Update
 from telegram.ext import (
     CallbackQueryHandler,
@@ -306,8 +307,9 @@ async def settings_subscription_callback(update: Update, context: ContextTypes.D
 
 async def settings_web_login_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Issue a personal key for the standalone web client."""
-    query = update.callback_query
-    await query.answer()
+    query = update.callback_query if update.callback_query else None
+    if query:
+        await query.answer()
 
     telegram_user = update.effective_user
 
@@ -323,8 +325,9 @@ async def settings_web_login_callback(update: Update, context: ContextTypes.DEFA
         await session.commit()
 
     expires_at = login_key.expires_at_utc.strftime("%d.%m.%Y %H:%M UTC")
+    token_text = escape(login_key.token)
     link_block = (
-        f"\n\nСсылка для входа:\n{login_key.url}"
+        f"\n\nСсылка для входа:\n<code>{escape(login_key.url)}</code>"
         if login_key.url
         else (
             "\n\nПубличный адрес web-версии еще не настроен. "
@@ -335,17 +338,26 @@ async def settings_web_login_callback(update: Update, context: ContextTypes.DEFA
         "🌐 Web-версия\n\n"
         "Я выпустил персональный ключ для входа в web-приложение. "
         "Он привязан только к вашему Telegram-пользователю.\n\n"
-        f"Ключ:\n{login_key.token}\n\n"
+        f"Ключ:\n<code>{token_text}</code>\n\n"
         f"Действует до: {expires_at}"
         f"{link_block}\n\n"
         "Если создать новый ключ, предыдущий ключ перестанет работать."
     )
 
-    await query.edit_message_text(
-        text,
-        reply_markup=get_back_home_inline_keyboard(),
-        disable_web_page_preview=True,
-    )
+    if query:
+        await query.edit_message_text(
+            text,
+            reply_markup=get_back_home_inline_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            reply_markup=get_back_home_inline_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
 
     return ConversationHandler.END
 

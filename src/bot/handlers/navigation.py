@@ -137,6 +137,9 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if text == "⚙️ Настройки":
         await show_settings_menu(update, context)
         return
+    if text == "🌐 Web-версия":
+        await show_web_login(update, context)
+        return
     if text == "❓ Помощь":
         await help_command(update, context)
         return
@@ -154,6 +157,8 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_driver_menu(update, context)
     elif text == "⚙️ Настройки":
         await show_settings_menu(update, context)
+    elif text == "🌐 Web-версия":
+        await show_web_login(update, context)
     elif text == "❓ Помощь":
         await help_command(update, context)
     elif text == "👥 Поделиться ботом":
@@ -189,6 +194,12 @@ async def show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Show settings menu."""
     from src.bot.handlers.settings import settings_menu_callback
     await settings_menu_callback(update, context)
+
+
+async def show_web_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Issue a web login link from the reply main menu."""
+    from src.bot.handlers.settings import settings_web_login_callback
+    await settings_web_login_callback(update, context)
 
 
 def _share_bot_text() -> str:
