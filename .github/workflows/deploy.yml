@@ -71,8 +71,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     environment: production
     env:
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER || vars.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/bots/rememberme' }}
       REPO_URL: ${{ vars.REPO_URL || format('{0}/{1}.git', github.server_url, github.repository) }}
@@ -111,12 +111,16 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
           missing=0
-          for name in VPS_HOST VPS_USER VPS_SSH_KEY BOT_TOKEN ADMIN_TOKEN POSTGRES_PASSWORD; do
+          for name in VPS_HOST VPS_USER VPS_SSH_KEY; do
             if [ -z "${!name}" ]; then
               echo "Missing required deployment value: $name" >&2
               missing=1
             fi
           done
+          if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_TOKEN" ] || [ -z "$POSTGRES_PASSWORD" ]; then
+            echo "BOT_TOKEN, ADMIN_TOKEN, or POSTGRES_PASSWORD is not configured in GitHub Secrets."
+            echo "Deploy will reuse the existing .env file on the VPS and copy it to .env.prod."
+          fi
           if [ "$missing" -ne 0 ]; then
             echo "Deployment cannot start. Configure the missing GitHub Secrets or Variables first." >&2
             exit 1
@@ -162,6 +166,18 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_TOKEN" ] || [ -z "$POSTGRES_PASSWORD" ]; then
+            ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "
+              set -e
+              if [ ! -s '$DEPLOY_PATH/.env' ]; then
+                echo 'Missing app secrets in GitHub and $DEPLOY_PATH/.env does not exist on VPS.' >&2
+                exit 1
+              fi
+              cp '$DEPLOY_PATH/.env' '$DEPLOY_PATH/.env.prod'
+              chmod 600 '$DEPLOY_PATH/.env.prod'
+            "
+            exit 0
+          fi
           umask 077
           {
             printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
