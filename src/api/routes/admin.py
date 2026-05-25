@@ -89,6 +89,7 @@ class ActivitySummaryResponse(BaseModel):
     """Sanitized behavior analytics summary."""
 
     period_days: int
+    filtered_user_id: Optional[int] = None
     events_24h: int
     events_period: int
     active_other_users_24h: int
@@ -101,6 +102,7 @@ class FunnelSummaryResponse(BaseModel):
     """Product funnel summary."""
 
     period_days: int
+    filtered_user_id: Optional[int] = None
     funnels: List[dict]
 
 
@@ -214,6 +216,8 @@ async def get_user_records(
     access = await subscription_service.get_access_context(user_id)
     driver_service = DriverService(db)
     driver_overview = await driver_service.get_user_overview(user_id)
+    driver_expenses = await driver_service.get_expenses(user_id, limit=50)
+    driver_documents = await driver_service.get_documents(user_id, active_only=False, limit=50)
 
     lists_result = await db.execute(
         select(TodoList)
@@ -284,6 +288,28 @@ async def get_user_records(
                 }
                 for vehicle in vehicles[:50]
             ],
+            "expenses": [
+                {
+                    "id": expense.id,
+                    "vehicle_id": expense.vehicle_id,
+                    "title": expense.title,
+                    "category": expense.category,
+                    "amount": expense.amount,
+                    "spent_at_utc": expense.spent_at_utc.isoformat(),
+                }
+                for expense in driver_expenses
+            ],
+            "documents": [
+                {
+                    "id": document.id,
+                    "vehicle_id": document.vehicle_id,
+                    "title": document.title,
+                    "document_type": document.document_type,
+                    "expires_at_utc": document.expires_at_utc.isoformat() if document.expires_at_utc else None,
+                    "is_active": document.is_active,
+                }
+                for document in driver_documents
+            ],
         },
     )
 
@@ -297,12 +323,14 @@ async def get_user_records(
 async def get_activity_summary(
     current_user_id: int = Query(0, ge=0, description="Internal admin user ID to exclude from active-other-user counts"),
     days: int = Query(7, ge=1, le=30, description="Lookback period in days"),
+    user_id: Optional[int] = Query(None, ge=1, description="Optional user ID filter"),
     db: AsyncSession = Depends(get_db),
 ) -> ActivitySummaryResponse:
     """Return sanitized aggregate activity without message text."""
     summary = await ActivityService(db).get_admin_event_summary(
         current_user_id=current_user_id,
         days=days,
+        user_id=user_id,
     )
     return ActivitySummaryResponse(**summary)
 
@@ -315,10 +343,11 @@ async def get_activity_summary(
 )
 async def get_funnel_summary(
     days: int = Query(7, ge=1, le=30, description="Lookback period in days"),
+    user_id: Optional[int] = Query(None, ge=1, description="Optional user ID filter"),
     db: AsyncSession = Depends(get_db),
 ) -> FunnelSummaryResponse:
     """Return basic funnel stages for core bot domains."""
-    summary = await ActivityService(db).get_funnel_summary(days=days)
+    summary = await ActivityService(db).get_funnel_summary(days=days, user_id=user_id)
     return FunnelSummaryResponse(**summary)
 
 

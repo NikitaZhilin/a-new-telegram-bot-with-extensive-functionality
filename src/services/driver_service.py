@@ -1,13 +1,13 @@
 """Driver assistant business logic."""
 
 from calendar import monthrange
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import DriverFuelEntry, DriverVehicle
+from src.db.models import DriverDocument, DriverExpense, DriverFuelEntry, DriverVehicle
 
 
 class DriverService:
@@ -283,6 +283,264 @@ class DriverService:
             "avg_cost_per_km": float(avg_cost_per_km) if avg_cost_per_km is not None else None,
         }
 
+    async def create_expense(
+        self,
+        user_id: int,
+        title: str,
+        amount: float,
+        category: str = "other",
+        vehicle_id: Optional[int] = None,
+        spent_at_utc: Optional[datetime] = None,
+        note: Optional[str] = None,
+    ) -> Optional[DriverExpense]:
+        """Create a manual vehicle expense."""
+        if vehicle_id is not None and not await self.get_vehicle(vehicle_id, user_id):
+            return None
+        self._validate_money(amount, "amount")
+        expense = DriverExpense(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            title=title.strip(),
+            category=(category or "other").strip()[:80],
+            amount=amount,
+            spent_at_utc=spent_at_utc or datetime.now(timezone.utc),
+            note=note,
+        )
+        self.db.add(expense)
+        await self.db.flush()
+        await self.db.refresh(expense)
+        return expense
+
+    async def get_expenses(
+        self,
+        user_id: int,
+        vehicle_id: Optional[int] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[DriverExpense]:
+        """Return manual expenses."""
+        query = select(DriverExpense).where(DriverExpense.user_id == user_id)
+        if vehicle_id is not None:
+            query = query.where(DriverExpense.vehicle_id == vehicle_id)
+        result = await self.db.execute(
+            query.order_by(DriverExpense.spent_at_utc.desc(), DriverExpense.id.desc())
+            .offset(max(0, offset))
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_expense(self, expense_id: int, user_id: int) -> Optional[DriverExpense]:
+        """Return one manual expense owned by the user."""
+        result = await self.db.execute(
+            select(DriverExpense).where(
+                DriverExpense.id == expense_id,
+                DriverExpense.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_expense(
+        self,
+        expense_id: int,
+        user_id: int,
+        title: str,
+        amount: float,
+        category: str = "other",
+        vehicle_id: Optional[int] = None,
+        spent_at_utc: Optional[datetime] = None,
+        note: Optional[str] = None,
+    ) -> Optional[DriverExpense]:
+        """Update a manual expense owned by the user."""
+        expense = await self.get_expense(expense_id, user_id)
+        if not expense:
+            return None
+        if vehicle_id is not None and not await self.get_vehicle(vehicle_id, user_id):
+            return None
+        self._validate_money(amount, "amount")
+        expense.vehicle_id = vehicle_id
+        expense.title = title.strip()
+        expense.category = (category or "other").strip()[:80]
+        expense.amount = amount
+        expense.spent_at_utc = spent_at_utc or expense.spent_at_utc
+        expense.note = note
+        expense.updated_at = datetime.now(timezone.utc)
+        await self.db.flush()
+        await self.db.refresh(expense)
+        return expense
+
+    async def delete_expense(self, expense_id: int, user_id: int) -> bool:
+        """Delete a manual expense owned by the user."""
+        expense = await self.get_expense(expense_id, user_id)
+        if not expense:
+            return False
+        await self.db.delete(expense)
+        await self.db.flush()
+        return True
+
+    async def get_expense_summary(self, user_id: int, vehicle_id: Optional[int] = None) -> dict:
+        """Return aggregate manual expense stats."""
+        query = select(func.count(DriverExpense.id), func.sum(DriverExpense.amount)).where(
+            DriverExpense.user_id == user_id
+        )
+        if vehicle_id is not None:
+            query = query.where(DriverExpense.vehicle_id == vehicle_id)
+        result = await self.db.execute(query)
+        count, total = result.one()
+        return {
+            "count": int(count or 0),
+            "total_cost": float(total or 0),
+        }
+
+    async def create_document(
+        self,
+        user_id: int,
+        title: str,
+        document_type: str = "other",
+        vehicle_id: Optional[int] = None,
+        identifier: Optional[str] = None,
+        expires_at_utc: Optional[datetime] = None,
+        remind_before_days: int = 14,
+        note: Optional[str] = None,
+        is_active: bool = True,
+    ) -> Optional[DriverDocument]:
+        """Create a vehicle document or recurring payment tracker."""
+        if vehicle_id is not None and not await self.get_vehicle(vehicle_id, user_id):
+            return None
+        self._validate_remind_before_days(remind_before_days)
+        document = DriverDocument(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            title=title.strip(),
+            document_type=(document_type or "other").strip()[:80],
+            identifier=identifier,
+            expires_at_utc=expires_at_utc,
+            remind_before_days=remind_before_days,
+            note=note,
+            is_active=is_active,
+        )
+        self.db.add(document)
+        await self.db.flush()
+        await self.db.refresh(document)
+        return document
+
+    async def get_documents(
+        self,
+        user_id: int,
+        vehicle_id: Optional[int] = None,
+        active_only: bool = True,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[DriverDocument]:
+        """Return vehicle documents."""
+        query = select(DriverDocument).where(DriverDocument.user_id == user_id)
+        if vehicle_id is not None:
+            query = query.where(DriverDocument.vehicle_id == vehicle_id)
+        if active_only:
+            query = query.where(DriverDocument.is_active.is_(True))
+        result = await self.db.execute(
+            query.order_by(
+                DriverDocument.expires_at_utc.asc().nullslast(),
+                DriverDocument.id.desc(),
+            )
+            .offset(max(0, offset))
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_document(self, document_id: int, user_id: int) -> Optional[DriverDocument]:
+        """Return one vehicle document owned by the user."""
+        result = await self.db.execute(
+            select(DriverDocument).where(
+                DriverDocument.id == document_id,
+                DriverDocument.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_document(
+        self,
+        document_id: int,
+        user_id: int,
+        title: str,
+        document_type: str = "other",
+        vehicle_id: Optional[int] = None,
+        identifier: Optional[str] = None,
+        expires_at_utc: Optional[datetime] = None,
+        remind_before_days: int = 14,
+        note: Optional[str] = None,
+        is_active: bool = True,
+    ) -> Optional[DriverDocument]:
+        """Update a vehicle document owned by the user."""
+        document = await self.get_document(document_id, user_id)
+        if not document:
+            return None
+        if vehicle_id is not None and not await self.get_vehicle(vehicle_id, user_id):
+            return None
+        self._validate_remind_before_days(remind_before_days)
+        document.vehicle_id = vehicle_id
+        document.title = title.strip()
+        document.document_type = (document_type or "other").strip()[:80]
+        document.identifier = identifier
+        document.expires_at_utc = expires_at_utc
+        document.remind_before_days = remind_before_days
+        document.note = note
+        document.is_active = is_active
+        document.updated_at = datetime.now(timezone.utc)
+        await self.db.flush()
+        await self.db.refresh(document)
+        return document
+
+    async def delete_document(self, document_id: int, user_id: int) -> bool:
+        """Delete a vehicle document owned by the user."""
+        document = await self.get_document(document_id, user_id)
+        if not document:
+            return False
+        await self.db.delete(document)
+        await self.db.flush()
+        return True
+
+    async def get_document_summary(
+        self,
+        user_id: int,
+        now_utc: Optional[datetime] = None,
+    ) -> dict:
+        """Return document totals and expiry counters."""
+        now_utc = now_utc or datetime.now(timezone.utc)
+        soon_utc = now_utc + timedelta(days=30)
+
+        async def scalar(query) -> int:
+            result = await self.db.execute(query)
+            return int(result.scalar() or 0)
+
+        active_count = await scalar(
+            select(func.count(DriverDocument.id)).where(
+                DriverDocument.user_id == user_id,
+                DriverDocument.is_active.is_(True),
+            )
+        )
+        expired_count = await scalar(
+            select(func.count(DriverDocument.id)).where(
+                DriverDocument.user_id == user_id,
+                DriverDocument.is_active.is_(True),
+                DriverDocument.expires_at_utc.is_not(None),
+                DriverDocument.expires_at_utc < now_utc,
+            )
+        )
+        expiring_soon_count = await scalar(
+            select(func.count(DriverDocument.id)).where(
+                DriverDocument.user_id == user_id,
+                DriverDocument.is_active.is_(True),
+                DriverDocument.expires_at_utc.is_not(None),
+                DriverDocument.expires_at_utc >= now_utc,
+                DriverDocument.expires_at_utc <= soon_utc,
+            )
+        )
+        return {
+            "active_count": active_count,
+            "expired_count": expired_count,
+            "expiring_soon_count": expiring_soon_count,
+        }
+
     async def get_user_overview(self, user_id: int) -> dict:
         """Return compact driver overview for settings/admin screens."""
         vehicles_result = await self.db.execute(
@@ -293,10 +551,18 @@ class DriverService:
         )
         vehicles_count, max_mileage = vehicles_result.one()
         fuel_summary = await self.get_fuel_summary(user_id)
+        expense_summary = await self.get_expense_summary(user_id)
+        document_summary = await self.get_document_summary(user_id)
         return {
             "vehicles_count": int(vehicles_count or 0),
             "fuel_entries_count": fuel_summary["count"],
             "fuel_total_cost": fuel_summary["total_cost"],
+            "expense_entries_count": expense_summary["count"],
+            "expense_total_cost": expense_summary["total_cost"],
+            "driver_total_cost": fuel_summary["total_cost"] + expense_summary["total_cost"],
+            "documents_active_count": document_summary["active_count"],
+            "documents_expiring_soon_count": document_summary["expiring_soon_count"],
+            "documents_expired_count": document_summary["expired_count"],
             "avg_consumption": fuel_summary["avg_consumption"],
             "avg_cost_per_km": fuel_summary["avg_cost_per_km"],
             "max_mileage_km": int(max_mileage or 0),
@@ -358,6 +624,16 @@ class DriverService:
             raise ValueError("liters must be positive")
         if total_cost <= 0:
             raise ValueError("total_cost must be positive")
+
+    def _validate_money(self, value: float, field_name: str) -> None:
+        """Reject non-positive money values."""
+        if value <= 0:
+            raise ValueError(f"{field_name} must be positive")
+
+    def _validate_remind_before_days(self, value: int) -> None:
+        """Reject invalid document reminder offsets."""
+        if value < 0:
+            raise ValueError("remind_before_days must be non-negative")
 
     async def _recalculate_vehicle_current_mileage(self, vehicle: DriverVehicle) -> None:
         """Keep current mileage derived from manual baseline and fuel history."""

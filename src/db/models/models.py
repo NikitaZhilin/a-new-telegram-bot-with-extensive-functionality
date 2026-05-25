@@ -125,6 +125,20 @@ class User(Base):
         lazy="selectin",
         order_by="DriverFuelEntry.filled_at_utc.desc()",
     )
+    driver_expenses = relationship(
+        "DriverExpense",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="DriverExpense.spent_at_utc.desc()",
+    )
+    driver_documents = relationship(
+        "DriverDocument",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="DriverDocument.expires_at_utc.asc().nullslast()",
+    )
     activity_events = relationship(
         "BotActivityEvent",
         back_populates="user",
@@ -486,6 +500,18 @@ class DriverVehicle(Base):
         lazy="selectin",
         order_by="DriverFuelEntry.filled_at_utc.desc()",
     )
+    expenses = relationship(
+        "DriverExpense",
+        back_populates="vehicle",
+        lazy="selectin",
+        order_by="DriverExpense.spent_at_utc.desc()",
+    )
+    documents = relationship(
+        "DriverDocument",
+        back_populates="vehicle",
+        lazy="selectin",
+        order_by="DriverDocument.expires_at_utc.asc().nullslast()",
+    )
 
     __table_args__ = (
         CheckConstraint("manual_mileage_km >= 0", name="ck_driver_vehicles_manual_mileage_non_negative"),
@@ -568,6 +594,109 @@ class DriverFuelEntry(Base):
 
     def __repr__(self) -> str:
         return f"<DriverFuelEntry(id={self.id}, vehicle_id={self.vehicle_id}, mileage={self.mileage_km})>"
+
+
+class DriverExpense(Base):
+    """Manual vehicle expense not covered by fuel journal."""
+
+    __tablename__ = "driver_expenses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vehicle_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("driver_vehicles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(80), nullable=False, default="other", server_default="other")
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    spent_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="driver_expenses")
+    vehicle = relationship("DriverVehicle", back_populates="expenses")
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_driver_expenses_amount_positive"),
+        Index("ix_driver_expenses_user_spent", "user_id", "spent_at_utc"),
+        Index("ix_driver_expenses_vehicle_spent", "vehicle_id", "spent_at_utc"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DriverExpense(id={self.id}, user_id={self.user_id}, amount={self.amount})>"
+
+
+class DriverDocument(Base):
+    """Vehicle-related document or recurring payment expiry tracker."""
+
+    __tablename__ = "driver_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vehicle_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("driver_vehicles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(80), nullable=False, default="other", server_default="other")
+    identifier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    expires_at_utc: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    remind_before_days: Mapped[int] = mapped_column(Integer, nullable=False, default=14, server_default="14")
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="driver_documents")
+    vehicle = relationship("DriverVehicle", back_populates="documents")
+
+    __table_args__ = (
+        CheckConstraint("remind_before_days >= 0", name="ck_driver_documents_remind_non_negative"),
+        Index("ix_driver_documents_user_expires", "user_id", "expires_at_utc"),
+        Index("ix_driver_documents_vehicle_expires", "vehicle_id", "expires_at_utc"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DriverDocument(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
 
 
 class Reminder(Base):

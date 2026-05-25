@@ -12,7 +12,16 @@ from sqlalchemy.orm import selectinload
 
 from src.api.user_auth import get_current_web_user
 from src.config import settings
-from src.db.models import DriverVehicle, Medication, Reminder, ReminderStatus, TodoList, User
+from src.db.models import (
+    DriverDocument,
+    DriverExpense,
+    DriverVehicle,
+    Medication,
+    Reminder,
+    ReminderStatus,
+    TodoList,
+    User,
+)
 from src.db.session import get_db
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
@@ -225,11 +234,41 @@ class DriverFuelEntryResponse(BaseModel):
     filled_at_utc: datetime
 
 
+class DriverExpenseResponse(BaseModel):
+    """Manual driver expense."""
+
+    id: int
+    vehicle_id: Optional[int]
+    title: str
+    category: str
+    amount: float
+    note: Optional[str]
+    spent_at_utc: datetime
+    updated_at: datetime
+
+
+class DriverDocumentResponse(BaseModel):
+    """Driver document or recurring payment tracker."""
+
+    id: int
+    vehicle_id: Optional[int]
+    title: str
+    document_type: str
+    identifier: Optional[str]
+    expires_at_utc: Optional[datetime]
+    remind_before_days: int
+    note: Optional[str]
+    is_active: bool
+    updated_at: datetime
+
+
 class DriverDashboardResponse(BaseModel):
     """Driver dashboard summary."""
 
     overview: dict
     vehicles: List[DriverVehicleSummaryResponse]
+    expenses: List[DriverExpenseResponse] = Field(default_factory=list)
+    documents: List[DriverDocumentResponse] = Field(default_factory=list)
 
 
 class DriverVehicleCreateRequest(BaseModel):
@@ -272,6 +311,38 @@ class DriverServiceDoneRequest(BaseModel):
     """Mark vehicle service as completed."""
 
     service_mileage_km: int = Field(ge=0)
+
+
+class DriverExpenseCreateRequest(BaseModel):
+    """Create manual expense."""
+
+    title: str = Field(min_length=1, max_length=255)
+    category: str = Field(default="other", max_length=80)
+    amount: float = Field(gt=0)
+    vehicle_id: Optional[int] = None
+    spent_at_local: Optional[datetime] = None
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class DriverExpenseUpdateRequest(DriverExpenseCreateRequest):
+    """Update manual expense."""
+
+
+class DriverDocumentCreateRequest(BaseModel):
+    """Create driver document."""
+
+    title: str = Field(min_length=1, max_length=255)
+    document_type: str = Field(default="other", max_length=80)
+    vehicle_id: Optional[int] = None
+    identifier: Optional[str] = Field(default=None, max_length=255)
+    expires_at_local: Optional[datetime] = None
+    remind_before_days: int = Field(default=14, ge=0)
+    note: Optional[str] = Field(default=None, max_length=1000)
+    is_active: bool = True
+
+
+class DriverDocumentUpdateRequest(DriverDocumentCreateRequest):
+    """Update driver document."""
 
 
 def _repeat_rule(value: str) -> RepeatRule:
@@ -421,6 +492,36 @@ def _fuel_entry_response(entry) -> DriverFuelEntryResponse:
         consumption_l_per_100=entry.consumption_l_per_100,
         cost_per_km=entry.cost_per_km,
         filled_at_utc=entry.filled_at_utc,
+    )
+
+
+def _expense_response(expense: DriverExpense) -> DriverExpenseResponse:
+    """Serialize manual driver expense."""
+    return DriverExpenseResponse(
+        id=expense.id,
+        vehicle_id=expense.vehicle_id,
+        title=expense.title,
+        category=expense.category,
+        amount=expense.amount,
+        note=expense.note,
+        spent_at_utc=expense.spent_at_utc,
+        updated_at=expense.updated_at,
+    )
+
+
+def _document_response(document: DriverDocument) -> DriverDocumentResponse:
+    """Serialize driver document."""
+    return DriverDocumentResponse(
+        id=document.id,
+        vehicle_id=document.vehicle_id,
+        title=document.title,
+        document_type=document.document_type,
+        identifier=document.identifier,
+        expires_at_utc=document.expires_at_utc,
+        remind_before_days=document.remind_before_days,
+        note=document.note,
+        is_active=document.is_active,
+        updated_at=document.updated_at,
     )
 
 
@@ -1016,9 +1117,13 @@ async def get_my_driver_dashboard(
         .limit(50)
     )
     vehicles = vehicles_result.scalars().all()
+    expenses = await driver_service.get_expenses(current_user.id, limit=20)
+    documents = await driver_service.get_documents(current_user.id, active_only=False, limit=50)
     return DriverDashboardResponse(
         overview=overview,
         vehicles=[await _vehicle_response(item, current_user.id, driver_service) for item in vehicles],
+        expenses=[_expense_response(item) for item in expenses],
+        documents=[_document_response(item) for item in documents],
     )
 
 
@@ -1195,5 +1300,189 @@ async def delete_my_driver_fuel_entry(
     """Delete a fuel entry."""
     service = DriverService(db)
     ok = await service.delete_fuel_entry(entry_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)
+
+
+@router.get("/me/driver/expenses", response_model=List[DriverExpenseResponse])
+async def get_my_driver_expenses(
+    vehicle_id: Optional[int] = Query(default=None, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[DriverExpenseResponse]:
+    """Return manual driver expenses."""
+    service = DriverService(db)
+    if vehicle_id is not None and not await service.get_vehicle(vehicle_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    entries = await service.get_expenses(current_user.id, vehicle_id=vehicle_id, limit=limit)
+    return [_expense_response(item) for item in entries]
+
+
+@router.post("/me/driver/expenses", response_model=DriverExpenseResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_driver_expense(
+    payload: DriverExpenseCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverExpenseResponse:
+    """Create a manual driver expense."""
+    service = DriverService(db)
+    try:
+        entry = await service.create_expense(
+            user_id=current_user.id,
+            vehicle_id=payload.vehicle_id,
+            title=payload.title,
+            category=payload.category,
+            amount=payload.amount,
+            spent_at_utc=_local_datetime_to_utc(payload.spent_at_local, current_user.timezone)
+            if payload.spent_at_local
+            else None,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    await db.commit()
+    await db.refresh(entry)
+    return _expense_response(entry)
+
+
+@router.patch("/me/driver/expenses/{expense_id}", response_model=DriverExpenseResponse)
+async def update_my_driver_expense(
+    expense_id: int,
+    payload: DriverExpenseUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverExpenseResponse:
+    """Update a manual driver expense."""
+    service = DriverService(db)
+    try:
+        entry = await service.update_expense(
+            expense_id=expense_id,
+            user_id=current_user.id,
+            vehicle_id=payload.vehicle_id,
+            title=payload.title,
+            category=payload.category,
+            amount=payload.amount,
+            spent_at_utc=_local_datetime_to_utc(payload.spent_at_local, current_user.timezone)
+            if payload.spent_at_local
+            else None,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    await db.commit()
+    await db.refresh(entry)
+    return _expense_response(entry)
+
+
+@router.delete("/me/driver/expenses/{expense_id}", response_model=MutationResponse)
+async def delete_my_driver_expense(
+    expense_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Delete a manual driver expense."""
+    ok = await DriverService(db).delete_expense(expense_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)
+
+
+@router.get("/me/driver/documents", response_model=List[DriverDocumentResponse])
+async def get_my_driver_documents(
+    vehicle_id: Optional[int] = Query(default=None, ge=1),
+    active_only: bool = Query(False),
+    limit: int = Query(100, ge=1, le=200),
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[DriverDocumentResponse]:
+    """Return driver documents."""
+    service = DriverService(db)
+    if vehicle_id is not None and not await service.get_vehicle(vehicle_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    documents = await service.get_documents(
+        current_user.id,
+        vehicle_id=vehicle_id,
+        active_only=active_only,
+        limit=limit,
+    )
+    return [_document_response(item) for item in documents]
+
+
+@router.post("/me/driver/documents", response_model=DriverDocumentResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_driver_document(
+    payload: DriverDocumentCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverDocumentResponse:
+    """Create a driver document."""
+    service = DriverService(db)
+    try:
+        document = await service.create_document(
+            user_id=current_user.id,
+            vehicle_id=payload.vehicle_id,
+            title=payload.title,
+            document_type=payload.document_type,
+            identifier=payload.identifier,
+            expires_at_utc=_local_datetime_to_utc(payload.expires_at_local, current_user.timezone)
+            if payload.expires_at_local
+            else None,
+            remind_before_days=payload.remind_before_days,
+            note=payload.note,
+            is_active=payload.is_active,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    await db.commit()
+    await db.refresh(document)
+    return _document_response(document)
+
+
+@router.patch("/me/driver/documents/{document_id}", response_model=DriverDocumentResponse)
+async def update_my_driver_document(
+    document_id: int,
+    payload: DriverDocumentUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverDocumentResponse:
+    """Update a driver document."""
+    service = DriverService(db)
+    try:
+        document = await service.update_document(
+            document_id=document_id,
+            user_id=current_user.id,
+            vehicle_id=payload.vehicle_id,
+            title=payload.title,
+            document_type=payload.document_type,
+            identifier=payload.identifier,
+            expires_at_utc=_local_datetime_to_utc(payload.expires_at_local, current_user.timezone)
+            if payload.expires_at_local
+            else None,
+            remind_before_days=payload.remind_before_days,
+            note=payload.note,
+            is_active=payload.is_active,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    await db.commit()
+    await db.refresh(document)
+    return _document_response(document)
+
+
+@router.delete("/me/driver/documents/{document_id}", response_model=MutationResponse)
+async def delete_my_driver_document(
+    document_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Delete a driver document."""
+    ok = await DriverService(db).delete_document(document_id, current_user.id)
     await db.commit()
     return MutationResponse(ok=ok)

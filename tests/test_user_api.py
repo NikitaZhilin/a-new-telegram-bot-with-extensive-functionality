@@ -288,6 +288,53 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
                 "note": "updated",
             },
         )
+        expense_response = await client.post(
+            "/me/driver/expenses",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "title": "Wash",
+                "category": "wash",
+                "amount": 500,
+                "note": "manual",
+            },
+        )
+        expense_id = expense_response.json()["id"]
+        updated_expense_response = await client.patch(
+            f"/me/driver/expenses/{expense_id}",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "title": "Wash updated",
+                "category": "wash",
+                "amount": 700,
+                "note": "updated",
+            },
+        )
+        document_response = await client.post(
+            "/me/driver/documents",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "title": "OSAGO",
+                "document_type": "insurance",
+                "identifier": "test",
+                "remind_before_days": 10,
+            },
+        )
+        document_id = document_response.json()["id"]
+        updated_document_response = await client.patch(
+            f"/me/driver/documents/{document_id}",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "title": "OSAGO updated",
+                "document_type": "insurance",
+                "identifier": "test2",
+                "remind_before_days": 7,
+                "is_active": True,
+            },
+        )
 
         lists_response = await client.get("/me/lists", headers=headers)
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
@@ -320,8 +367,18 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert fuel_response.status_code == 201
     assert updated_fuel_response.json()["mileage_km"] == 1300
     assert updated_fuel_response.json()["note"] == "updated"
+    assert expense_response.status_code == 201
+    assert updated_expense_response.json()["title"] == "Wash updated"
+    assert updated_expense_response.json()["amount"] == 700
+    assert document_response.status_code == 201
+    assert updated_document_response.json()["title"] == "OSAGO updated"
+    assert updated_document_response.json()["remind_before_days"] == 7
     assert lists_response.json()[0]["title"] == "Web CRUD"
     assert reminders_response.json()[0]["status"] == "canceled"
     assert medications_response.json()[0]["name"] == "Web med updated"
     assert driver_response.json()["overview"]["vehicles_count"] == 1
     assert driver_response.json()["overview"]["fuel_entries_count"] == 1
+    assert driver_response.json()["overview"]["expense_entries_count"] == 1
+    assert driver_response.json()["overview"]["documents_active_count"] == 1
+    assert driver_response.json()["expenses"][0]["title"] == "Wash updated"
+    assert driver_response.json()["documents"][0]["title"] == "OSAGO updated"

@@ -14,13 +14,24 @@ const state = {
   medications: [],
   driver: null,
   fuelEntries: [],
+  driverExpenses: [],
+  driverDocuments: [],
   selectedListId: null,
   selectedVehicleId: null,
+  editingListId: null,
+  editingItemId: null,
   editingReminderId: null,
   editingMedicationId: null,
   editingVehicleId: null,
   editingFuelId: null,
+  editingExpenseId: null,
+  editingDocumentId: null,
   serviceVehicleId: null,
+  adminUsers: [],
+  adminFilters: {
+    days: 7,
+    userId: "",
+  },
 };
 
 const titles = {
@@ -179,8 +190,8 @@ function renderMetrics() {
     ["Списки", stats.lists?.owned ?? 0, `общих списков с вашим доступом: ${stats.lists?.shared ?? 0}`],
     ["Активные напоминания", stats.reminders?.active ?? 0, `выполнено: ${stats.reminders?.done ?? 0}; отменено: ${stats.reminders?.canceled ?? 0}`],
     ["Лекарства", stats.medications?.active ?? 0, `в архиве: ${stats.medications?.archived ?? 0}`],
-    ["Автомобили", stats.driver?.vehicles_count ?? 0, `заправок: ${stats.driver?.fuel_entries_count ?? 0}`],
-    ["Расходы на топливо", formatMoney(stats.driver?.fuel_total_cost ?? 0), "сумма по всем заправкам"],
+    ["Автомобили", stats.driver?.vehicles_count ?? 0, `заправок: ${stats.driver?.fuel_entries_count ?? 0}; документов: ${stats.driver?.documents_active_count ?? 0}`],
+    ["Расходы на авто", formatMoney(stats.driver?.driver_total_cost ?? stats.driver?.fuel_total_cost ?? 0), `топливо: ${formatMoney(stats.driver?.fuel_total_cost ?? 0)}; прочее: ${formatMoney(stats.driver?.expense_total_cost ?? 0)}`],
     ["Тариф", state.summary?.access?.plan_title || formatPlan(state.summary?.access?.plan), `статус: ${formatSubscriptionStatus(state.summary?.access?.subscription_status)}`],
   ];
   $("#dashboardCards").innerHTML = cards.map(([label, value, detail]) => `
@@ -219,6 +230,8 @@ function renderDashboardDetails(stats) {
       lines: [
         `Заправок: ${stats.driver?.fuel_entries_count ?? 0}`,
         `Расходы на топливо: ${formatMoney(stats.driver?.fuel_total_cost ?? 0)}`,
+        `Прочие расходы: ${formatMoney(stats.driver?.expense_total_cost ?? 0)}`,
+        `Документы: ${stats.driver?.documents_active_count ?? 0}, скоро истекают: ${stats.driver?.documents_expiring_soon_count ?? 0}`,
         `Средний расход: ${stats.driver?.avg_consumption ? `${Number(stats.driver.avg_consumption).toFixed(1)} л/100 км` : "пока не рассчитан"}`,
       ],
     },
@@ -249,6 +262,34 @@ function formatDate(value) {
 function formatMoney(value) {
   const number = Number(value || 0);
   return number.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽";
+}
+
+function formatExpenseCategory(value) {
+  return {
+    service: "ТО и ремонт",
+    parts: "Запчасти",
+    wash: "Мойка",
+    insurance: "Страховка",
+    parking: "Парковка",
+    fine: "Штраф",
+    other: "Другое",
+  }[value] || value || "Другое";
+}
+
+function formatDocumentType(value) {
+  return {
+    insurance: "ОСАГО/КАСКО",
+    license: "Права",
+    diagnostic: "Диагностика",
+    tax: "Налог",
+    fine: "Штраф",
+    other: "Другое",
+  }[value] || value || "Другое";
+}
+
+function formatVehicleName(vehicleId) {
+  const vehicle = (state.driver?.vehicles || []).find((item) => Number(item.id) === Number(vehicleId));
+  return vehicle ? vehicle.title : "без привязки к авто";
 }
 
 function formatRole(value) {
@@ -337,7 +378,7 @@ async function copyText(text) {
     await navigator.clipboard.writeText(text);
     showMessage("Скопировано.");
   } catch {
-    window.prompt("Скопируйте вручную", text);
+    showMessage("Не удалось скопировать автоматически. Выделите текст ссылки вручную.", true);
   }
 }
 
@@ -448,6 +489,86 @@ function renderFuelEditForm(item) {
   `;
 }
 
+function renderListRenameForm(item) {
+  return `
+    <form class="stack inline-edit-form list-rename-form" data-id="${item.id}">
+      <input name="title" type="text" value="${escapeHtml(item.title)}" placeholder="Название списка" required>
+      <div class="button-row">
+        <button class="small action-save" type="submit">Сохранить</button>
+        <button class="secondary small action-cancel" type="button" data-action="cancel-list-edit">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderListItemEditForm(item) {
+  return `
+    <form class="stack inline-edit-form list-item-edit-form" data-id="${item.id}">
+      <textarea name="text" rows="3" placeholder="Текст пункта" required>${escapeHtml(item.text || "")}</textarea>
+      <div class="button-row">
+        <button class="small action-save" type="submit">Сохранить</button>
+        <button class="secondary small action-cancel" type="button" data-action="cancel-list-item-edit">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderVehicleOptions(selectedId = null, includeEmpty = true) {
+  const empty = includeEmpty ? `<option value="">Без привязки к авто</option>` : "";
+  const options = (state.driver?.vehicles || []).map((vehicle) => `
+    <option value="${vehicle.id}" ${Number(selectedId) === Number(vehicle.id) ? "selected" : ""}>${escapeHtml(vehicle.title)}</option>
+  `).join("");
+  return empty + options;
+}
+
+function renderExpenseEditForm(item) {
+  return `
+    <form class="stack inline-edit-form expense-edit-form" data-id="${item.id}">
+      <select name="vehicle_id">${renderVehicleOptions(item.vehicle_id)}</select>
+      <input name="title" type="text" value="${escapeHtml(item.title)}" placeholder="Название" required>
+      <select name="category">
+        ${["service", "parts", "wash", "insurance", "parking", "fine", "other"].map((value) => `
+          <option value="${value}" ${item.category === value ? "selected" : ""}>${formatExpenseCategory(value)}</option>
+        `).join("")}
+      </select>
+      <input name="amount" type="number" min="0.01" step="0.01" value="${item.amount}" placeholder="Сумма" required>
+      <input name="spent_at_local" type="datetime-local" value="${escapeHtml(toLocalInputFromIso(item.spent_at_utc))}">
+      <textarea name="note" rows="2" placeholder="Комментарий">${escapeHtml(item.note || "")}</textarea>
+      <div class="button-row">
+        <button class="small action-save" type="submit">Сохранить</button>
+        <button class="secondary small action-cancel" type="button" data-action="cancel-expense-edit">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderDocumentEditForm(item) {
+  const expires = item.expires_at_utc ? new Date(item.expires_at_utc).toISOString().slice(0, 10) : "";
+  return `
+    <form class="stack inline-edit-form document-edit-form" data-id="${item.id}">
+      <select name="vehicle_id">${renderVehicleOptions(item.vehicle_id)}</select>
+      <input name="title" type="text" value="${escapeHtml(item.title)}" placeholder="Название" required>
+      <select name="document_type">
+        ${["insurance", "license", "diagnostic", "tax", "fine", "other"].map((value) => `
+          <option value="${value}" ${item.document_type === value ? "selected" : ""}>${formatDocumentType(value)}</option>
+        `).join("")}
+      </select>
+      <input name="identifier" type="text" value="${escapeHtml(item.identifier || "")}" placeholder="Номер или пометка">
+      <input name="expires_at_local" type="date" value="${escapeHtml(expires)}">
+      <input name="remind_before_days" type="number" min="0" value="${item.remind_before_days}" placeholder="Напомнить за дней">
+      <textarea name="note" rows="2" placeholder="Комментарий">${escapeHtml(item.note || "")}</textarea>
+      <label class="checkbox-row">
+        <input name="is_active" type="checkbox" ${item.is_active ? "checked" : ""}>
+        <span>Активен</span>
+      </label>
+      <div class="button-row">
+        <button class="small action-save" type="submit">Сохранить</button>
+        <button class="secondary small action-cancel" type="button" data-action="cancel-document-edit">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
 async function loadSummary() {
   state.summary = await api("/me/summary");
   state.user = state.summary.user;
@@ -468,17 +589,22 @@ async function loadLists() {
             <div class="item-meta">${item.items_done}/${item.items_total} выполнено · ${formatRole(item.access_role)}</div>
           </div>
         </div>
-        <div class="item-actions">
-          <button class="small action-open" data-action="open-list" data-id="${item.id}">Открыть</button>
-          ${canManage ? `
-            <button class="secondary small action-edit" data-action="rename-list" data-id="${item.id}" data-title="${escapeHtml(item.title)}">Переименовать</button>
-            <button class="danger small action-danger" data-action="delete-list" data-id="${item.id}">Удалить</button>
-          ` : ""}
-        </div>
+        ${state.editingListId === item.id ? renderListRenameForm(item) : `
+          <div class="item-actions">
+            <button class="small action-open" data-action="open-list" data-id="${item.id}">Открыть</button>
+            ${canManage ? `
+              <button class="secondary small action-edit" data-action="rename-list" data-id="${item.id}">Переименовать</button>
+              <button class="danger small action-danger" data-action="delete-list" data-id="${item.id}">Удалить</button>
+            ` : ""}
+          </div>
+        `}
       </article>
     `;
     }).join("")
     : `<div class="item-meta">Списков пока нет.</div>`;
+  $$(".list-rename-form").forEach((form) => {
+    form.addEventListener("submit", (event) => handleListRename(event).catch((error) => showMessage(error.message, true)));
+  });
 }
 
 async function openList(listId) {
@@ -506,18 +632,25 @@ async function openList(listId) {
       ${detail.items.length ? detail.items.map((item) => `
         <div class="list-item-row">
           <input type="checkbox" data-action="toggle-item" data-id="${item.id}" ${item.is_completed ? "checked" : ""} ${canEdit ? "" : "disabled"}>
-          <span>${escapeHtml(item.text)}</span>
-          <div class="actions">
-            ${canEdit ? `
-              <button class="secondary small action-edit" data-action="edit-item" data-id="${item.id}" data-text="${escapeHtml(item.text)}">Изм.</button>
-              <button class="danger small action-danger" data-action="delete-item" data-id="${item.id}">Удалить</button>
-            ` : ""}
+          <div class="list-item-content">
+            ${state.editingItemId === item.id ? renderListItemEditForm(item) : `<span>${escapeHtml(item.text)}</span>`}
           </div>
+          ${state.editingItemId === item.id ? "" : `
+            <div class="actions">
+              ${canEdit ? `
+                <button class="secondary small action-edit" data-action="edit-item" data-id="${item.id}">Изменить</button>
+                <button class="danger small action-danger" data-action="delete-item" data-id="${item.id}">Удалить</button>
+              ` : ""}
+            </div>
+          `}
         </div>
       `).join("") : `<div class="item-meta">Пунктов пока нет.</div>`}
     </div>
   `;
   $("#listItemCreateForm")?.addEventListener("submit", handleListItemCreate);
+  $$(".list-item-edit-form").forEach((form) => {
+    form.addEventListener("submit", (event) => handleListItemUpdate(event).catch((error) => showMessage(error.message, true)));
+  });
 }
 
 function renderListSharePanel(data) {
@@ -668,6 +801,8 @@ function renderDriver() {
 
   const select = $("#fuelCreateForm select[name='vehicle_id']");
   select.innerHTML = vehicles.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join("");
+  $("#expenseCreateForm select[name='vehicle_id']").innerHTML = renderVehicleOptions();
+  $("#documentCreateForm select[name='vehicle_id']").innerHTML = renderVehicleOptions();
   if (!state.selectedVehicleId && vehicles[0]) {
     state.selectedVehicleId = vehicles[0].id;
   }
@@ -678,7 +813,11 @@ function renderDriver() {
 
 async function loadDriver() {
   state.driver = await api("/me/driver");
+  state.driverExpenses = state.driver.expenses || [];
+  state.driverDocuments = state.driver.documents || [];
   renderDriver();
+  renderExpenses();
+  renderDocuments();
   if (state.selectedVehicleId) {
     await loadFuel(state.selectedVehicleId);
   } else {
@@ -717,33 +856,128 @@ async function loadFuel(vehicleId) {
   });
 }
 
+function renderExpenses() {
+  $("#expensesContainer").innerHTML = state.driverExpenses.length
+    ? state.driverExpenses.map((item) => `
+      <article class="item-card">
+        <div class="item-card-header">
+          <div>
+            <div class="item-title">${escapeHtml(item.title)}</div>
+            <div class="item-meta">${formatMoney(item.amount)} · ${formatExpenseCategory(item.category)} · ${formatDate(item.spent_at_utc)}</div>
+            <div class="item-meta">${escapeHtml(formatVehicleName(item.vehicle_id))}</div>
+          </div>
+        </div>
+        <details ${state.editingExpenseId === item.id ? "open" : ""}>
+          <summary>Детали расхода</summary>
+          ${item.note ? `<div class="item-text">${escapeHtml(item.note)}</div>` : ""}
+          ${state.editingExpenseId === item.id ? renderExpenseEditForm(item) : `
+            <div class="item-actions">
+              <button class="secondary small action-edit" data-action="edit-expense" data-id="${item.id}">Изменить</button>
+              <button class="danger small action-danger" data-action="delete-expense" data-id="${item.id}">Удалить</button>
+            </div>
+          `}
+        </details>
+      </article>
+    `).join("")
+    : `<div class="item-meta">Ручных расходов пока нет.</div>`;
+  $$(".expense-edit-form").forEach((form) => {
+    form.addEventListener("submit", (event) => handleExpenseUpdate(event).catch((error) => showMessage(error.message, true)));
+  });
+}
+
+function renderDocuments() {
+  $("#documentsContainer").innerHTML = state.driverDocuments.length
+    ? state.driverDocuments.map((item) => `
+      <article class="item-card">
+        <div class="item-card-header">
+          <div>
+            <div class="item-title">${escapeHtml(item.title)}</div>
+            <div class="item-meta">${formatDocumentType(item.document_type)} · ${item.is_active ? "активен" : "архив"}</div>
+            <div class="item-meta">${item.expires_at_utc ? `действует до ${formatDate(item.expires_at_utc)}` : "срок не указан"} · ${escapeHtml(formatVehicleName(item.vehicle_id))}</div>
+          </div>
+        </div>
+        <details ${state.editingDocumentId === item.id ? "open" : ""}>
+          <summary>Детали документа</summary>
+          ${item.identifier ? `<div class="item-meta">Номер/пометка: ${escapeHtml(item.identifier)}</div>` : ""}
+          <div class="item-meta">Напомнить за ${item.remind_before_days} дн.</div>
+          ${item.note ? `<div class="item-text">${escapeHtml(item.note)}</div>` : ""}
+          ${state.editingDocumentId === item.id ? renderDocumentEditForm(item) : `
+            <div class="item-actions">
+              <button class="secondary small action-edit" data-action="edit-document" data-id="${item.id}">Изменить</button>
+              <button class="danger small action-danger" data-action="delete-document" data-id="${item.id}">Удалить</button>
+            </div>
+          `}
+        </details>
+      </article>
+    `).join("")
+    : `<div class="item-meta">Документов пока нет.</div>`;
+  $$(".document-edit-form").forEach((form) => {
+    form.addEventListener("submit", (event) => handleDocumentUpdate(event).catch((error) => showMessage(error.message, true)));
+  });
+}
+
 async function loadAdmin() {
   if (!state.auth.adminToken) {
     $("#adminActivity").innerHTML = `<div class="item-meta">Нужен admin token.</div>`;
     $("#adminFunnels").innerHTML = "";
+    $("#adminActivityOverview").innerHTML = "";
     return;
   }
+  if (!state.adminUsers.length) {
+    const users = await adminApi("/admin/users?page_size=100");
+    state.adminUsers = users.users || [];
+    const selected = state.adminFilters.userId;
+    $("#adminActivityFilterForm select[name='user_id']").innerHTML = `
+      <option value="">Все пользователи</option>
+      ${state.adminUsers.map((user) => `
+        <option value="${user.id}" ${String(user.id) === String(selected) ? "selected" : ""}>
+          ${escapeHtml(user.first_name || user.username || `user ${user.telegram_id}`)} · ${user.telegram_id}
+        </option>
+      `).join("")}
+    `;
+  }
+  $("#adminActivityFilterForm select[name='days']").value = String(state.adminFilters.days);
+  $("#adminActivityFilterForm select[name='user_id']").value = state.adminFilters.userId;
+  const params = new URLSearchParams({ days: String(state.adminFilters.days) });
+  if (state.adminFilters.userId) {
+    params.set("user_id", state.adminFilters.userId);
+  }
   const [activity, funnels] = await Promise.all([
-    adminApi("/admin/activity"),
-    adminApi("/admin/funnels"),
+    adminApi(`/admin/activity?${params}`),
+    adminApi(`/admin/funnels?${params}`),
   ]);
-  $("#adminActivity").innerHTML = `
-    <article class="item-card">
-      <div class="item-title">События за 24 часа: ${activity.events_24h}</div>
-      <div class="item-meta">За период: ${activity.events_period}; активных пользователей: ${activity.active_other_users_period}</div>
+  $("#adminActivityOverview").innerHTML = [
+    ["События за 24 часа", activity.events_24h, "по выбранному фильтру"],
+    [`События за ${activity.period_days} дн.`, activity.events_period, "все действия без текстов сообщений"],
+    ["Активных других пользователей", activity.active_other_users_period, "кроме вашего admin-пользователя"],
+  ].map(([label, value, detail]) => `
+    <article class="metric">
+      <div class="metric-value">${escapeHtml(value)}</div>
+      <div class="metric-label">${escapeHtml(label)}</div>
+      <div class="metric-detail">${escapeHtml(detail)}</div>
     </article>
+  `).join("");
+  $("#adminActivity").innerHTML = `
+    <h3>Самые используемые разделы</h3>
+    ${(activity.top_domains || []).map((item) => `
+      <article class="item-card">
+        <div class="item-title">${escapeHtml(item.label || item.domain || "Раздел")}</div>
+        <div class="item-meta">${item.count} событий за выбранный период</div>
+      </article>
+    `).join("") || `<div class="item-meta">По разделам пока нет данных.</div>`}
+    <h3>Самые частые действия</h3>
     ${(activity.top_actions || []).map((item) => `
       <article class="item-card">
         <div class="item-title">${escapeHtml(formatActionLabel(item))}</div>
         <div class="item-meta">${escapeHtml(item.domain_label || "раздел не определен")} · ${item.count} событий</div>
       </article>
-    `).join("")}
+    `).join("") || `<div class="item-meta">По действиям пока нет данных.</div>`}
   `;
   $("#adminFunnels").innerHTML = (funnels.funnels || []).map((funnel) => `
     <article class="item-card">
       <div class="item-title">${escapeHtml(funnel.label || funnel.name || "Сценарий")}</div>
       ${(funnel.stages || []).map((stage) => `
-        <div class="item-meta">${escapeHtml(stage.label || stage.name || "шаг")}: ${stage.count}</div>
+        <div class="item-meta">${escapeHtml(stage.label || stage.name || "шаг")}: ${stage.count}${stage.conversion_from_previous !== null && stage.conversion_from_previous !== undefined ? ` · ${stage.conversion_from_previous}% от прошлого шага` : ""}</div>
       `).join("")}
     </article>
   `).join("") || `<div class="item-meta">Данных пока нет.</div>`;
@@ -803,6 +1037,36 @@ async function handleListItemCreate(event) {
   form.reset();
   await openList(form.dataset.listId);
   await loadLists();
+}
+
+async function handleListRename(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const listId = form.dataset.id;
+  await api(`/me/lists/${listId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title: form.title.value }),
+  });
+  state.editingListId = null;
+  await loadLists();
+  if (Number(state.selectedListId) === Number(listId)) {
+    await openList(listId);
+  }
+  await loadSummary();
+  showMessage("Список переименован.");
+}
+
+async function handleListItemUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api(`/me/lists/items/${form.dataset.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ text: form.text.value }),
+  });
+  state.editingItemId = null;
+  await openList(state.selectedListId);
+  await loadLists();
+  showMessage("Пункт обновлен.");
 }
 
 async function handleReminderCreate(event) {
@@ -976,12 +1240,102 @@ async function handleFuelUpdate(event) {
   showMessage("Заправка обновлена.");
 }
 
+function dateInputToLocalDatetime(value) {
+  return value ? `${value}T12:00` : null;
+}
+
+async function handleExpenseCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api("/me/driver/expenses", {
+    method: "POST",
+    body: JSON.stringify({
+      vehicle_id: form.vehicle_id.value ? Number(form.vehicle_id.value) : null,
+      title: form.title.value,
+      category: form.category.value,
+      amount: Number(form.amount.value),
+      spent_at_local: form.spent_at_local.value || null,
+      note: form.note.value || null,
+    }),
+  });
+  form.reset();
+  form.spent_at_local.value = toDatetimeLocal(new Date());
+  await loadDriver();
+  await loadSummary();
+  showMessage("Расход сохранен.");
+}
+
+async function handleExpenseUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api(`/me/driver/expenses/${form.dataset.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      vehicle_id: form.vehicle_id.value ? Number(form.vehicle_id.value) : null,
+      title: form.title.value,
+      category: form.category.value,
+      amount: Number(form.amount.value),
+      spent_at_local: form.spent_at_local.value || null,
+      note: form.note.value || null,
+    }),
+  });
+  state.editingExpenseId = null;
+  await loadDriver();
+  await loadSummary();
+  showMessage("Расход обновлен.");
+}
+
+async function handleDocumentCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api("/me/driver/documents", {
+    method: "POST",
+    body: JSON.stringify({
+      vehicle_id: form.vehicle_id.value ? Number(form.vehicle_id.value) : null,
+      title: form.title.value,
+      document_type: form.document_type.value,
+      identifier: form.identifier.value || null,
+      expires_at_local: dateInputToLocalDatetime(form.expires_at_local.value),
+      remind_before_days: Number(form.remind_before_days.value || 0),
+      note: form.note.value || null,
+      is_active: true,
+    }),
+  });
+  form.reset();
+  form.remind_before_days.value = 14;
+  await loadDriver();
+  await loadSummary();
+  showMessage("Документ сохранен.");
+}
+
+async function handleDocumentUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api(`/me/driver/documents/${form.dataset.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      vehicle_id: form.vehicle_id.value ? Number(form.vehicle_id.value) : null,
+      title: form.title.value,
+      document_type: form.document_type.value,
+      identifier: form.identifier.value || null,
+      expires_at_local: dateInputToLocalDatetime(form.expires_at_local.value),
+      remind_before_days: Number(form.remind_before_days.value || 0),
+      note: form.note.value || null,
+      is_active: form.is_active.checked,
+    }),
+  });
+  state.editingDocumentId = null;
+  await loadDriver();
+  await loadSummary();
+  showMessage("Документ обновлен.");
+}
+
 async function handleAction(event) {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   const action = target.dataset.action;
   const id = target.dataset.id;
-  const needsSecondClick = new Set(["delete-list", "delete-item", "delete-reminder", "archive-medication", "delete-vehicle", "delete-fuel", "remove-member"]);
+  const needsSecondClick = new Set(["delete-list", "delete-item", "delete-reminder", "archive-medication", "delete-vehicle", "delete-fuel", "delete-expense", "delete-document", "remove-member"]);
   if (needsSecondClick.has(action) && target.dataset.confirmed !== "1") {
     target.dataset.originalText = target.textContent;
     target.dataset.confirmed = "1";
@@ -996,12 +1350,11 @@ async function handleAction(event) {
     if (action === "open-list") {
       await openList(id);
     } else if (action === "rename-list") {
-      const title = window.prompt("Новое название", target.dataset.title || "");
-      if (title) {
-        await api(`/me/lists/${id}`, { method: "PATCH", body: JSON.stringify({ title }) });
-        await loadLists();
-        await openList(id);
-      }
+      state.editingListId = Number(id);
+      await loadLists();
+    } else if (action === "cancel-list-edit") {
+      state.editingListId = null;
+      await loadLists();
     } else if (action === "delete-list") {
       await api(`/me/lists/${id}`, { method: "DELETE" });
       $("#listDetailPanel").classList.add("hidden");
@@ -1015,12 +1368,11 @@ async function handleAction(event) {
       await openList(state.selectedListId);
       await loadLists();
     } else if (action === "edit-item") {
-      const text = window.prompt("Текст пункта", target.dataset.text || "");
-      if (text) {
-        await api(`/me/lists/items/${id}`, { method: "PATCH", body: JSON.stringify({ text }) });
-        await openList(state.selectedListId);
-        await loadLists();
-      }
+      state.editingItemId = Number(id);
+      await openList(state.selectedListId);
+    } else if (action === "cancel-list-item-edit") {
+      state.editingItemId = null;
+      await openList(state.selectedListId);
     } else if (action === "delete-item") {
       await api(`/me/lists/items/${id}`, { method: "DELETE" });
       await openList(state.selectedListId);
@@ -1109,6 +1461,26 @@ async function handleAction(event) {
       await api(`/me/driver/fuel/${id}`, { method: "DELETE" });
       await loadDriver();
       await loadSummary();
+    } else if (action === "edit-expense") {
+      state.editingExpenseId = Number(id);
+      await loadDriver();
+    } else if (action === "cancel-expense-edit") {
+      state.editingExpenseId = null;
+      renderExpenses();
+    } else if (action === "delete-expense") {
+      await api(`/me/driver/expenses/${id}`, { method: "DELETE" });
+      await loadDriver();
+      await loadSummary();
+    } else if (action === "edit-document") {
+      state.editingDocumentId = Number(id);
+      await loadDriver();
+    } else if (action === "cancel-document-edit") {
+      state.editingDocumentId = null;
+      renderDocuments();
+    } else if (action === "delete-document") {
+      await api(`/me/driver/documents/${id}`, { method: "DELETE" });
+      await loadDriver();
+      await loadSummary();
     }
   } catch (error) {
     showMessage(error.message, true);
@@ -1134,6 +1506,14 @@ function bindEvents() {
   $("#medicationCreateForm").addEventListener("submit", (event) => handleMedicationCreate(event).catch((error) => showMessage(error.message, true)));
   $("#vehicleCreateForm").addEventListener("submit", (event) => handleVehicleCreate(event).catch((error) => showMessage(error.message, true)));
   $("#fuelCreateForm").addEventListener("submit", (event) => handleFuelCreate(event).catch((error) => showMessage(error.message, true)));
+  $("#expenseCreateForm").addEventListener("submit", (event) => handleExpenseCreate(event).catch((error) => showMessage(error.message, true)));
+  $("#documentCreateForm").addEventListener("submit", (event) => handleDocumentCreate(event).catch((error) => showMessage(error.message, true)));
+  $("#adminActivityFilterForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.adminFilters.days = Number(event.currentTarget.days.value || 7);
+    state.adminFilters.userId = event.currentTarget.user_id.value || "";
+    loadAdmin().catch((error) => showMessage(error.message, true));
+  });
   document.body.addEventListener("click", handleAction);
   $("#fuelCreateForm select[name='vehicle_id']").addEventListener("change", (event) => loadFuel(event.target.value).catch((error) => showMessage(error.message, true)));
 }
@@ -1141,6 +1521,7 @@ function bindEvents() {
 async function boot() {
   document.documentElement.dataset.theme = localStorage.getItem("rememberme.theme") || "light";
   $("#reminderCreateForm input[name='remind_at_local']").value = defaultReminderTime();
+  $("#expenseCreateForm input[name='spent_at_local']").value = toDatetimeLocal(new Date());
   const url = new URL(window.location.href);
   const tokenFromLink = url.searchParams.get("token");
   if (tokenFromLink) {

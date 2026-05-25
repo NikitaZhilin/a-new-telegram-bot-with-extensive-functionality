@@ -476,8 +476,14 @@ async def run_bot() -> None:
                     settings.STARTUP_UPDATE_MESSAGE.strip()
                     .strip("\"'")
                     .strip()
-                    or "Можно продолжать пользоваться."
+                    or "Улучшена стабильность работы бота."
                 )
+                change_lines = [
+                    line.strip().lstrip("-•").strip()
+                    for line in update_message.replace(";", "\n").splitlines()
+                    if line.strip()
+                ]
+                changes_text = "\n".join(f"- {line}" for line in change_lines)
                 testing_notice = (
                     f"\n\n{settings.TESTING_NOTICE_TEXT}"
                     if settings.TESTING_NOTICE_ENABLED
@@ -486,8 +492,10 @@ async def run_bot() -> None:
                 await bot_app.bot.send_message(
                     chat_id=telegram_id,
                     text=(
-                        f"Бот обновлен до версии {settings.APP_VERSION} и перезапущен.\n\n"
-                        f"{update_message}"
+                        f"Бот обновлен до бета-версии {settings.APP_VERSION} и перезапущен.\n\n"
+                        "Что изменилось:\n"
+                        f"{changes_text}\n\n"
+                        "Главное меню открыто ниже. Если кнопки не появились, отправьте /start."
                         f"{testing_notice}"
                     ),
                     reply_markup=get_main_menu_keyboard(),

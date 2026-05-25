@@ -67,6 +67,8 @@ FUNNEL_DEFINITIONS = [
             ("open", "Открыли раздел", ["menu:driver", "driver_menu"]),
             ("vehicle_create", "Создавали авто", ["driver_vehicle_create"]),
             ("fuel_add", "Добавляли заправку", ["driver_fuel_add:{id}"]),
+            ("expense_add", "Добавляли расход", ["driver_expense_add", "driver_expense_add:{id}"]),
+            ("document_add", "Добавляли документ", ["driver_document_add", "driver_document_add:{id}"]),
             ("service_done", "Отмечали ТО", ["driver_service_done:{id}"]),
             ("templates", "Использовали шаблоны", ["driver_list_template:parts", "driver_list_template:trip_check", "driver_list_template:fluids_check", "driver_reminder_template:oil", "driver_reminder_template:fluids", "driver_reminder_template:wash", "driver_reminder_template:tire_pressure"]),
         ],
@@ -134,6 +136,7 @@ class ActivityService:
         current_user_id: int,
         days: int = 7,
         top_limit: int = 5,
+        user_id: Optional[int] = None,
     ) -> dict:
         """Aggregate activity for admin diagnostics."""
         now = datetime.now(timezone.utc)
@@ -147,6 +150,12 @@ class ActivityService:
         base_filters = [
             BotActivityEvent.created_at >= since_days,
         ]
+        base_24h_filters = [
+            BotActivityEvent.created_at >= since_24h,
+        ]
+        if user_id is not None:
+            base_filters.append(BotActivityEvent.user_id == user_id)
+            base_24h_filters.append(BotActivityEvent.user_id == user_id)
         other_user_filters = [
             *base_filters,
             BotActivityEvent.user_id.is_not(None),
@@ -154,7 +163,7 @@ class ActivityService:
         ]
 
         total_24h = await scalar(
-            select(func.count(BotActivityEvent.id)).where(BotActivityEvent.created_at >= since_24h)
+            select(func.count(BotActivityEvent.id)).where(*base_24h_filters)
         )
         total_period = await scalar(select(func.count(BotActivityEvent.id)).where(*base_filters))
         active_users_24h = await scalar(
@@ -187,6 +196,7 @@ class ActivityService:
 
         return {
             "period_days": days,
+            "filtered_user_id": user_id,
             "events_24h": total_24h,
             "events_period": total_period,
             "active_other_users_24h": active_users_24h,
@@ -211,10 +221,13 @@ class ActivityService:
             ],
         }
 
-    async def get_funnel_summary(self, days: int = 7) -> dict:
+    async def get_funnel_summary(self, days: int = 7, user_id: Optional[int] = None) -> dict:
         """Return basic product funnels from sanitized activity events."""
         since = datetime.now(timezone.utc) - timedelta(days=days)
         funnels = []
+        base_filters = [BotActivityEvent.created_at >= since]
+        if user_id is not None:
+            base_filters.append(BotActivityEvent.user_id == user_id)
 
         for definition in FUNNEL_DEFINITIONS:
             previous_count: Optional[int] = None
@@ -222,7 +235,7 @@ class ActivityService:
             for key, label, event_names in definition["stages"]:
                 result = await self.db.execute(
                     select(func.count(BotActivityEvent.id)).where(
-                        BotActivityEvent.created_at >= since,
+                        *base_filters,
                         BotActivityEvent.event_name.in_(event_names),
                     )
                 )
@@ -253,6 +266,7 @@ class ActivityService:
 
         return {
             "period_days": days,
+            "filtered_user_id": user_id,
             "funnels": funnels,
         }
 
@@ -417,6 +431,10 @@ def format_event_label(event_name: str) -> str:
         "driver_menu": "открытие раздела водителя",
         "driver_vehicle_create": "добавление автомобиля",
         "driver_fuel_add:{id}": "добавление заправки",
+        "driver_expense_add": "добавление расхода",
+        "driver_expense_add:{id}": "добавление расхода",
+        "driver_document_add": "добавление документа",
+        "driver_document_add:{id}": "добавление документа",
         "driver_service_done:{id}": "отметка прохождения ТО",
         "text_input": "текстовый ввод",
         "non_text_message": "сообщение с вложением",

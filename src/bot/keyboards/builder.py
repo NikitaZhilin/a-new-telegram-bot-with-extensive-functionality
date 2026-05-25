@@ -121,6 +121,9 @@ def get_driver_section_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⏰ Напоминание", callback_data="reminder_create"),
         ],
         [
+            InlineKeyboardButton("🌐 Открыть web-версию", callback_data="settings_web_login"),
+        ],
+        [
             InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ],

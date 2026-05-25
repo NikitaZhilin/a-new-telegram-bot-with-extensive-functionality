@@ -435,6 +435,22 @@ h3 {
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
+  margin-bottom: 12px;
+}
+
+.filters-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.filters-row label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .metric-grid {
@@ -571,6 +587,14 @@ h3 {
   border-bottom: 1px solid var(--line);
 }
 
+.list-item-content {
+  min-width: 0;
+}
+
+.list-item-content .inline-edit-form {
+  margin-top: 0;
+}
+
 .list-item-row:last-child {
   border-bottom: 0;
 }
@@ -630,7 +654,8 @@ h3 {
   .split-layout,
   .form-grid,
   .metric-grid,
-  .dashboard-details {
+  .dashboard-details,
+  .filters-row {
     grid-template-columns: 1fr;
   }
 

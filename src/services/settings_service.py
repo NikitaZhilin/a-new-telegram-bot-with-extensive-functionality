@@ -67,6 +67,8 @@ class SettingsService:
         """
         from sqlalchemy import func
         from src.db.models import (
+            DriverDocument,
+            DriverExpense,
             DriverFuelEntry,
             DriverVehicle,
             ListMember,
@@ -171,6 +173,8 @@ class SettingsService:
     async def get_admin_activity_stats(self, current_user_id: int) -> dict:
         """Return aggregate activity for admins without exposing private content."""
         from src.db.models import (
+            DriverDocument,
+            DriverExpense,
             DriverFuelEntry,
             DriverVehicle,
             ListMember,
@@ -229,6 +233,14 @@ class SettingsService:
         driver_fuel_users = await count(
             select(func.count(distinct(DriverFuelEntry.user_id))).where(DriverFuelEntry.user_id != current_user_id)
         )
+        driver_expenses_total = await count(select(func.count(DriverExpense.id)))
+        driver_expenses_users = await count(
+            select(func.count(distinct(DriverExpense.user_id))).where(DriverExpense.user_id != current_user_id)
+        )
+        driver_documents_total = await count(select(func.count(DriverDocument.id)))
+        driver_documents_users = await count(
+            select(func.count(distinct(DriverDocument.user_id))).where(DriverDocument.user_id != current_user_id)
+        )
         activity_service = ActivityService(self.db)
         activity = await activity_service.get_admin_event_summary(current_user_id)
         funnels = await activity_service.get_funnel_summary()
@@ -259,6 +271,10 @@ class SettingsService:
                 "vehicle_users": driver_vehicles_users,
                 "fuel_entries": driver_fuel_total,
                 "fuel_users": driver_fuel_users,
+                "expenses": driver_expenses_total,
+                "expense_users": driver_expenses_users,
+                "documents": driver_documents_total,
+                "document_users": driver_documents_users,
             },
             "activity": activity,
             "funnels": funnels,

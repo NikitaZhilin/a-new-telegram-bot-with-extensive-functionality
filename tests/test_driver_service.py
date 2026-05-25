@@ -310,3 +310,47 @@ async def test_vehicle_update_delete_and_service_plan(db_session):
 
     assert await service.delete_vehicle(vehicle.id, user.id) is True
     assert await service.get_vehicle(vehicle.id, user.id) is None
+
+
+@pytest.mark.asyncio
+async def test_driver_expenses_and_documents_are_user_owned(db_session):
+    """Manual expenses and documents should be autonomous and user-owned."""
+    owner = User(telegram_id=7011, timezone="Europe/Moscow")
+    other = User(telegram_id=7012, timezone="Europe/Moscow")
+    db_session.add_all([owner, other])
+    await db_session.flush()
+
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(owner.id, "Owner car", current_mileage_km=1000)
+
+    expense = await service.create_expense(
+        owner.id,
+        title="Wash",
+        amount=500,
+        category="wash",
+        vehicle_id=vehicle.id,
+    )
+    document = await service.create_document(
+        owner.id,
+        title="OSAGO",
+        document_type="insurance",
+        vehicle_id=vehicle.id,
+        remind_before_days=10,
+    )
+    overview = await service.get_user_overview(owner.id)
+
+    assert expense is not None
+    assert document is not None
+    assert overview["expense_entries_count"] == 1
+    assert overview["expense_total_cost"] == 500
+    assert overview["documents_active_count"] == 1
+
+    assert await service.create_expense(other.id, "Bad", 100, vehicle_id=vehicle.id) is None
+    assert await service.create_document(other.id, "Bad doc", vehicle_id=vehicle.id) is None
+    assert await service.get_expense(expense.id, other.id) is None
+    assert await service.get_document(document.id, other.id) is None
+
+    with pytest.raises(ValueError):
+        await service.create_expense(owner.id, "Bad amount", 0)
+    with pytest.raises(ValueError):
+        await service.create_document(owner.id, "Bad remind", remind_before_days=-1)

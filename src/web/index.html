@@ -181,9 +181,75 @@
             <div id="fuelContainer" class="item-list"></div>
           </div>
         </div>
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Ручной расход</h2>
+            <form id="expenseCreateForm" class="stack">
+              <select name="vehicle_id"></select>
+              <input name="title" type="text" placeholder="Название: мойка, ремонт, страховка" required>
+              <select name="category">
+                <option value="service">ТО и ремонт</option>
+                <option value="parts">Запчасти</option>
+                <option value="wash">Мойка</option>
+                <option value="insurance">Страховка</option>
+                <option value="parking">Парковка</option>
+                <option value="fine">Штраф</option>
+                <option value="other">Другое</option>
+              </select>
+              <input name="amount" type="number" min="0.01" step="0.01" placeholder="Сумма" required>
+              <input name="spent_at_local" type="datetime-local">
+              <textarea name="note" rows="2" placeholder="Комментарий"></textarea>
+              <button class="action-save" type="submit">Сохранить расход</button>
+            </form>
+            <div id="expensesContainer" class="item-list"></div>
+          </div>
+          <div class="panel">
+            <h2>Документ</h2>
+            <form id="documentCreateForm" class="stack">
+              <select name="vehicle_id"></select>
+              <input name="title" type="text" placeholder="Название: ОСАГО, права, диагностика" required>
+              <select name="document_type">
+                <option value="insurance">ОСАГО/КАСКО</option>
+                <option value="license">Права</option>
+                <option value="diagnostic">Диагностика</option>
+                <option value="tax">Налог</option>
+                <option value="fine">Штраф</option>
+                <option value="other">Другое</option>
+              </select>
+              <input name="identifier" type="text" placeholder="Номер или пометка">
+              <input name="expires_at_local" type="date">
+              <input name="remind_before_days" type="number" min="0" value="14" placeholder="Напомнить за дней">
+              <textarea name="note" rows="2" placeholder="Комментарий"></textarea>
+              <button class="action-save" type="submit">Сохранить документ</button>
+            </form>
+            <div id="documentsContainer" class="item-list"></div>
+          </div>
+        </div>
       </section>
 
       <section id="admin" class="section">
+        <div class="panel">
+          <h2>Активность пользователей</h2>
+          <form id="adminActivityFilterForm" class="filters-row">
+            <label>
+              <span>Период</span>
+              <select name="days">
+                <option value="1">24 часа</option>
+                <option value="7" selected>7 дней</option>
+                <option value="14">14 дней</option>
+                <option value="30">30 дней</option>
+              </select>
+            </label>
+            <label>
+              <span>Пользователь</span>
+              <select name="user_id">
+                <option value="">Все пользователи</option>
+              </select>
+            </label>
+            <button class="action-save" type="submit">Показать</button>
+          </form>
+          <div id="adminActivityOverview" class="metric-grid"></div>
+        </div>
         <div class="split-layout">
           <div class="panel">
             <h2>Активность</h2>

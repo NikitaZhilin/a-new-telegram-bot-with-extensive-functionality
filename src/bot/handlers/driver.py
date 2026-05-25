@@ -64,6 +64,8 @@ def _format_driver_menu_text(
         f"• авто: {overview['vehicles_count']}",
         f"• заправок: {overview['fuel_entries_count']}",
         f"• топливо: {_format_money(overview['fuel_total_cost'])}",
+        f"• прочие расходы: {_format_money(overview.get('expense_total_cost', 0))}",
+        f"• документов: {overview.get('documents_active_count', 0)}",
         f"• авто-списков: {driver_lists_count}",
         f"• авто-напоминаний: {active_driver_reminders_count}",
     ]
@@ -438,6 +440,31 @@ def _format_fuel_entry(entry) -> str:
     return "\n".join(lines)
 
 
+def _format_expense_category(value: str) -> str:
+    """Human-readable expense category."""
+    return {
+        "service": "ТО и ремонт",
+        "parts": "запчасти",
+        "wash": "мойка",
+        "insurance": "страховка",
+        "parking": "парковка",
+        "fine": "штраф",
+        "other": "другое",
+    }.get(value, value or "другое")
+
+
+def _format_document_type(value: str) -> str:
+    """Human-readable document type."""
+    return {
+        "insurance": "ОСАГО/КАСКО",
+        "license": "права",
+        "diagnostic": "диагностика",
+        "tax": "налог",
+        "fine": "штраф",
+        "other": "другое",
+    }.get(value, value or "другое")
+
+
 async def _render_vehicles(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Render vehicle profiles."""
     async with async_session_maker() as session:
@@ -558,24 +585,69 @@ async def _render_fuel_history(
 
 
 async def _render_driver_costs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Render real driver cost overview based on fuel journal."""
+    """Render real driver cost overview based on fuel and manual expenses."""
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         service = DriverService(session)
         overview = await service.get_user_overview(user_id)
+        expenses = await service.get_expenses(user_id, limit=5)
 
     lines = [
         "💰 Расходы",
         "",
-        "Сейчас учитывается топливо из журнала заправок.",
         f"Авто: {overview['vehicles_count']}",
         f"Заправок: {overview['fuel_entries_count']}",
-        f"Всего на топливо: {_format_money(overview['fuel_total_cost'])}",
+        f"Топливо: {_format_money(overview['fuel_total_cost'])}",
+        f"Прочие расходы: {_format_money(overview.get('expense_total_cost', 0))}",
+        f"Всего по авто: {_format_money(overview.get('driver_total_cost', overview['fuel_total_cost']))}",
     ]
     if overview["avg_cost_per_km"] is not None:
         lines.append(f"Средняя стоимость километра: {overview['avg_cost_per_km']:.2f} ₽/км")
     else:
         lines.append("Стоимость километра появится после двух полных заправок.")
+    if expenses:
+        lines.extend(["", "Последние ручные расходы:"])
+        for item in expenses:
+            lines.append(
+                f"• {_format_date(item.spent_at_utc)}: {item.title}, "
+                f"{_format_money(item.amount)} ({_format_expense_category(item.category)})"
+            )
+    else:
+        lines.extend(["", "Ручных расходов пока нет. Их можно добавить в web-версии."])
+
+    await update.callback_query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=get_driver_section_keyboard(),
+    )
+    return ConversationHandler.END
+
+
+async def _render_driver_documents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Render real driver documents."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        overview = await service.get_user_overview(user_id)
+        documents = await service.get_documents(user_id, active_only=False, limit=10)
+
+    lines = [
+        "📄 Документы",
+        "",
+        f"Активных документов: {overview.get('documents_active_count', 0)}",
+        f"Скоро истекают: {overview.get('documents_expiring_soon_count', 0)}",
+        f"Просрочены: {overview.get('documents_expired_count', 0)}",
+    ]
+    if documents:
+        lines.extend(["", "Документы:"])
+        for item in documents:
+            expires = _format_date(item.expires_at_utc) if item.expires_at_utc else "срок не указан"
+            status = "активен" if item.is_active else "архив"
+            lines.append(
+                f"• {item.title}: {_format_document_type(item.document_type)}, "
+                f"{expires}, {status}"
+            )
+    else:
+        lines.extend(["", "Документов пока нет. Их можно добавить в web-версии."])
 
     await update.callback_query.edit_message_text(
         "\n".join(lines),
@@ -599,6 +671,8 @@ async def _render_driver_stats(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Максимальный пробег: {overview['max_mileage_km']:,} км".replace(",", " "),
         f"Заправок: {overview['fuel_entries_count']}",
         f"Топливо: {_format_money(overview['fuel_total_cost'])}",
+        f"Прочие расходы: {_format_money(overview.get('expense_total_cost', 0))}",
+        f"Документы: {overview.get('documents_active_count', 0)}",
     ]
     if overview["avg_consumption"] is not None:
         lines.append(f"Средний расход: {overview['avg_consumption']:.1f} л/100 км")
@@ -683,6 +757,8 @@ async def driver_section_callback(update: Update, context: ContextTypes.DEFAULT_
         return await _render_fuel(update, context)
     if section_key == "costs":
         return await _render_driver_costs(update, context)
+    if section_key == "docs":
+        return await _render_driver_documents(update, context)
     if section_key == "stats":
         return await _render_driver_stats(update, context)
     if section_key not in DRIVER_SECTIONS:
