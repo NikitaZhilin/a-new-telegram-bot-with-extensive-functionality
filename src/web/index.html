@@ -158,6 +158,8 @@
             <form id="vehicleCreateForm" class="stack">
               <input name="title" type="text" placeholder="Название авто" required>
               <input name="current_mileage_km" type="number" min="0" placeholder="Пробег, км">
+              <input name="service_interval_km" type="number" min="1" placeholder="Интервал ТО, км" value="10000">
+              <input name="service_interval_months" type="number" min="1" placeholder="Интервал ТО, месяцев" value="12">
               <button type="submit">Добавить авто</button>
             </form>
             <div id="vehiclesContainer" class="item-list"></div>

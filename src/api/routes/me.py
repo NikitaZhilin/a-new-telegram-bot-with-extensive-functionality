@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.api.user_auth import get_current_web_user
+from src.config import settings
 from src.db.models import DriverVehicle, Medication, Reminder, ReminderStatus, TodoList, User
 from src.db.session import get_db
 from src.services.driver_service import DriverService
@@ -73,6 +74,26 @@ class ListDetailResponse(ListSummaryResponse):
     items: List[ListItemResponse]
 
 
+class ListShareLinksResponse(BaseModel):
+    """Fresh share/collaboration links for a list owner."""
+
+    copy_link: Optional[str]
+    editor_link: Optional[str]
+    viewer_link: Optional[str]
+    import_command: str
+    editor_join_command: str
+    viewer_join_command: str
+
+
+class ListMemberResponse(BaseModel):
+    """Shared list member row."""
+
+    member_id: Optional[int]
+    user_id: int
+    role: str
+    display_name: str
+
+
 class ListCreateRequest(BaseModel):
     """Create a list."""
 
@@ -96,6 +117,12 @@ class ListItemUpdateRequest(BaseModel):
 
     text: Optional[str] = Field(default=None, min_length=1, max_length=500)
     is_completed: Optional[bool] = None
+
+
+class ListMemberRoleRequest(BaseModel):
+    """Update a shared list member role."""
+
+    role: str = Field(pattern="^(viewer|editor)$")
 
 
 class ReminderSummaryResponse(BaseModel):
@@ -166,6 +193,9 @@ class DriverVehicleSummaryResponse(BaseModel):
     current_mileage_km: int
     service_interval_km: int
     service_interval_months: int
+    last_service_mileage_km: Optional[int]
+    last_service_at_utc: Optional[datetime]
+    service_plan: Optional[dict] = None
     updated_at: datetime
 
 
@@ -180,6 +210,7 @@ class DriverFuelEntryResponse(BaseModel):
     price_per_liter: Optional[float]
     is_full_tank: bool
     station: Optional[str]
+    note: Optional[str]
     consumption_l_per_100: Optional[float]
     cost_per_km: Optional[float]
     filled_at_utc: datetime
@@ -204,6 +235,15 @@ class DriverVehicleCreateRequest(BaseModel):
     year: Optional[int] = Field(default=None, ge=1886, le=2100)
 
 
+class DriverVehicleUpdateRequest(BaseModel):
+    """Update vehicle fields."""
+
+    title: str = Field(min_length=1, max_length=255)
+    current_mileage_km: int = Field(ge=0)
+    service_interval_km: int = Field(gt=0)
+    service_interval_months: int = Field(gt=0)
+
+
 class DriverFuelCreateRequest(BaseModel):
     """Create fuel entry."""
 
@@ -213,6 +253,16 @@ class DriverFuelCreateRequest(BaseModel):
     is_full_tank: bool = True
     station: Optional[str] = Field(default=None, max_length=255)
     note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class DriverFuelUpdateRequest(DriverFuelCreateRequest):
+    """Update fuel entry."""
+
+
+class DriverServiceDoneRequest(BaseModel):
+    """Mark vehicle service as completed."""
+
+    service_mileage_km: int = Field(ge=0)
 
 
 def _repeat_rule(value: str) -> RepeatRule:
@@ -301,6 +351,70 @@ async def _fresh_list(db: AsyncSession, list_id: int) -> Optional[TodoList]:
     return result.scalars().unique().one_or_none()
 
 
+def _reminder_response(reminder: Reminder) -> ReminderSummaryResponse:
+    """Serialize Reminder ORM object."""
+    return ReminderSummaryResponse(
+        id=reminder.id,
+        title=reminder.title,
+        text=reminder.text,
+        source_module=reminder.source_module,
+        status=reminder.status.value if hasattr(reminder.status, "value") else reminder.status,
+        remind_at_utc=reminder.remind_at_utc,
+        repeat_rule=reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule,
+    )
+
+
+def _service_plan_payload(plan: Optional[dict]) -> Optional[dict]:
+    """Strip ORM objects from driver service plan payload."""
+    if not plan:
+        return None
+    return {
+        "next_mileage": plan.get("next_mileage"),
+        "remaining_km": plan.get("remaining_km"),
+        "mileage_status": plan.get("mileage_status"),
+        "next_date": plan.get("next_date"),
+        "days_left": plan.get("days_left"),
+        "date_status": plan.get("date_status"),
+    }
+
+
+async def _vehicle_response(
+    vehicle: DriverVehicle,
+    user_id: int,
+    service: DriverService,
+) -> DriverVehicleSummaryResponse:
+    """Serialize driver vehicle with service plan."""
+    return DriverVehicleSummaryResponse(
+        id=vehicle.id,
+        title=vehicle.title,
+        current_mileage_km=vehicle.current_mileage_km,
+        service_interval_km=vehicle.service_interval_km,
+        service_interval_months=vehicle.service_interval_months,
+        last_service_mileage_km=vehicle.last_service_mileage_km,
+        last_service_at_utc=vehicle.last_service_at_utc,
+        service_plan=_service_plan_payload(await service.get_service_plan(vehicle.id, user_id)),
+        updated_at=vehicle.updated_at,
+    )
+
+
+def _fuel_entry_response(entry) -> DriverFuelEntryResponse:
+    """Serialize driver fuel entry."""
+    return DriverFuelEntryResponse(
+        id=entry.id,
+        vehicle_id=entry.vehicle_id,
+        mileage_km=entry.mileage_km,
+        liters=entry.liters,
+        total_cost=entry.total_cost,
+        price_per_liter=entry.price_per_liter,
+        is_full_tank=entry.is_full_tank,
+        station=entry.station,
+        note=entry.note,
+        consumption_l_per_100=entry.consumption_l_per_100,
+        cost_per_km=entry.cost_per_km,
+        filled_at_utc=entry.filled_at_utc,
+    )
+
+
 @router.get("/me", response_model=MeResponse)
 async def get_me(current_user: User = Depends(get_current_web_user)) -> MeResponse:
     """Return current authenticated user."""
@@ -328,22 +442,22 @@ async def get_my_lists(
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[ListSummaryResponse]:
-    """Return current user's generic lists."""
+    """Return generic lists visible to current user."""
     list_service = ListService(db)
-    result = await db.execute(
-        select(TodoList)
-        .options(selectinload(TodoList.items))
-        .where(TodoList.user_id == current_user.id, TodoList.source_module == "general")
-        .order_by(TodoList.updated_at.desc(), TodoList.id.desc())
-        .limit(limit)
+    lists, _ = await list_service.get_lists_list(
+        current_user.id,
+        page=0,
+        page_size=limit,
+        source_module="general",
     )
-    lists = result.scalars().unique().all()
     return [
         ListSummaryResponse(
             id=item.id,
             title=item.title,
             source_module=item.source_module,
-            access_role=await list_service.get_access_role(item.id, current_user.id) or "viewer",
+            access_role=getattr(item, "_access_role", None)
+            or await list_service.get_access_role(item.id, current_user.id)
+            or "viewer",
             items_total=len(item.items),
             items_done=sum(1 for list_item in item.items if list_item.is_completed),
             updated_at=item.updated_at,
@@ -456,9 +570,13 @@ async def update_my_list_item(
     if not list_obj or list_obj.source_module != "general":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     if payload.text is not None:
-        await service.update_item_text_by_id(item_id, current_user.id, payload.text.strip())
+        updated = await service.update_item_text_by_id(item_id, current_user.id, payload.text.strip())
+        if not updated:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No edit access to item")
     if payload.is_completed is not None and item.is_completed != payload.is_completed:
-        await service.toggle_item_by_id(item_id, current_user.id)
+        updated = await service.toggle_item_by_id(item_id, current_user.id)
+        if not updated:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No edit access to item")
     list_obj = await _fresh_list(db, list_obj.id)
     await db.commit()
     return await _list_response(list_obj, current_user.id, service)  # type: ignore[arg-type]
@@ -479,10 +597,104 @@ async def delete_my_list_item(
     list_obj = await service.get_list(list_id, current_user.id)
     if not list_obj or list_obj.source_module != "general":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
-    await service.delete_item_by_id(item_id, current_user.id)
+    ok = await service.delete_item_by_id(item_id, current_user.id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No edit access to item")
     list_obj = await _fresh_list(db, list_id)
     await db.commit()
     return await _list_response(list_obj, current_user.id, service)  # type: ignore[arg-type]
+
+
+@router.post("/me/lists/{list_id}/share", response_model=ListShareLinksResponse)
+async def create_my_list_share_links(
+    list_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListShareLinksResponse:
+    """Create fresh copy/editor/viewer tokens for a list owner."""
+    service = ListService(db)
+    list_obj = await service.get_list(list_id, current_user.id)
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+
+    copy_token = await service.create_share_token(list_id, current_user.id)
+    editor_token = await service.create_collaboration_token(list_id, current_user.id, role="editor")
+    viewer_token = await service.create_collaboration_token(list_id, current_user.id, role="viewer")
+    if not copy_token or not editor_token or not viewer_token:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only list owner can share this list")
+
+    await db.commit()
+    copy_command = f"/import_list {copy_token.token}"
+    editor_command = f"/join_list {editor_token.token}"
+    viewer_command = f"/join_list {viewer_token.token}"
+    if settings.BOT_USERNAME:
+        bot_base = f"https://t.me/{settings.BOT_USERNAME}"
+        copy_link = f"{bot_base}?start=import_list_{copy_token.token}"
+        editor_link = f"{bot_base}?start=join_list_{editor_token.token}"
+        viewer_link = f"{bot_base}?start=join_list_{viewer_token.token}"
+    else:
+        copy_link = editor_link = viewer_link = None
+
+    return ListShareLinksResponse(
+        copy_link=copy_link,
+        editor_link=editor_link,
+        viewer_link=viewer_link,
+        import_command=copy_command,
+        editor_join_command=editor_command,
+        viewer_join_command=viewer_command,
+    )
+
+
+@router.get("/me/lists/{list_id}/members", response_model=List[ListMemberResponse])
+async def get_my_list_members(
+    list_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[ListMemberResponse]:
+    """Return list members for owner management."""
+    service = ListService(db)
+    list_obj = await service.get_list(list_id, current_user.id)
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    members = await service.get_list_members(list_id, current_user.id)
+    if members is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only list owner can view members")
+    return [ListMemberResponse(**item) for item in members]
+
+
+@router.patch("/me/lists/{list_id}/members/{member_id}", response_model=ListMemberResponse)
+async def update_my_list_member_role(
+    list_id: int,
+    member_id: int,
+    payload: ListMemberRoleRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ListMemberResponse:
+    """Change a shared list member role."""
+    service = ListService(db)
+    member = await service.update_member_role(list_id, current_user.id, member_id, payload.role)
+    if not member:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    await db.commit()
+    members = await service.get_list_members(list_id, current_user.id)
+    row = next((item for item in members or [] if item["member_id"] == member_id), None)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    return ListMemberResponse(**row)
+
+
+@router.delete("/me/lists/{list_id}/members/{member_id}", response_model=MutationResponse)
+async def remove_my_list_member(
+    list_id: int,
+    member_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Revoke a shared list member access."""
+    service = ListService(db)
+    ok = await service.remove_member(list_id, current_user.id, member_id)
+    await db.commit()
+    return MutationResponse(ok=ok)
 
 
 @router.get("/me/reminders", response_model=List[ReminderSummaryResponse])
@@ -540,15 +752,7 @@ async def create_my_reminder(
         raise HTTPException(status_code=400, detail="Reminder was not created")
     await db.commit()
     await db.refresh(reminder)
-    return ReminderSummaryResponse(
-        id=reminder.id,
-        title=reminder.title,
-        text=reminder.text,
-        source_module=reminder.source_module,
-        status=reminder.status.value if hasattr(reminder.status, "value") else reminder.status,
-        remind_at_utc=reminder.remind_at_utc,
-        repeat_rule=reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule,
-    )
+    return _reminder_response(reminder)
 
 
 @router.post("/me/reminders/{reminder_id}/done", response_model=ReminderSummaryResponse)
@@ -567,15 +771,26 @@ async def mark_my_reminder_done(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     await db.commit()
     await db.refresh(reminder)
-    return ReminderSummaryResponse(
-        id=reminder.id,
-        title=reminder.title,
-        text=reminder.text,
-        source_module=reminder.source_module,
-        status=reminder.status.value if hasattr(reminder.status, "value") else reminder.status,
-        remind_at_utc=reminder.remind_at_utc,
-        repeat_rule=reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule,
-    )
+    return _reminder_response(reminder)
+
+
+@router.post("/me/reminders/{reminder_id}/cancel", response_model=ReminderSummaryResponse)
+async def cancel_my_reminder(
+    reminder_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ReminderSummaryResponse:
+    """Mark reminder as canceled."""
+    service = ReminderService(db)
+    existing = await service.get_reminder(reminder_id, current_user.id)
+    if not existing or existing.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
+    reminder = await service.mark_reminder_canceled(reminder_id, current_user.id)
+    if not reminder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
+    await db.commit()
+    await db.refresh(reminder)
+    return _reminder_response(reminder)
 
 
 @router.delete("/me/reminders/{reminder_id}", response_model=MutationResponse)
@@ -622,15 +837,15 @@ async def get_my_medications(
         )
         rows.append(
             MedicationSummaryResponse(
-            id=item.id,
-            name=item.name,
-            dosage=item.dosage,
-            instructions=item.instructions,
-            importance=item.importance,
-            is_active=item.is_active,
-            daily_times_local=[value.strftime("%H:%M") for value in schedule],
-            updated_at=item.updated_at,
-        )
+                id=item.id,
+                name=item.name,
+                dosage=item.dosage,
+                instructions=item.instructions,
+                importance=item.importance,
+                is_active=item.is_active,
+                daily_times_local=[value.strftime("%H:%M") for value in schedule],
+                updated_at=item.updated_at,
+            )
         )
     return rows
 
@@ -761,17 +976,7 @@ async def get_my_driver_dashboard(
     vehicles = vehicles_result.scalars().all()
     return DriverDashboardResponse(
         overview=overview,
-        vehicles=[
-            DriverVehicleSummaryResponse(
-                id=item.id,
-                title=item.title,
-                current_mileage_km=item.current_mileage_km,
-                service_interval_km=item.service_interval_km,
-                service_interval_months=item.service_interval_months,
-                updated_at=item.updated_at,
-            )
-            for item in vehicles
-        ],
+        vehicles=[await _vehicle_response(item, current_user.id, driver_service) for item in vehicles],
     )
 
 
@@ -798,14 +1003,58 @@ async def create_my_driver_vehicle(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     await db.commit()
     await db.refresh(vehicle)
-    return DriverVehicleSummaryResponse(
-        id=vehicle.id,
-        title=vehicle.title,
-        current_mileage_km=vehicle.current_mileage_km,
-        service_interval_km=vehicle.service_interval_km,
-        service_interval_months=vehicle.service_interval_months,
-        updated_at=vehicle.updated_at,
-    )
+    return await _vehicle_response(vehicle, current_user.id, service)
+
+
+@router.patch("/me/driver/vehicles/{vehicle_id}", response_model=DriverVehicleSummaryResponse)
+async def update_my_driver_vehicle(
+    vehicle_id: int,
+    payload: DriverVehicleUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverVehicleSummaryResponse:
+    """Update a vehicle profile."""
+    service = DriverService(db)
+    try:
+        vehicle = await service.update_vehicle(
+            vehicle_id=vehicle_id,
+            user_id=current_user.id,
+            title=payload.title.strip(),
+            current_mileage_km=payload.current_mileage_km,
+            service_interval_km=payload.service_interval_km,
+            service_interval_months=payload.service_interval_months,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not vehicle:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    await db.commit()
+    await db.refresh(vehicle)
+    return await _vehicle_response(vehicle, current_user.id, service)
+
+
+@router.post("/me/driver/vehicles/{vehicle_id}/service-done", response_model=DriverVehicleSummaryResponse)
+async def mark_my_driver_service_done(
+    vehicle_id: int,
+    payload: DriverServiceDoneRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverVehicleSummaryResponse:
+    """Mark regular service as completed for a vehicle."""
+    service = DriverService(db)
+    try:
+        vehicle = await service.mark_service_done(
+            vehicle_id=vehicle_id,
+            user_id=current_user.id,
+            service_mileage_km=payload.service_mileage_km,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not vehicle:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    await db.commit()
+    await db.refresh(vehicle)
+    return await _vehicle_response(vehicle, current_user.id, service)
 
 
 @router.delete("/me/driver/vehicles/{vehicle_id}", response_model=MutationResponse)
@@ -834,22 +1083,7 @@ async def get_my_driver_fuel_entries(
     if not vehicle:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     entries = await service.get_fuel_entries(current_user.id, vehicle_id=vehicle_id, limit=limit)
-    return [
-        DriverFuelEntryResponse(
-            id=item.id,
-            vehicle_id=item.vehicle_id,
-            mileage_km=item.mileage_km,
-            liters=item.liters,
-            total_cost=item.total_cost,
-            price_per_liter=item.price_per_liter,
-            is_full_tank=item.is_full_tank,
-            station=item.station,
-            consumption_l_per_100=item.consumption_l_per_100,
-            cost_per_km=item.cost_per_km,
-            filled_at_utc=item.filled_at_utc,
-        )
-        for item in entries
-    ]
+    return [_fuel_entry_response(item) for item in entries]
 
 
 @router.post("/me/driver/vehicles/{vehicle_id}/fuel", response_model=DriverFuelEntryResponse, status_code=status.HTTP_201_CREATED)
@@ -878,19 +1112,36 @@ async def create_my_driver_fuel_entry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     await db.commit()
     await db.refresh(entry)
-    return DriverFuelEntryResponse(
-        id=entry.id,
-        vehicle_id=entry.vehicle_id,
-        mileage_km=entry.mileage_km,
-        liters=entry.liters,
-        total_cost=entry.total_cost,
-        price_per_liter=entry.price_per_liter,
-        is_full_tank=entry.is_full_tank,
-        station=entry.station,
-        consumption_l_per_100=entry.consumption_l_per_100,
-        cost_per_km=entry.cost_per_km,
-        filled_at_utc=entry.filled_at_utc,
-    )
+    return _fuel_entry_response(entry)
+
+
+@router.patch("/me/driver/fuel/{entry_id}", response_model=DriverFuelEntryResponse)
+async def update_my_driver_fuel_entry(
+    entry_id: int,
+    payload: DriverFuelUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverFuelEntryResponse:
+    """Update a fuel journal entry."""
+    service = DriverService(db)
+    try:
+        entry = await service.update_fuel_entry(
+            entry_id=entry_id,
+            user_id=current_user.id,
+            mileage_km=payload.mileage_km,
+            liters=payload.liters,
+            total_cost=payload.total_cost,
+            is_full_tank=payload.is_full_tank,
+            station=payload.station,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fuel entry not found")
+    entry.note = payload.note
+    await db.commit()
+    await db.refresh(entry)
+    return _fuel_entry_response(entry)
 
 
 @router.delete("/me/driver/fuel/{entry_id}", response_model=MutationResponse)

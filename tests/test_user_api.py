@@ -80,7 +80,7 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
         me_response = await client.get("/me", headers=headers)
         summary_response = await client.get("/me/summary", headers=headers)
         lists_response = await client.get("/me/lists", headers=headers)
-        reminders_response = await client.get("/me/reminders", headers=headers)
+        reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
         medications_response = await client.get("/me/medications", headers=headers)
         driver_response = await client.get("/me/driver", headers=headers)
 
@@ -186,6 +186,8 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
             headers=headers,
             json={"is_completed": True},
         )
+        share_response = await client.post(f"/me/lists/{list_id}/share", headers=headers)
+        members_response = await client.get(f"/me/lists/{list_id}/members", headers=headers)
 
         reminder_response = await client.post(
             "/me/reminders",
@@ -196,6 +198,11 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
                 "remind_at_local": "2026-05-25T10:00:00",
                 "repeat_rule": "none",
             },
+        )
+        reminder_id = reminder_response.json()["id"]
+        canceled_reminder_response = await client.post(
+            f"/me/reminders/{reminder_id}/cancel",
+            headers=headers,
         )
 
         medication_response = await client.post(
@@ -209,13 +216,45 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
                 "daily_times_local": ["09:00", "21:00"],
             },
         )
+        medication_id = medication_response.json()["id"]
+        updated_medication_response = await client.patch(
+            f"/me/medications/{medication_id}",
+            headers=headers,
+            json={
+                "name": "Web med updated",
+                "dosage": "2 tablets",
+                "instructions": "before meal",
+                "importance": "critical",
+                "daily_times_local": ["10:30"],
+            },
+        )
 
         vehicle_response = await client.post(
             "/me/driver/vehicles",
             headers=headers,
-            json={"title": "Web car", "current_mileage_km": 1000},
+            json={
+                "title": "Web car",
+                "current_mileage_km": 1000,
+                "service_interval_km": 9000,
+                "service_interval_months": 10,
+            },
         )
         vehicle_id = vehicle_response.json()["id"]
+        updated_vehicle_response = await client.patch(
+            f"/me/driver/vehicles/{vehicle_id}",
+            headers=headers,
+            json={
+                "title": "Web car updated",
+                "current_mileage_km": 1200,
+                "service_interval_km": 8000,
+                "service_interval_months": 8,
+            },
+        )
+        service_done_response = await client.post(
+            f"/me/driver/vehicles/{vehicle_id}/service-done",
+            headers=headers,
+            json={"service_mileage_km": 1250},
+        )
         fuel_response = await client.post(
             f"/me/driver/vehicles/{vehicle_id}/fuel",
             headers=headers,
@@ -226,9 +265,22 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
                 "is_full_tank": True,
             },
         )
+        fuel_id = fuel_response.json()["id"]
+        updated_fuel_response = await client.patch(
+            f"/me/driver/fuel/{fuel_id}",
+            headers=headers,
+            json={
+                "mileage_km": 1300,
+                "liters": 12,
+                "total_cost": 720,
+                "is_full_tank": True,
+                "station": "Test station",
+                "note": "updated",
+            },
+        )
 
         lists_response = await client.get("/me/lists", headers=headers)
-        reminders_response = await client.get("/me/reminders", headers=headers)
+        reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
         medications_response = await client.get("/me/medications", headers=headers)
         driver_response = await client.get("/me/driver", headers=headers)
 
@@ -238,13 +290,26 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert list_response.status_code == 201
     assert item_response.status_code == 201
     assert toggled_response.json()["items"][0]["is_completed"] is True
+    assert share_response.status_code == 200
+    assert share_response.json()["import_command"].startswith("/import_list ")
+    assert members_response.status_code == 200
+    assert members_response.json()[0]["role"] == "owner"
     assert reminder_response.status_code == 201
+    assert canceled_reminder_response.json()["status"] == "canceled"
     assert medication_response.status_code == 201
     assert medication_response.json()["daily_times_local"] == ["09:00", "21:00"]
+    assert updated_medication_response.json()["name"] == "Web med updated"
+    assert updated_medication_response.json()["importance"] == "critical"
+    assert updated_medication_response.json()["daily_times_local"] == ["10:30"]
     assert vehicle_response.status_code == 201
+    assert updated_vehicle_response.json()["title"] == "Web car updated"
+    assert updated_vehicle_response.json()["service_interval_km"] == 8000
+    assert service_done_response.json()["last_service_mileage_km"] == 1250
     assert fuel_response.status_code == 201
+    assert updated_fuel_response.json()["mileage_km"] == 1300
+    assert updated_fuel_response.json()["note"] == "updated"
     assert lists_response.json()[0]["title"] == "Web CRUD"
-    assert reminders_response.json()[0]["text"] == "Web reminder"
-    assert medications_response.json()[0]["name"] == "Web med"
+    assert reminders_response.json()[0]["status"] == "canceled"
+    assert medications_response.json()[0]["name"] == "Web med updated"
     assert driver_response.json()["overview"]["vehicles_count"] == 1
     assert driver_response.json()["overview"]["fuel_entries_count"] == 1

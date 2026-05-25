@@ -267,6 +267,14 @@ h3 {
   box-shadow: var(--shadow);
 }
 
+.subpanel {
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 12px;
+}
+
 .section {
   display: none;
 }
@@ -386,6 +394,26 @@ h3 {
   flex-wrap: wrap;
 }
 
+.item-actions.no-margin {
+  margin-top: 0;
+}
+
+.compact-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.compact-row a {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .checkbox-row {
   display: flex;
   gap: 8px;
@@ -443,6 +471,11 @@ h3 {
   }
 
   .topbar {
+    flex-direction: column;
+  }
+
+  .compact-row {
+    align-items: flex-start;
     flex-direction: column;
   }
 }

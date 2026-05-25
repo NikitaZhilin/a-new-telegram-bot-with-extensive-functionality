@@ -13,6 +13,7 @@ const state = {
   reminders: [],
   medications: [],
   driver: null,
+  fuelEntries: [],
   selectedListId: null,
   selectedVehicleId: null,
 };
@@ -174,6 +175,69 @@ function formatMoney(value) {
   return number.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽";
 }
 
+function formatRole(value) {
+  return {
+    owner: "владелец",
+    editor: "редактор",
+    viewer: "просмотр",
+  }[value] || value || "просмотр";
+}
+
+function formatReminderStatus(value) {
+  return {
+    active: "активно",
+    done: "выполнено",
+    canceled: "отменено",
+  }[value] || value || "";
+}
+
+function formatRepeat(value) {
+  return {
+    none: "без повтора",
+    daily: "каждый день",
+    weekly: "каждую неделю",
+    monthly: "каждый месяц",
+  }[value] || value || "";
+}
+
+function formatImportance(value) {
+  return {
+    supplement: "БАД",
+    normal: "обычное",
+    important: "важное",
+    critical: "критичное",
+  }[value] || value || "обычное";
+}
+
+function formatServicePlan(plan) {
+  if (!plan) return "ТО пока не отмечалось";
+  const parts = [];
+  if (plan.remaining_km !== null && plan.remaining_km !== undefined) {
+    parts.push(`до ТО ${plan.remaining_km} км`);
+  }
+  if (plan.days_left !== null && plan.days_left !== undefined) {
+    parts.push(`по сроку ${plan.days_left} дн.`);
+  }
+  return parts.length ? parts.join(" · ") : "ТО пока не отмечалось";
+}
+
+function boolFromPrompt(value, fallback = true) {
+  if (value === null) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return fallback;
+  return ["1", "да", "yes", "y", "true", "полный"].includes(normalized);
+}
+
+async function copyText(text) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showMessage("Скопировано.");
+  } catch {
+    window.prompt("Скопируйте вручную", text);
+  }
+}
+
 function toDatetimeLocal(value) {
   const offset = value.getTimezoneOffset();
   const local = new Date(value.getTime() - offset * 60000);
@@ -203,49 +267,118 @@ async function loadSummary() {
 async function loadLists() {
   state.lists = await api("/me/lists");
   $("#listsContainer").innerHTML = state.lists.length
-    ? state.lists.map((item) => `
+    ? state.lists.map((item) => {
+      const canManage = item.access_role === "owner";
+      return `
       <article class="item-card">
         <div class="item-card-header">
           <div>
             <div class="item-title">${escapeHtml(item.title)}</div>
-            <div class="item-meta">${item.items_done}/${item.items_total} выполнено · ${escapeHtml(item.access_role)}</div>
+            <div class="item-meta">${item.items_done}/${item.items_total} выполнено · ${formatRole(item.access_role)}</div>
           </div>
         </div>
         <div class="item-actions">
           <button class="small" data-action="open-list" data-id="${item.id}">Открыть</button>
-          <button class="secondary small" data-action="rename-list" data-id="${item.id}" data-title="${escapeHtml(item.title)}">Переименовать</button>
-          <button class="danger small" data-action="delete-list" data-id="${item.id}">Удалить</button>
+          ${canManage ? `
+            <button class="secondary small" data-action="rename-list" data-id="${item.id}" data-title="${escapeHtml(item.title)}">Переименовать</button>
+            <button class="danger small" data-action="delete-list" data-id="${item.id}">Удалить</button>
+          ` : ""}
         </div>
       </article>
-    `).join("")
+    `;
+    }).join("")
     : `<div class="item-meta">Списков пока нет.</div>`;
 }
 
 async function openList(listId) {
   const detail = await api(`/me/lists/${listId}`);
   state.selectedListId = detail.id;
+  const canEdit = detail.access_role === "owner" || detail.access_role === "editor";
+  const canManage = detail.access_role === "owner";
   $("#listDetailPanel").classList.remove("hidden");
   $("#listDetailPanel").innerHTML = `
     <h2>${escapeHtml(detail.title)}</h2>
-    <div class="item-meta">${detail.items_done}/${detail.items_total} выполнено</div>
-    <form id="listItemCreateForm" class="stack" data-list-id="${detail.id}">
+    <div class="item-meta">${detail.items_done}/${detail.items_total} выполнено · ${formatRole(detail.access_role)}</div>
+    ${canManage ? `
+      <div class="item-actions">
+        <button class="secondary small" data-action="share-list" data-id="${detail.id}">Ссылки доступа</button>
+        <button class="secondary small" data-action="refresh-members" data-id="${detail.id}">Участники</button>
+      </div>
+      <div id="listSharePanel" class="subpanel hidden"></div>
+      <div id="listMembersPanel" class="subpanel hidden"></div>
+    ` : ""}
+    ${canEdit ? `<form id="listItemCreateForm" class="stack" data-list-id="${detail.id}">
       <textarea name="text" rows="3" placeholder="Новый пункт или несколько строк" required></textarea>
       <button type="submit">Добавить</button>
-    </form>
+    </form>` : `<div class="item-meta">У вас доступ только на просмотр.</div>`}
     <div class="item-list">
       ${detail.items.length ? detail.items.map((item) => `
         <div class="list-item-row">
-          <input type="checkbox" data-action="toggle-item" data-id="${item.id}" ${item.is_completed ? "checked" : ""}>
+          <input type="checkbox" data-action="toggle-item" data-id="${item.id}" ${item.is_completed ? "checked" : ""} ${canEdit ? "" : "disabled"}>
           <span>${escapeHtml(item.text)}</span>
           <div class="actions">
-            <button class="secondary small" data-action="edit-item" data-id="${item.id}" data-text="${escapeHtml(item.text)}">Изм.</button>
-            <button class="danger small" data-action="delete-item" data-id="${item.id}">Удалить</button>
+            ${canEdit ? `
+              <button class="secondary small" data-action="edit-item" data-id="${item.id}" data-text="${escapeHtml(item.text)}">Изм.</button>
+              <button class="danger small" data-action="delete-item" data-id="${item.id}">Удалить</button>
+            ` : ""}
           </div>
         </div>
       `).join("") : `<div class="item-meta">Пунктов пока нет.</div>`}
     </div>
   `;
-  $("#listItemCreateForm").addEventListener("submit", handleListItemCreate);
+  $("#listItemCreateForm")?.addEventListener("submit", handleListItemCreate);
+}
+
+function renderListSharePanel(data) {
+  const panel = $("#listSharePanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  const rows = [
+    ["Копия списка", data.copy_link, data.import_command],
+    ["Редактор", data.editor_link, data.editor_join_command],
+    ["Просмотр", data.viewer_link, data.viewer_join_command],
+  ];
+  panel.innerHTML = `
+    <h3>Доступ к списку</h3>
+    <div class="item-list">
+      ${rows.map(([label, link, command]) => `
+        <article class="compact-row">
+          <div>
+            <div class="item-title">${escapeHtml(label)}</div>
+            <div class="item-meta">${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">Открыть ссылку</a>` : escapeHtml(command)}</div>
+          </div>
+          <button class="secondary small" data-action="copy-share-text" data-text="${escapeHtml(link || command)}">Копировать</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderListMembersPanel(members) {
+  const panel = $("#listMembersPanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  panel.innerHTML = `
+    <h3>Участники</h3>
+    <div class="item-list">
+      ${members.length ? members.map((member) => `
+        <article class="compact-row">
+          <div>
+            <div class="item-title">${escapeHtml(member.display_name)}</div>
+            <div class="item-meta">${formatRole(member.role)} · user ${member.user_id}</div>
+          </div>
+          ${member.role === "owner" ? "" : `
+            <div class="item-actions no-margin">
+              <button class="secondary small" data-action="set-member-role" data-id="${member.member_id}" data-role="${member.role === "editor" ? "viewer" : "editor"}">
+                ${member.role === "editor" ? "Сделать viewer" : "Сделать editor"}
+              </button>
+              <button class="danger small" data-action="remove-member" data-id="${member.member_id}">Убрать</button>
+            </div>
+          `}
+        </article>
+      `).join("") : `<div class="item-meta">Участников пока нет.</div>`}
+    </div>
+  `;
 }
 
 async function loadReminders() {
@@ -256,12 +389,13 @@ async function loadReminders() {
         <div class="item-card-header">
           <div>
             <div class="item-title">${escapeHtml(item.title || "Напоминание")}</div>
-            <div class="item-meta">${formatDate(item.remind_at_utc)} · ${escapeHtml(item.repeat_rule)} · ${escapeHtml(item.status)}</div>
+            <div class="item-meta">${formatDate(item.remind_at_utc)} · ${formatRepeat(item.repeat_rule)} · ${formatReminderStatus(item.status)}</div>
           </div>
         </div>
         <div class="item-text">${escapeHtml(item.text)}</div>
         <div class="item-actions">
           <button class="secondary small" data-action="done-reminder" data-id="${item.id}">Выполнено</button>
+          <button class="secondary small" data-action="cancel-reminder" data-id="${item.id}">Отменить</button>
           <button class="danger small" data-action="delete-reminder" data-id="${item.id}">Удалить</button>
         </div>
       </article>
@@ -277,7 +411,7 @@ async function loadMedications() {
         <div class="item-card-header">
           <div>
             <div class="item-title">${escapeHtml(item.name)}</div>
-            <div class="item-meta">${escapeHtml(item.importance)} · ${item.is_active ? "активно" : "архив"}</div>
+            <div class="item-meta">${formatImportance(item.importance)} · ${item.is_active ? "активно" : "архив"}</div>
           </div>
         </div>
         <div class="item-text">${escapeHtml([item.dosage, item.instructions].filter(Boolean).join("\n"))}</div>
@@ -285,6 +419,7 @@ async function loadMedications() {
         <div class="item-actions">
           <button class="small" data-action="taken-medication" data-id="${item.id}">Принял</button>
           <button class="secondary small" data-action="skipped-medication" data-id="${item.id}">Пропустил</button>
+          <button class="secondary small" data-action="edit-medication" data-id="${item.id}">Изм.</button>
           <button class="danger small" data-action="archive-medication" data-id="${item.id}">Архив</button>
         </div>
       </article>
@@ -298,9 +433,12 @@ function renderDriver() {
     ? vehicles.map((item) => `
       <article class="item-card">
         <div class="item-title">${escapeHtml(item.title)}</div>
-        <div class="item-meta">${item.current_mileage_km} км · ТО каждые ${item.service_interval_km} км</div>
+        <div class="item-meta">${item.current_mileage_km} км · ТО каждые ${item.service_interval_km} км / ${item.service_interval_months} мес.</div>
+        <div class="item-meta">${escapeHtml(formatServicePlan(item.service_plan))}</div>
         <div class="item-actions">
           <button class="small" data-action="select-vehicle" data-id="${item.id}">Выбрать</button>
+          <button class="secondary small" data-action="edit-vehicle" data-id="${item.id}">Изм.</button>
+          <button class="secondary small" data-action="service-done" data-id="${item.id}">ТО сделано</button>
           <button class="danger small" data-action="delete-vehicle" data-id="${item.id}">Удалить</button>
         </div>
       </article>
@@ -330,12 +468,15 @@ async function loadDriver() {
 async function loadFuel(vehicleId) {
   state.selectedVehicleId = Number(vehicleId);
   const entries = await api(`/me/driver/vehicles/${vehicleId}/fuel`);
+  state.fuelEntries = entries;
   $("#fuelContainer").innerHTML = entries.length
     ? entries.map((item) => `
       <article class="item-card">
         <div class="item-title">${item.mileage_km} км · ${item.liters} л · ${formatMoney(item.total_cost)}</div>
         <div class="item-meta">${escapeHtml(item.station || "АЗС не указана")} · ${formatDate(item.filled_at_utc)}</div>
+        <div class="item-meta">${item.consumption_l_per_100 ? `${item.consumption_l_per_100.toFixed(1)} л/100 км` : "расход пока не рассчитан"}</div>
         <div class="item-actions">
+          <button class="secondary small" data-action="edit-fuel" data-id="${item.id}">Изм.</button>
           <button class="danger small" data-action="delete-fuel" data-id="${item.id}">Удалить</button>
         </div>
       </article>
@@ -475,6 +616,8 @@ async function handleVehicleCreate(event) {
     body: JSON.stringify({
       title: form.title.value,
       current_mileage_km: Number(form.current_mileage_km.value || 0),
+      service_interval_km: Number(form.service_interval_km.value || 10000),
+      service_interval_months: Number(form.service_interval_months.value || 12),
     }),
   });
   form.reset();
@@ -546,8 +689,33 @@ async function handleAction(event) {
       await api(`/me/lists/items/${id}`, { method: "DELETE" });
       await openList(state.selectedListId);
       await loadLists();
+    } else if (action === "share-list") {
+      const data = await api(`/me/lists/${id}/share`, { method: "POST" });
+      renderListSharePanel(data);
+    } else if (action === "refresh-members") {
+      const members = await api(`/me/lists/${id}/members`);
+      renderListMembersPanel(members);
+    } else if (action === "set-member-role") {
+      await api(`/me/lists/${state.selectedListId}/members/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role: target.dataset.role }),
+      });
+      const members = await api(`/me/lists/${state.selectedListId}/members`);
+      renderListMembersPanel(members);
+    } else if (action === "remove-member") {
+      if (window.confirm("Отозвать доступ к списку?")) {
+        await api(`/me/lists/${state.selectedListId}/members/${id}`, { method: "DELETE" });
+        const members = await api(`/me/lists/${state.selectedListId}/members`);
+        renderListMembersPanel(members);
+      }
+    } else if (action === "copy-share-text") {
+      await copyText(target.dataset.text);
     } else if (action === "done-reminder") {
       await api(`/me/reminders/${id}/done`, { method: "POST" });
+      await loadReminders();
+      await loadSummary();
+    } else if (action === "cancel-reminder") {
+      await api(`/me/reminders/${id}/cancel`, { method: "POST" });
       await loadReminders();
       await loadSummary();
     } else if (action === "delete-reminder") {
@@ -560,19 +728,102 @@ async function handleAction(event) {
     } else if (action === "skipped-medication") {
       await api(`/me/medications/${id}/skipped`, { method: "POST" });
       showMessage("Пропуск сохранен.");
+    } else if (action === "edit-medication") {
+      const current = state.medications.find((item) => String(item.id) === String(id));
+      if (!current) return;
+      const name = window.prompt("Название", current.name);
+      if (!name) return;
+      const dosage = window.prompt("Дозировка", current.dosage || "");
+      if (dosage === null) return;
+      const instructions = window.prompt("Комментарий", current.instructions || "");
+      if (instructions === null) return;
+      const importance = window.prompt("Важность: supplement, normal, important, critical", current.importance || "normal");
+      if (!importance) return;
+      const times = window.prompt("Время через запятую", current.daily_times_local?.join(", ") || "");
+      if (times === null) return;
+      await api(`/me/medications/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name,
+          dosage,
+          instructions,
+          importance,
+          daily_times_local: parseTimes(times),
+        }),
+      });
+      await loadMedications();
+      await loadSummary();
     } else if (action === "archive-medication") {
       await api(`/me/medications/${id}`, { method: "DELETE" });
       await loadMedications();
       await loadSummary();
     } else if (action === "select-vehicle") {
       await loadFuel(id);
+    } else if (action === "edit-vehicle") {
+      const current = state.driver?.vehicles?.find((item) => String(item.id) === String(id));
+      if (!current) return;
+      const title = window.prompt("Название авто", current.title);
+      if (!title) return;
+      const mileage = window.prompt("Пробег, км", String(current.current_mileage_km));
+      if (mileage === null) return;
+      const intervalKm = window.prompt("Интервал ТО, км", String(current.service_interval_km));
+      if (intervalKm === null) return;
+      const intervalMonths = window.prompt("Интервал ТО, месяцев", String(current.service_interval_months));
+      if (intervalMonths === null) return;
+      await api(`/me/driver/vehicles/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title,
+          current_mileage_km: Number(mileage),
+          service_interval_km: Number(intervalKm),
+          service_interval_months: Number(intervalMonths),
+        }),
+      });
+      await loadDriver();
+      await loadSummary();
+    } else if (action === "service-done") {
+      const current = state.driver?.vehicles?.find((item) => String(item.id) === String(id));
+      const mileage = window.prompt("Пробег при ТО", String(current?.current_mileage_km || 0));
+      if (mileage === null) return;
+      await api(`/me/driver/vehicles/${id}/service-done`, {
+        method: "POST",
+        body: JSON.stringify({ service_mileage_km: Number(mileage) }),
+      });
+      await loadDriver();
+      await loadSummary();
     } else if (action === "delete-vehicle") {
       if (window.confirm("Удалить автомобиль и его заправки?")) {
         await api(`/me/driver/vehicles/${id}`, { method: "DELETE" });
         state.selectedVehicleId = null;
         await loadDriver();
-        await loadSummary();
+          await loadSummary();
       }
+    } else if (action === "edit-fuel") {
+      const current = state.fuelEntries.find((item) => String(item.id) === String(id));
+      if (!current) return;
+      const mileage = window.prompt("Пробег, км", String(current.mileage_km));
+      if (mileage === null) return;
+      const liters = window.prompt("Литры", String(current.liters));
+      if (liters === null) return;
+      const totalCost = window.prompt("Сумма", String(current.total_cost));
+      if (totalCost === null) return;
+      const station = window.prompt("АЗС", current.station || "");
+      if (station === null) return;
+      const fullTank = boolFromPrompt(window.prompt("Полный бак? да/нет", current.is_full_tank ? "да" : "нет"), current.is_full_tank);
+      if (fullTank === null) return;
+      await api(`/me/driver/fuel/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          mileage_km: Number(mileage),
+          liters: Number(liters),
+          total_cost: Number(totalCost),
+          station,
+          is_full_tank: fullTank,
+          note: current.note || "",
+        }),
+      });
+      await loadDriver();
+      await loadSummary();
     } else if (action === "delete-fuel") {
       await api(`/me/driver/fuel/${id}`, { method: "DELETE" });
       await loadDriver();

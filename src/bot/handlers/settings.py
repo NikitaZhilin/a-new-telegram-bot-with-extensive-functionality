@@ -327,7 +327,7 @@ async def settings_web_login_callback(update: Update, context: ContextTypes.DEFA
     expires_at = login_key.expires_at_utc.strftime("%d.%m.%Y %H:%M UTC")
     token_text = escape(login_key.token)
     link_block = (
-        f"\n\nСсылка для входа:\n<code>{escape(login_key.url)}</code>"
+        f'\n\n<a href="{escape(login_key.url, quote=True)}">Открыть web-версию</a>'
         if login_key.url
         else (
             "\n\nПубличный адрес web-версии еще не настроен. "
