@@ -46,6 +46,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: ${APP_IMAGE:-rememberme_bot-app:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-init-db
     restart: "no"
     depends_on:
@@ -84,6 +85,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: ${APP_IMAGE:-rememberme_bot-app:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-bot
     restart: unless-stopped
     depends_on:
@@ -135,6 +137,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: ${APP_IMAGE:-rememberme_bot-app:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-api
     restart: unless-stopped
     depends_on:
@@ -187,6 +190,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+    image: ${WORKER_IMAGE:-rememberme_bot-worker:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-rememberme_bot}-worker
     restart: unless-stopped
     depends_on:

@@ -37,15 +37,18 @@ ENV/
 .env
 .env.*
 !.env.example
+!.env.prod.example
 .env.local
 
 # Database
 *.db
 *.sqlite3
+data/
 
 # Logs
 *.log
 logs/
+backups/
 *.pid
 .runtime/
 
