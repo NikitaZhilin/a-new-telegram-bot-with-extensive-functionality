@@ -200,6 +200,16 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
             },
         )
         reminder_id = reminder_response.json()["id"]
+        updated_reminder_response = await client.patch(
+            f"/me/reminders/{reminder_id}",
+            headers=headers,
+            json={
+                "text": "Web reminder updated",
+                "title": "Web updated",
+                "remind_at_local": "2026-05-25T12:30:00",
+                "repeat_rule": "daily",
+            },
+        )
         canceled_reminder_response = await client.post(
             f"/me/reminders/{reminder_id}/cancel",
             headers=headers,
@@ -295,6 +305,8 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert members_response.status_code == 200
     assert members_response.json()[0]["role"] == "owner"
     assert reminder_response.status_code == 201
+    assert updated_reminder_response.json()["text"] == "Web reminder updated"
+    assert updated_reminder_response.json()["repeat_rule"] == "daily"
     assert canceled_reminder_response.json()["status"] == "canceled"
     assert medication_response.status_code == 201
     assert medication_response.json()["daily_times_local"] == ["09:00", "21:00"]

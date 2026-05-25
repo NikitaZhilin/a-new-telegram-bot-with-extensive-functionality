@@ -21,6 +21,7 @@ DOMAIN_LABELS = {
     "reminders": "напоминания",
     "driver": "для водителя",
     "settings": "настройки",
+    "system": "система",
     "notes_removed": "старые заметки",
     "unknown": "прочее",
 }
@@ -312,6 +313,9 @@ def parse_telegram_update(update: Update) -> Optional[dict[str, Any]]:
 def normalize_callback_data(value: str) -> str:
     """Remove row IDs and token-like values from callback names."""
     parts = value.split(":")
+    if parts[0] == "startup_update_sent":
+        return "startup_update_sent:{version}"
+
     normalized = [parts[0]]
     for part in parts[1:]:
         if part.isdigit():
@@ -345,6 +349,8 @@ def normalize_menu_text(text: str) -> Optional[str]:
 
 def infer_domain(event_name: str) -> str:
     """Infer product domain from a stable event name."""
+    if event_name.startswith("startup_update_sent"):
+        return "system"
     if event_name in {"/start", "/help", "/cancel", "home", "back", "cancel", "menu:help"}:
         return "navigation"
     if event_name.startswith(("list_share", "list_members", "list_member", "/join_list", "menu:share_bot", "share_bot")):
@@ -366,17 +372,70 @@ def infer_domain(event_name: str) -> str:
 
 def format_event_label(event_name: str) -> str:
     """Human-readable compact label for admin output."""
+    if event_name.startswith("startup_update_sent"):
+        return "отправлено сообщение об обновлении"
+
     known = {
-        "/start": "/start",
-        "/help": "/help",
+        "/start": "команда запуска",
+        "/help": "команда помощи",
+        "/cancel": "команда отмены",
+        "home": "возврат в главное меню",
+        "back": "назад",
+        "cancel": "отмена действия",
         "menu:lists": "кнопка меню: списки",
         "menu:medications": "кнопка меню: лекарства",
         "menu:reminders": "кнопка меню: напоминания",
         "menu:driver": "кнопка меню: водитель",
         "menu:settings": "кнопка меню: настройки",
         "menu:share_bot": "кнопка меню: поделиться ботом",
+        "menu:help": "кнопка меню: помощь",
+        "settings_menu": "открытие настроек",
+        "settings_stats": "просмотр статистики",
+        "settings_subscription": "просмотр подписки",
+        "settings_web_login": "получение ссылки web-версии",
+        "share_bot": "экран приглашения в бот",
+        "lists_list": "открытие списков",
+        "list_create": "создание списка",
+        "list_add_item:{id}": "добавление пункта списка",
+        "list_add_bulk:{id}": "пакетное добавление пунктов",
+        "list_share:{id}": "открытие доступа к списку",
+        "list_view:{id}": "просмотр списка",
+        "medications_list": "открытие лекарств",
+        "med_create": "добавление лекарства",
+        "med_taken:{id}": "отметка приема лекарства",
+        "med_skip:{id}": "пропуск приема лекарства",
+        "med_remind:{id}": "настройка времени приема",
+        "med_edit:{id}": "редактирование лекарства",
+        "reminders_list": "открытие напоминаний",
+        "reminder_create": "создание напоминания",
+        "rem_confirm_create": "подтверждение напоминания",
+        "reminder_done:{id}": "отметка напоминания выполненным",
+        "reminder_cancel:{id}": "отмена напоминания",
+        "reminder_edit_text:{id}": "изменение текста напоминания",
+        "reminder_edit_time:{id}": "изменение времени напоминания",
+        "reminder_edit_repeat:{id}": "изменение повтора напоминания",
+        "driver_menu": "открытие раздела водителя",
+        "driver_vehicle_create": "добавление автомобиля",
+        "driver_fuel_add:{id}": "добавление заправки",
+        "driver_service_done:{id}": "отметка прохождения ТО",
         "text_input": "текстовый ввод",
+        "non_text_message": "сообщение с вложением",
     }
     if event_name in known:
         return known[event_name]
-    return event_name.replace("_", " ")
+
+    prefix_labels = {
+        "list_": "действие со списком",
+        "lists_": "раздел списков",
+        "med_": "действие с лекарством",
+        "rem_": "создание напоминания",
+        "reminder_": "действие с напоминанием",
+        "driver_": "действие в разделе водителя",
+        "settings": "действие в настройках",
+        "tz_": "выбор часового пояса",
+    }
+    for prefix, label in prefix_labels.items():
+        if event_name.startswith(prefix):
+            return label
+
+    return "прочее действие"

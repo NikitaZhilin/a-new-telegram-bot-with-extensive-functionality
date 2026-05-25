@@ -158,6 +158,27 @@ async def settings_save_custom_timezone(update: Update, context: ContextTypes.DE
     return ConversationHandler.END
 
 
+def _plural_ru(count: int, one: str, few: str, many: str) -> str:
+    """Return a Russian plural form for count."""
+    if count % 10 == 1 and count % 100 != 11:
+        return one
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return few
+    return many
+
+
+def _people(count: int) -> str:
+    return f"{count} {_plural_ru(count, 'человек', 'человека', 'человек')}"
+
+
+def _records(count: int) -> str:
+    return f"{count} {_plural_ru(count, 'запись', 'записи', 'записей')}"
+
+
+def _rubles(value: float) -> str:
+    return f"{value:.0f} ₽"
+
+
 async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show user statistics."""
     query = update.callback_query
@@ -177,20 +198,22 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
     
     text = (
         "📊 Статистика\n\n"
-        f"📋 Списки: {stats['lists']['owned']}\n"
-        f"👥 Общие списки: {stats['lists']['shared']}\n"
-        f"💊 Лекарства: {stats['medications']['active']} активных, "
-        f"{stats['medications']['archived']} в архиве\n"
-        f"🚗 Авто: {stats['driver']['vehicles_count']}, "
-        f"заправок: {stats['driver']['fuel_entries_count']}, "
-        f"топливо: {stats['driver']['fuel_total_cost']:.0f} ₽\n"
-        f"⏰ Напоминаний:\n"
-        f"  • Активных: {stats['reminders']['active']}\n"
-        f"  • Выполненных: {stats['reminders']['done']}\n"
-        f"  • Отменённых: {stats['reminders']['canceled']}\n"
-        f"  • Пропущенных: {stats['reminders']['missed']}\n"
-        f"📝 Заметки (скрытый модуль): {stats['notes']['active']} активных, "
-        f"{stats['notes']['archived']} в архиве\n"
+        "Ваши данные\n"
+        f"• Личные списки: {_records(stats['lists']['owned'])}\n"
+        f"• Общие списки, где есть доступ: {_records(stats['lists']['shared'])}\n"
+        f"• Лекарства: активных {stats['medications']['active']}, "
+        f"в архиве {stats['medications']['archived']}\n"
+        f"• Автомобили: {stats['driver']['vehicles_count']}; "
+        f"заправок: {stats['driver']['fuel_entries_count']}; "
+        f"расходы на топливо: {_rubles(stats['driver']['fuel_total_cost'])}\n\n"
+        "Напоминания\n"
+        f"• Активные: {stats['reminders']['active']}\n"
+        f"• Выполненные: {stats['reminders']['done']}\n"
+        f"• Отмененные: {stats['reminders']['canceled']}\n"
+        f"• Пропущенные: {stats['reminders']['missed']}\n\n"
+        "Скрытые разделы\n"
+        f"• Заметки: активных {stats['notes']['active']}, "
+        f"в архиве {stats['notes']['archived']}\n"
     )
 
     if admin_activity:
@@ -217,30 +240,30 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
         funnel_text = "\n".join(funnel_lines) or "  • пока нет данных"
         text += (
             "\n👥 Пользователи и активность\n"
-            f"• всего пользователей: {admin_activity['users']['total']}\n"
-            f"• кроме вас: {admin_activity['users']['other']}\n"
-            f"• списки: {admin_activity['lists']['other_users']} польз., "
-            f"{admin_activity['lists']['records']} записей\n"
-            f"• общие списки: {admin_activity['shared_lists']['other_users']} польз., "
-            f"{admin_activity['shared_lists']['records']} доступов\n"
-            f"• напоминания: {admin_activity['reminders']['other_users']} польз., "
-            f"{admin_activity['reminders']['records']} записей\n"
-            f"• лекарства: {admin_activity['medications']['other_users']} польз., "
-            f"{admin_activity['medications']['records']} препаратов\n"
-            f"• авто: {admin_activity['driver']['vehicle_users']} польз., "
-            f"{admin_activity['driver']['vehicles']} авто, "
-            f"{admin_activity['driver']['fuel_entries']} заправок\n"
+            f"• Всего пользователей: {_people(admin_activity['users']['total'])}\n"
+            f"• Других пользователей, кроме вас: {_people(admin_activity['users']['other'])}\n"
+            f"• Списки создали: {_people(admin_activity['lists']['other_users'])}; "
+            f"всего личных списков: {_records(admin_activity['lists']['records'])}\n"
+            f"• Доступов к общим спискам: {_records(admin_activity['shared_lists']['records'])}; "
+            f"участников: {_people(admin_activity['shared_lists']['other_users'])}\n"
+            f"• Напоминания используют: {_people(admin_activity['reminders']['other_users'])}; "
+            f"создано: {_records(admin_activity['reminders']['records'])}\n"
+            f"• Лекарства ведут: {_people(admin_activity['medications']['other_users'])}; "
+            f"препаратов: {admin_activity['medications']['records']}\n"
+            f"• Авто ведут: {_people(admin_activity['driver']['vehicle_users'])}; "
+            f"автомобилей: {admin_activity['driver']['vehicles']}; "
+            f"заправок: {admin_activity['driver']['fuel_entries']}\n"
             "\n📈 Поведение в боте\n"
-            f"• событий за 24 часа: {activity['events_24h']}\n"
-            f"• событий за {activity['period_days']} дней: {activity['events_period']}\n"
-            f"• активных других пользователей за 24 часа: {activity['active_other_users_24h']}\n"
-            f"• активных других пользователей за {activity['period_days']} дней: "
+            f"• Событий за последние 24 часа: {activity['events_24h']}\n"
+            f"• Событий за последние {activity['period_days']} дней: {activity['events_period']}\n"
+            f"• Активных других пользователей за 24 часа: {activity['active_other_users_24h']}\n"
+            f"• Активных других пользователей за {activity['period_days']} дней: "
             f"{activity['active_other_users_period']}\n"
-            "Топ разделов:\n"
+            "Самые используемые разделы:\n"
             f"{top_domains}\n"
-            "Топ действий:\n"
+            "Самые частые действия:\n"
             f"{top_actions}\n"
-            "Воронки:\n"
+            "Прохождение сценариев:\n"
             f"{funnel_text}\n"
         )
     

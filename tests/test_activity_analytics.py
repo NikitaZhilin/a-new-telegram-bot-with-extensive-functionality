@@ -7,6 +7,7 @@ import pytest
 from src.db.models import User
 from src.services.activity_service import (
     ActivityService,
+    format_event_label,
     infer_domain,
     normalize_callback_data,
     normalize_menu_text,
@@ -17,8 +18,11 @@ def test_activity_normalizes_callback_data_without_row_ids_or_tokens():
     """Callback analytics should keep action names, not record private IDs/tokens."""
     assert normalize_callback_data("list_item_delete_confirm:12345") == "list_item_delete_confirm:{id}"
     assert normalize_callback_data("join_list:abcdef1234567890") == "join_list:{token}"
+    assert normalize_callback_data("startup_update_sent:0.8.1-beta") == "startup_update_sent:{version}"
     assert infer_domain("driver_fuel_view:{id}") == "driver"
     assert infer_domain("list_share:{id}") == "sharing"
+    assert infer_domain("startup_update_sent:0.8.1-beta") == "system"
+    assert format_event_label("startup_update_sent:0.8.1-beta") == "отправлено сообщение об обновлении"
 
 
 def test_activity_normalizes_menu_text():

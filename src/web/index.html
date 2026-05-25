@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/web/assets/styles.css">
 </head>
 <body>
+  <div id="menuBackdrop" class="menu-backdrop" hidden></div>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
@@ -17,7 +18,7 @@
         </div>
       </div>
 
-      <nav class="nav" aria-label="Основные разделы">
+      <nav id="mobileNav" class="nav" aria-label="Основные разделы">
         <button class="nav-button active" data-section="dashboard">Сводка</button>
         <button class="nav-button" data-section="lists">Списки</button>
         <button class="nav-button" data-section="reminders">Напоминания</button>
@@ -27,26 +28,24 @@
       </nav>
 
       <div class="sidebar-footer">
-        <button id="themeToggle" class="icon-button" type="button" title="Переключить тему">◐</button>
-        <button id="reloadButton" class="icon-button" type="button" title="Обновить данные">↻</button>
+        <button id="themeToggle" class="utility-button" type="button" title="Переключить тему">◐ Тема</button>
+        <button id="reloadButton" class="utility-button" type="button" title="Обновить текущий раздел">↻ Обновить</button>
       </div>
     </aside>
 
     <main class="content">
       <header class="topbar">
-        <div>
+        <button id="menuToggle" class="menu-toggle" type="button" aria-controls="mobileNav" aria-expanded="false">☰ Меню</button>
+        <div class="topbar-title">
           <h1 id="sectionTitle">Сводка</h1>
           <p id="sectionSubtitle">Текущие данные бота в web-версии.</p>
         </div>
         <div class="status-row">
+          <span class="notice-pill">Тестовый режим: данные могут быть изменены или утеряны.</span>
           <span id="authStatus" class="pill muted">не подключено</span>
           <button id="logoutButton" class="secondary small action-cancel" type="button">Выйти</button>
         </div>
       </header>
-
-      <section class="notice">
-        Бот находится в тестировании. Данные могут быть изменены или утеряны.
-      </section>
 
       <section id="loginPanel" class="panel">
         <h2>Вход</h2>
@@ -83,6 +82,7 @@
 
       <section id="dashboard" class="section active">
         <div id="dashboardCards" class="metric-grid"></div>
+        <div id="dashboardDetails" class="dashboard-details"></div>
       </section>
 
       <section id="lists" class="section">

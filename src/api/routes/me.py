@@ -146,6 +146,15 @@ class ReminderCreateRequest(BaseModel):
     repeat_rule: str = "none"
 
 
+class ReminderUpdateRequest(BaseModel):
+    """Update reminder fields."""
+
+    text: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    title: Optional[str] = Field(default=None, max_length=255)
+    remind_at_local: Optional[datetime] = None
+    repeat_rule: Optional[str] = None
+
+
 class MedicationSummaryResponse(BaseModel):
     """Medication summary."""
 
@@ -750,6 +759,39 @@ async def create_my_reminder(
     )
     if not reminder:
         raise HTTPException(status_code=400, detail="Reminder was not created")
+    await db.commit()
+    await db.refresh(reminder)
+    return _reminder_response(reminder)
+
+
+@router.patch("/me/reminders/{reminder_id}", response_model=ReminderSummaryResponse)
+async def update_my_reminder(
+    reminder_id: int,
+    payload: ReminderUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ReminderSummaryResponse:
+    """Update a generic reminder from web UI."""
+    service = ReminderService(db)
+    reminder = await service.get_reminder(reminder_id, current_user.id)
+    if not reminder or reminder.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
+
+    if payload.text is not None:
+        reminder = await service.update_reminder_text(reminder_id, current_user.id, payload.text.strip())
+    if payload.remind_at_local is not None:
+        reminder = await service.update_reminder_time(
+            reminder_id,
+            current_user.id,
+            _local_datetime_to_utc(payload.remind_at_local, current_user.timezone),
+        )
+    if payload.repeat_rule is not None:
+        reminder = await service.update_reminder_repeat(reminder_id, current_user.id, _repeat_rule(payload.repeat_rule))
+    if payload.title is not None and reminder is not None:
+        reminder.title = payload.title.strip() or None
+
+    if not reminder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     await db.commit()
     await db.refresh(reminder)
     return _reminder_response(reminder)
