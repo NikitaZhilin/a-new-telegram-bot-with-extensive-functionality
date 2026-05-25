@@ -48,16 +48,31 @@ class ListService:
         logger.info(f"Created TodoList {list_obj.id} for user {user_id}")
         return list_obj
 
-    async def get_list(self, list_id: int, user_id: int) -> Optional[TodoList]:
+    async def get_list(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> Optional[TodoList]:
         """Get TodoList by ID with access check."""
-        if not await self.can_view(list_id, user_id):
+        if not await self.can_view(list_id, user_id, source_module=source_module):
             return None
-        return await self.repo.get_with_items(list_id)
+        list_obj = await self.repo.get_with_items(list_id)
+        if list_obj and source_module is not None and list_obj.source_module != source_module:
+            return None
+        return list_obj
 
-    async def get_access_role(self, list_id: int, user_id: int) -> Optional[str]:
+    async def get_access_role(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> Optional[str]:
         """Return user's role for a list."""
         list_obj = await self.repo.get_with_items(list_id)
         if not list_obj:
+            return None
+        if source_module is not None and list_obj.source_module != source_module:
             return None
         if list_obj.user_id == user_id:
             return "owner"
@@ -72,17 +87,32 @@ class ListService:
         )
         return result.scalar_one_or_none()
 
-    async def can_view(self, list_id: int, user_id: int) -> bool:
+    async def can_view(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> bool:
         """Whether user can view a list."""
-        return await self.get_access_role(list_id, user_id) in LIST_ROLES
+        return await self.get_access_role(list_id, user_id, source_module=source_module) in LIST_ROLES
 
-    async def can_edit(self, list_id: int, user_id: int) -> bool:
+    async def can_edit(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> bool:
         """Whether user can edit list items."""
-        return await self.get_access_role(list_id, user_id) in EDIT_ROLES
+        return await self.get_access_role(list_id, user_id, source_module=source_module) in EDIT_ROLES
 
-    async def can_manage(self, list_id: int, user_id: int) -> bool:
+    async def can_manage(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> bool:
         """Whether user owns and can manage the list itself."""
-        return await self.get_access_role(list_id, user_id) == "owner"
+        return await self.get_access_role(list_id, user_id, source_module=source_module) == "owner"
 
     async def get_lists_list(
         self,
@@ -104,24 +134,38 @@ class ListService:
         )
         total = await self.repo.count_accessible_by_user(user_id, source_module=source_module)
         for list_obj in lists:
-            setattr(list_obj, "_access_role", await self.get_access_role(list_obj.id, user_id))
+            setattr(
+                list_obj,
+                "_access_role",
+                await self.get_access_role(list_obj.id, user_id, source_module=source_module),
+            )
         return lists, total
 
-    async def get_list_items(self, list_id: int, user_id: int) -> list[ListItem]:
+    async def get_list_items(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> list[ListItem]:
         """Get items for a TodoList if the user can view it."""
-        if not await self.can_view(list_id, user_id):
+        if not await self.can_view(list_id, user_id, source_module=source_module):
             return []
         list_obj = await self.repo.get_with_items(list_id)
-        if not list_obj:
+        if not list_obj or (source_module is not None and list_obj.source_module != source_module):
             return []
         items = await self.repo.get_items_for_user(list_id, list_obj.user_id)
         return list(items)
 
-    async def get_item_by_id(self, item_id: int, user_id: int) -> Optional[ListItem]:
+    async def get_item_by_id(
+        self,
+        item_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> Optional[ListItem]:
         """Get item by ID with access check."""
         result = await self.db.execute(select(ListItem).where(ListItem.id == item_id))
         item = result.scalar_one_or_none()
-        if not item or not await self.can_view(item.list_id, user_id):
+        if not item or not await self.can_view(item.list_id, user_id, source_module=source_module):
             return None
         return item
 
@@ -130,10 +174,11 @@ class ListService:
         list_id: int,
         user_id: int,
         new_title: str,
+        source_module: Optional[str] = "general",
     ) -> Optional[TodoList]:
         """Rename a TodoList."""
-        list_obj = await self.get_list(list_id, user_id)
-        if not list_obj or not await self.can_manage(list_id, user_id):
+        list_obj = await self.get_list(list_id, user_id, source_module=source_module)
+        if not list_obj or not await self.can_manage(list_id, user_id, source_module=source_module):
             return None
 
         list_obj.title = new_title
@@ -144,10 +189,15 @@ class ListService:
         logger.info(f"Renamed TodoList {list_id} to '{new_title}'")
         return list_obj
 
-    async def delete_list(self, list_id: int, user_id: int) -> bool:
+    async def delete_list(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> bool:
         """Delete a TodoList (cascade deletes items)."""
-        list_obj = await self.get_list(list_id, user_id)
-        if not list_obj or not await self.can_manage(list_id, user_id):
+        list_obj = await self.get_list(list_id, user_id, source_module=source_module)
+        if not list_obj or not await self.can_manage(list_id, user_id, source_module=source_module):
             return False
 
         await self.db.delete(list_obj)
@@ -162,10 +212,11 @@ class ListService:
         user_id: int,
         text: str,
         position: Optional[int] = None,
+        source_module: Optional[str] = "general",
     ) -> Optional[ListItem]:
         """Add item to TodoList."""
-        list_obj = await self.get_list(list_id, user_id)
-        if not list_obj or not await self.can_edit(list_id, user_id):
+        list_obj = await self.get_list(list_id, user_id, source_module=source_module)
+        if not list_obj or not await self.can_edit(list_id, user_id, source_module=source_module):
             return None
 
         item = await self.repo.add_item(list_id, text, position)
@@ -179,11 +230,18 @@ class ListService:
         list_id: int,
         user_id: int,
         texts: list[str],
+        source_module: Optional[str] = "general",
     ) -> list[ListItem]:
         """Add multiple items to TodoList."""
         items = []
         for i, text in enumerate(texts):
-            item = await self.add_item(list_id, user_id, text.strip(), position=i)
+            item = await self.add_item(
+                list_id,
+                user_id,
+                text.strip(),
+                position=i,
+                source_module=source_module,
+            )
             if item:
                 items.append(item)
 
@@ -216,17 +274,18 @@ class ListService:
         self,
         item_id: int,
         user_id: int,
+        source_module: Optional[str] = "general",
     ) -> Optional[ListItem]:
         """Toggle item completion by item ID with ownership check."""
-        item = await self.get_item_by_id(item_id, user_id)
-        if not item or not await self.can_edit(item.list_id, user_id):
+        item = await self.get_item_by_id(item_id, user_id, source_module=source_module)
+        if not item or not await self.can_edit(item.list_id, user_id, source_module=source_module):
             return None
 
         item.is_completed = item.is_completed is not True
         await self.db.flush()
         await self.db.refresh(item)
 
-        list_obj = await self.get_list(item.list_id, user_id)
+        list_obj = await self.get_list(item.list_id, user_id, source_module=source_module)
         if list_obj:
             list_obj.updated_at = datetime.now(timezone.utc)
             await self.db.flush()
@@ -263,17 +322,18 @@ class ListService:
         item_id: int,
         user_id: int,
         new_text: str,
+        source_module: Optional[str] = "general",
     ) -> Optional[ListItem]:
         """Update item text by item ID with ownership check."""
-        item = await self.get_item_by_id(item_id, user_id)
-        if not item or not await self.can_edit(item.list_id, user_id):
+        item = await self.get_item_by_id(item_id, user_id, source_module=source_module)
+        if not item or not await self.can_edit(item.list_id, user_id, source_module=source_module):
             return None
 
         item.text = new_text
         await self.db.flush()
         await self.db.refresh(item)
 
-        list_obj = await self.get_list(item.list_id, user_id)
+        list_obj = await self.get_list(item.list_id, user_id, source_module=source_module)
         if list_obj:
             list_obj.updated_at = datetime.now(timezone.utc)
             await self.db.flush()
@@ -302,16 +362,21 @@ class ListService:
         logger.info(f"Deleted item {item_id} from TodoList {list_id}")
         return True
 
-    async def delete_item_by_id(self, item_id: int, user_id: int) -> bool:
+    async def delete_item_by_id(
+        self,
+        item_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> bool:
         """Delete item by item ID with ownership check."""
-        item = await self.get_item_by_id(item_id, user_id)
-        if not item or not await self.can_edit(item.list_id, user_id):
+        item = await self.get_item_by_id(item_id, user_id, source_module=source_module)
+        if not item or not await self.can_edit(item.list_id, user_id, source_module=source_module):
             return False
 
         list_id = item.list_id
         await self.db.delete(item)
 
-        list_obj = await self.get_list(list_id, user_id)
+        list_obj = await self.get_list(list_id, user_id, source_module=source_module)
         if list_obj:
             list_obj.updated_at = datetime.now(timezone.utc)
 
@@ -332,13 +397,18 @@ class ListService:
 
         return await self.repo.get_item_in_list_for_user(item_id, list_id, list_obj.user_id)
 
-    async def format_list_as_text(self, list_id: int, user_id: int) -> Optional[str]:
+    async def format_list_as_text(
+        self,
+        list_id: int,
+        user_id: int,
+        source_module: Optional[str] = "general",
+    ) -> Optional[str]:
         """Format TodoList with items as plain text for copying."""
-        list_obj = await self.get_list(list_id, user_id)
+        list_obj = await self.get_list(list_id, user_id, source_module=source_module)
         if not list_obj:
             return None
 
-        items = await self.get_list_items(list_id, user_id)
+        items = await self.get_list_items(list_id, user_id, source_module=source_module)
 
         lines = [f"📋 {list_obj.title}"]
         if items:

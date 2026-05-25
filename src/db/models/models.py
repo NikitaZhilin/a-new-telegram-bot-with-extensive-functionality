@@ -713,6 +713,11 @@ class DriverDocument(Base):
 
     user = relationship("User", back_populates="driver_documents")
     vehicle = relationship("DriverVehicle", back_populates="documents")
+    reminders = relationship(
+        "Reminder",
+        back_populates="driver_document",
+        lazy="selectin",
+    )
 
     __table_args__ = (
         CheckConstraint("remind_before_days >= 0", name="ck_driver_documents_remind_non_negative"),
@@ -753,6 +758,12 @@ class Reminder(Base):
         ForeignKey("medications.id", ondelete="SET NULL"),
         nullable=True,
         index=True
+    )
+    driver_document_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("driver_documents.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     source_module: Mapped[str] = mapped_column(
         String(30),
@@ -797,12 +808,14 @@ class Reminder(Base):
     user = relationship("User", back_populates="reminders")
     todo_list = relationship("TodoList", back_populates="reminders")
     medication = relationship("Medication", back_populates="reminders")
+    driver_document = relationship("DriverDocument", back_populates="reminders")
 
     # Indexes
     __table_args__ = (
         Index("ix_reminders_user_status", "user_id", "status"),
         Index("ix_reminders_remind_at_status", "remind_at_utc", "status"),
         Index("ix_reminders_user_source_status", "user_id", "source_module", "status"),
+        Index("ix_reminders_driver_document_status", "driver_document_id", "status"),
     )
 
     def __repr__(self) -> str:

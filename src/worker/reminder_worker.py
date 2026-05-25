@@ -332,6 +332,8 @@ class ReminderWorkerService:
         todo_list = getattr(reminder, "todo_list", None)
         medication_id = getattr(reminder, "medication_id", None)
         medication = getattr(reminder, "medication", None)
+        driver_document_id = getattr(reminder, "driver_document_id", None)
+        driver_document = getattr(reminder, "driver_document", None)
 
         if list_id:
             if todo_list:
@@ -351,6 +353,12 @@ class ReminderWorkerService:
                 message += f"\n\n{importance_prefix} Лекарство: {html.escape(medication.name)}"
             else:
                 message += "\n\n💊 Связанное лекарство было удалено"
+
+        if driver_document_id:
+            if driver_document:
+                message += f"\n\n📄 Документ: {html.escape(driver_document.title)}"
+            else:
+                message += "\n\n📄 Связанный документ был удален"
         
         if reminder.repeat_rule != RepeatRule.NONE:
             repeat_emoji = {
@@ -380,6 +388,8 @@ class ReminderWorkerService:
         medication = getattr(reminder, "medication", None)
         list_id = getattr(reminder, "list_id", None)
         todo_list = getattr(reminder, "todo_list", None)
+        driver_document_id = getattr(reminder, "driver_document_id", None)
+        driver_document = getattr(reminder, "driver_document", None)
 
         if medication_id and medication:
             return InlineKeyboardMarkup([
@@ -403,6 +413,16 @@ class ReminderWorkerService:
                     InlineKeyboardButton(
                         "💊 Открыть лекарство",
                         callback_data=f"med_view:{medication_id}",
+                    ),
+                ],
+            ])
+
+        if driver_document_id and driver_document:
+            return InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "📄 Открыть документ",
+                        callback_data=f"driver_document_view:{driver_document_id}",
                     ),
                 ],
             ])

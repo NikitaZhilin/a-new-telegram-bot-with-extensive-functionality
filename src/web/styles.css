@@ -94,6 +94,12 @@ button:hover {
   filter: brightness(1.04);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  filter: grayscale(0.2);
+}
+
 button.secondary {
   background: var(--surface-2);
   color: var(--text);
@@ -464,6 +470,10 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 12px;
+}
+
+.section-overview {
+  margin-bottom: 12px;
 }
 
 .metric {

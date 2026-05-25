@@ -118,7 +118,7 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if text == "📝 Заметки":
         await update.message.reply_text(
             "📝 Раздел заметок убран из бота.\n\n"
-            "Я обновил нижнее меню, используйте актуальные разделы.",
+            "Я обновил нижнее меню, используйте актуальные разделы: списки, лекарства, напоминания, водитель и web-версия.",
             reply_markup=get_main_menu_keyboard(),
         )
         return
@@ -146,23 +146,6 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if text == "👥 Поделиться ботом":
         await share_bot_message(update, context)
         return
-
-    if text == "📋 Списки":
-        await show_lists_menu(update, context)
-    elif text == "💊 Лекарства":
-        await show_medications_menu(update, context)
-    elif text == "⏰ Напоминания":
-        await show_reminders_menu(update, context)
-    elif text == "🚗 Для водителя":
-        await show_driver_menu(update, context)
-    elif text == "⚙️ Настройки":
-        await show_settings_menu(update, context)
-    elif text == "🌐 Web-версия":
-        await show_web_login(update, context)
-    elif text == "❓ Помощь":
-        await help_command(update, context)
-    elif text == "👥 Поделиться ботом":
-        await share_bot_message(update, context)
 
 
 async def show_lists_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -244,7 +227,7 @@ async def removed_notes_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer("Раздел заметок убран")
     await query.edit_message_text(
         "📝 Раздел заметок убран из бота.\n\n"
-        "Сейчас доступны списки, лекарства, напоминания и настройки.",
+        "Сейчас доступны списки, лекарства, напоминания, водительский раздел, web-версия и настройки.",
         reply_markup=get_main_menu_inline_keyboard(),
     )
 

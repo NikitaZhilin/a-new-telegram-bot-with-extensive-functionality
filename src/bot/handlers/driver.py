@@ -969,7 +969,7 @@ async def driver_list_template_callback(update: Update, context: ContextTypes.DE
         user_id = await _get_app_user_id(update, session)
         service = ListService(session)
         list_obj = await service.create_list(user_id, title, source_module="driver")
-        await service.add_items_bulk(list_obj.id, user_id, items)
+        await service.add_items_bulk(list_obj.id, user_id, items, source_module="driver")
         await session.commit()
 
     await query.edit_message_text(

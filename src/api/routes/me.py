@@ -175,6 +175,11 @@ class MedicationSummaryResponse(BaseModel):
     importance: str
     is_active: bool
     daily_times_local: List[str] = Field(default_factory=list)
+    can_mark_now: bool = False
+    mark_reason: str = ""
+    has_schedule: bool = False
+    next_available_at_utc: Optional[datetime] = None
+    marked_at_utc: Optional[datetime] = None
     updated_at: datetime
 
 
@@ -601,6 +606,39 @@ def _document_response(document: DriverDocument) -> DriverDocumentResponse:
         note=document.note,
         is_active=document.is_active,
         updated_at=document.updated_at,
+    )
+
+
+async def _medication_response(
+    service: MedicationService,
+    medication: Medication,
+    user: User,
+) -> MedicationSummaryResponse:
+    """Serialize a medication with web action state."""
+    schedule = await service._get_daily_schedule_times(  # noqa: SLF001 - read-only web presentation helper
+        medication.id,
+        user.id,
+        user.timezone,
+    )
+    action_state = await service.get_intake_action_state(
+        medication.id,
+        user.id,
+        user.timezone,
+    )
+    return MedicationSummaryResponse(
+        id=medication.id,
+        name=medication.name,
+        dosage=medication.dosage,
+        instructions=medication.instructions,
+        importance=medication.importance,
+        is_active=medication.is_active,
+        daily_times_local=[value.strftime("%H:%M") for value in schedule],
+        can_mark_now=action_state.can_mark,
+        mark_reason=action_state.reason,
+        has_schedule=action_state.has_schedule,
+        next_available_at_utc=action_state.next_available_at_utc,
+        marked_at_utc=action_state.marked_at_utc,
+        updated_at=medication.updated_at,
     )
 
 
@@ -1050,26 +1088,7 @@ async def get_my_medications(
         .limit(limit)
     )
     medications = result.scalars().all()
-    rows = []
-    for item in medications:
-        schedule = await medication_service._get_daily_schedule_times(  # noqa: SLF001 - read-only web presentation helper
-            item.id,
-            current_user.id,
-            current_user.timezone,
-        )
-        rows.append(
-            MedicationSummaryResponse(
-                id=item.id,
-                name=item.name,
-                dosage=item.dosage,
-                instructions=item.instructions,
-                importance=item.importance,
-                is_active=item.is_active,
-                daily_times_local=[value.strftime("%H:%M") for value in schedule],
-                updated_at=item.updated_at,
-            )
-        )
-    return rows
+    return [await _medication_response(medication_service, item, current_user) for item in medications]
 
 
 @router.post("/me/medications", response_model=MedicationSummaryResponse, status_code=status.HTTP_201_CREATED)
@@ -1091,18 +1110,8 @@ async def create_my_medication(
     if times:
         await service.replace_daily_reminders(medication.id, current_user.id, times)
     await db.commit()
-    schedule = await service._get_daily_schedule_times(medication.id, current_user.id, current_user.timezone)  # noqa: SLF001
     await db.refresh(medication)
-    return MedicationSummaryResponse(
-        id=medication.id,
-        name=medication.name,
-        dosage=medication.dosage,
-        instructions=medication.instructions,
-        importance=medication.importance,
-        is_active=medication.is_active,
-        daily_times_local=[value.strftime("%H:%M") for value in schedule],
-        updated_at=medication.updated_at,
-    )
+    return await _medication_response(service, medication, current_user)
 
 
 @router.patch("/me/medications/{medication_id}", response_model=MedicationSummaryResponse)
@@ -1128,18 +1137,8 @@ async def update_my_medication(
         times = [_local_time_to_next_utc(value, current_user.timezone) for value in payload.daily_times_local if value.strip()]
         await service.replace_daily_reminders(medication.id, current_user.id, times)
     await db.commit()
-    schedule = await service._get_daily_schedule_times(medication.id, current_user.id, current_user.timezone)  # noqa: SLF001
     await db.refresh(medication)
-    return MedicationSummaryResponse(
-        id=medication.id,
-        name=medication.name,
-        dosage=medication.dosage,
-        instructions=medication.instructions,
-        importance=medication.importance,
-        is_active=medication.is_active,
-        daily_times_local=[value.strftime("%H:%M") for value in schedule],
-        updated_at=medication.updated_at,
-    )
+    return await _medication_response(service, medication, current_user)
 
 
 @router.post("/me/medications/{medication_id}/taken", response_model=MutationResponse)

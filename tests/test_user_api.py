@@ -382,3 +382,37 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert driver_response.json()["overview"]["documents_active_count"] == 1
     assert driver_response.json()["expenses"][0]["title"] == "Wash updated"
     assert driver_response.json()["documents"][0]["title"] == "OSAGO updated"
+
+
+@pytest.mark.asyncio
+async def test_web_medication_response_exposes_mark_availability(db_session):
+    """Web medications should tell UI when intake buttons must be disabled."""
+    app = create_application()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    headers = {
+        "X-Admin-Token": settings.ADMIN_TOKEN,
+        "X-Web-Test-Telegram-Id": "94002",
+        "X-Web-Test-First-Name": "Medication",
+    }
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        medication_response = await client.post(
+            "/me/medications",
+            headers=headers,
+            json={"name": "Once daily", "daily_times_local": []},
+        )
+        medication_id = medication_response.json()["id"]
+        assert medication_response.json()["can_mark_now"] is True
+
+        taken_response = await client.post(f"/me/medications/{medication_id}/taken", headers=headers)
+        medications_response = await client.get("/me/medications", headers=headers)
+
+    item = medications_response.json()[0]
+    assert taken_response.json()["ok"] is True
+    assert item["can_mark_now"] is False
+    assert item["marked_at_utc"]
+    assert item["next_available_at_utc"]

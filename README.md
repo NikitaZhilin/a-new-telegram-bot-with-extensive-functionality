@@ -143,7 +143,7 @@ DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@localhost:5433/DB
 
 ```env
 APP_VERSION=0.8.0-beta
-STARTUP_UPDATE_MESSAGE=Бета-обновление: улучшена web-версия и сценарии действий.
+STARTUP_UPDATE_MESSAGE=Обновлена стабильность сервиса и web-версии.
 ```
 
 ### Запуск
@@ -418,7 +418,7 @@ DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@localhost:5433/DB
 
 ```env
 APP_VERSION=0.8.0-beta
-STARTUP_UPDATE_MESSAGE=Beta update: improved web UI and action flows.
+STARTUP_UPDATE_MESSAGE=Обновлена стабильность сервиса и web-версии.
 ```
 
 ### Running

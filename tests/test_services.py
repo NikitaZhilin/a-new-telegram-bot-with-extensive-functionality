@@ -8,7 +8,6 @@ from src.bot.keyboards.builder import get_list_view_keyboard
 from src.db.models import (
     ListMember,
     Medication,
-    Note,
     Reminder,
     ReminderStatus,
     RepeatRule,
@@ -312,8 +311,8 @@ async def test_shared_list_owner_can_manage_members(db_session):
 
 
 @pytest.mark.asyncio
-async def test_settings_stats_cover_visible_and_hidden_domains(db_session):
-    """User statistics should include medications, shared lists and hidden notes."""
+async def test_settings_stats_cover_visible_domains(db_session):
+    """User statistics should include visible domains only."""
     from src.services.settings_service import SettingsService
 
     owner = User(telegram_id=8201, timezone="UTC")
@@ -333,8 +332,6 @@ async def test_settings_stats_cover_visible_and_hidden_domains(db_session):
     db_session.add(ListMember(list_id=shared.id, user_id=owner.id, role="viewer"))
     db_session.add_all(
         [
-            Note(user_id=owner.id, title="Visible note", is_archived=False),
-            Note(user_id=owner.id, title="Archived note", is_archived=True),
             Medication(user_id=owner.id, name="Active med", is_active=True),
             Medication(user_id=owner.id, name="Archived med", is_active=False),
             Reminder(
@@ -357,7 +354,7 @@ async def test_settings_stats_cover_visible_and_hidden_domains(db_session):
 
     assert owned.id is not None
     assert stats["lists"] == {"owned": 1, "shared": 1}
-    assert stats["notes"] == {"active": 1, "archived": 1}
+    assert "notes" not in stats
     assert stats["medications"] == {"active": 1, "archived": 1}
     assert stats["reminders"]["active"] == 1
     assert stats["reminders"]["done"] == 1

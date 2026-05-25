@@ -1,11 +1,18 @@
 """Tests for driver assistant service."""
 
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from src.db.models import User
+from sqlalchemy import select
+
+from src.db.models import Reminder, ReminderStatus, User
 from src.services.driver_service import DriverService
 from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_presets
+
+
+def _as_utc(value: datetime) -> datetime:
+    """SQLite test backend may return timezone-aware columns as naive UTC."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 @pytest.mark.asyncio
@@ -401,3 +408,61 @@ async def test_driver_expenses_and_documents_are_user_owned(db_session):
         await service.create_expense(owner.id, "Bad amount", 0)
     with pytest.raises(ValueError):
         await service.create_document(owner.id, "Bad remind", remind_before_days=-1)
+
+
+@pytest.mark.asyncio
+async def test_driver_document_syncs_active_reminder(db_session):
+    """Driver documents with expiry should create, update, and cancel linked reminders."""
+    user = User(telegram_id=7013, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = DriverService(db_session)
+    expires_at = datetime(2026, 6, 20, 9, 0, tzinfo=timezone.utc)
+    document = await service.create_document(
+        user.id,
+        "OSAGO",
+        document_type="insurance",
+        expires_at_utc=expires_at,
+        remind_before_days=10,
+    )
+
+    result = await db_session.execute(
+        select(Reminder).where(
+            Reminder.driver_document_id == document.id,
+            Reminder.status == ReminderStatus.ACTIVE,
+        )
+    )
+    reminder = result.scalar_one()
+    assert reminder.source_module == "driver"
+    assert _as_utc(reminder.remind_at_utc) == expires_at - timedelta(days=10)
+    assert "OSAGO" in reminder.text
+
+    updated_expires_at = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+    await service.update_document(
+        document.id,
+        user.id,
+        title="OSAGO updated",
+        document_type="insurance",
+        expires_at_utc=updated_expires_at,
+        remind_before_days=7,
+    )
+
+    result = await db_session.execute(
+        select(Reminder).where(Reminder.driver_document_id == document.id)
+    )
+    reminders = result.scalars().all()
+    active = [item for item in reminders if item.status == ReminderStatus.ACTIVE]
+    canceled = [item for item in reminders if item.status == ReminderStatus.CANCELED]
+    assert len(active) == 1
+    assert len(canceled) == 1
+    assert _as_utc(active[0].remind_at_utc) == updated_expires_at - timedelta(days=7)
+
+    assert await service.delete_document(document.id, user.id) is True
+    result = await db_session.execute(
+        select(Reminder).where(
+            Reminder.driver_document_id == document.id,
+            Reminder.status == ReminderStatus.ACTIVE,
+        )
+    )
+    assert result.scalars().all() == []

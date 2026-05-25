@@ -56,6 +56,7 @@ class ReminderRepository(BaseRepository[Reminder]):
                 selectinload(Reminder.user),
                 selectinload(Reminder.todo_list),
                 selectinload(Reminder.medication),
+                selectinload(Reminder.driver_document),
             )
             .where(
                 and_(
@@ -165,6 +166,7 @@ class ReminderRepository(BaseRepository[Reminder]):
             text=reminder.text,
             list_id=reminder.list_id,
             medication_id=reminder.medication_id,
+            driver_document_id=reminder.driver_document_id,
             source_module=reminder.source_module,
             remind_at_utc=next_time,
             repeat_rule=reminder.repeat_rule,
@@ -206,6 +208,7 @@ class ReminderRepository(BaseRepository[Reminder]):
                 selectinload(Reminder.user),
                 selectinload(Reminder.todo_list),
                 selectinload(Reminder.medication),
+                selectinload(Reminder.driver_document),
             )
             .where(Reminder.id == reminder_id)
         )

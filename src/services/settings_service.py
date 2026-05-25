@@ -62,8 +62,8 @@ class SettingsService:
     async def get_stats(self, user_id: int) -> dict:
         """
         Get user statistics.
-        
-        Returns dict with counts of notes, lists, reminders, medications.
+
+        Returns dict with counts of visible user domains.
         """
         from sqlalchemy import func
         from src.db.models import (
@@ -73,7 +73,6 @@ class SettingsService:
             DriverVehicle,
             ListMember,
             Medication,
-            Note,
             Reminder,
             ReminderStatus,
             TodoList,
@@ -82,13 +81,6 @@ class SettingsService:
         async def count(query) -> int:
             result = await self.db.execute(query)
             return result.scalar() or 0
-
-        notes_active = await count(
-            select(func.count(Note.id)).where(Note.user_id == user_id, Note.is_archived.is_(False))
-        )
-        notes_archived = await count(
-            select(func.count(Note.id)).where(Note.user_id == user_id, Note.is_archived.is_(True))
-        )
 
         owned_lists = await count(
             select(func.count(TodoList.id)).where(
@@ -149,10 +141,6 @@ class SettingsService:
         driver_overview = await DriverService(self.db).get_user_overview(user_id)
         
         return {
-            "notes": {
-                "active": notes_active,
-                "archived": notes_archived,
-            },
             "lists": {
                 "owned": owned_lists,
                 "shared": shared_lists,

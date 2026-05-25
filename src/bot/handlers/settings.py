@@ -212,10 +212,7 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
         f"• Активные: {stats['reminders']['active']}\n"
         f"• Выполненные: {stats['reminders']['done']}\n"
         f"• Отмененные: {stats['reminders']['canceled']}\n"
-        f"• Пропущенные: {stats['reminders']['missed']}\n\n"
-        "Скрытые разделы\n"
-        f"• Заметки: активных {stats['notes']['active']}, "
-        f"в архиве {stats['notes']['archived']}\n"
+        f"• Пропущенные: {stats['reminders']['missed']}\n"
     )
 
     if admin_activity:

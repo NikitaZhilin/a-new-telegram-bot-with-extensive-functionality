@@ -40,7 +40,7 @@ const titles = {
   lists: ["Списки", "Создание, просмотр и отметка пунктов."],
   reminders: ["Напоминания", "Активные напоминания пользователя."],
   medications: ["Лекарства", "Приемы, важность и ежедневное расписание."],
-  driver: ["Водитель", "Автомобили, пробег и заправки."],
+  driver: ["Водитель", "Автомобили, заправки, расходы и документы."],
   admin: ["Админ", "Активность и воронки тестового проекта."],
 };
 
@@ -387,6 +387,18 @@ function formatSubscriptionStatus(value) {
   }[value] || value || "не активна";
 }
 
+function formatMedicationMarkState(item) {
+  if (!item.is_active) return "Препарат в архиве.";
+  if (item.can_mark_now) return "Можно отметить прием сейчас.";
+  if (item.marked_at_utc) {
+    return `Прием уже отмечен: ${formatDate(item.marked_at_utc)}.`;
+  }
+  if (item.next_available_at_utc) {
+    return `Следующая отметка будет доступна: ${formatDate(item.next_available_at_utc)}.`;
+  }
+  return "Сейчас отметка недоступна.";
+}
+
 function formatActionLabel(item) {
   return item.label || item.event_label || item.event_name || "действие";
 }
@@ -406,13 +418,6 @@ function formatServicePlan(plan) {
 function toLocalInputFromIso(value) {
   if (!value) return "";
   return toDatetimeLocal(new Date(value));
-}
-
-function boolFromPrompt(value, fallback = true) {
-  if (value === null) return null;
-  const normalized = String(value).trim().toLowerCase();
-  if (!normalized) return fallback;
-  return ["1", "да", "yes", "y", "true", "полный"].includes(normalized);
 }
 
 async function copyText(text) {
@@ -782,7 +787,9 @@ async function loadReminders() {
 async function loadMedications() {
   state.medications = await api("/me/medications?active_only=false");
   $("#medicationsContainer").innerHTML = state.medications.length
-    ? state.medications.map((item) => `
+    ? state.medications.map((item) => {
+      const canMark = Boolean(item.is_active && item.can_mark_now);
+      return `
       <article class="item-card">
         <div class="item-card-header">
           <div>
@@ -792,16 +799,20 @@ async function loadMedications() {
         </div>
         <div class="item-text">${escapeHtml([item.dosage, item.instructions].filter(Boolean).join("\n"))}</div>
         <div class="item-meta">Время: ${escapeHtml(item.daily_times_local?.join(", ") || "не задано")}</div>
+        <div class="item-meta">${escapeHtml(formatMedicationMarkState(item))}</div>
         ${state.editingMedicationId === item.id ? renderMedicationEditForm(item) : `
           <div class="item-actions">
-            <button class="small action-done" data-action="taken-medication" data-id="${item.id}">Принял</button>
-            <button class="secondary small action-skip" data-action="skipped-medication" data-id="${item.id}">Пропустил</button>
+            ${item.is_active ? `
+              <button class="small action-done" data-action="taken-medication" data-id="${item.id}" ${canMark ? "" : "disabled"}>Принял</button>
+              <button class="secondary small action-skip" data-action="skipped-medication" data-id="${item.id}" ${canMark ? "" : "disabled"}>Пропустил</button>
+            ` : ""}
             <button class="secondary small action-edit" data-action="edit-medication" data-id="${item.id}">Изм.</button>
-            <button class="danger small action-danger" data-action="archive-medication" data-id="${item.id}">Архив</button>
+            ${item.is_active ? `<button class="danger small action-danger" data-action="archive-medication" data-id="${item.id}">Архив</button>` : ""}
           </div>
         `}
       </article>
-    `).join("")
+    `;
+    }).join("")
     : `<div class="item-meta">Лекарств пока нет.</div>`;
   $$(".medication-edit-form").forEach((form) => {
     form.addEventListener("submit", (event) => handleMedicationUpdate(event).catch((error) => showMessage(error.message, true)));
@@ -810,6 +821,7 @@ async function loadMedications() {
 
 function renderDriver() {
   const vehicles = state.driver?.vehicles || [];
+  renderDriverOverview();
   renderVehiclePresetSelect();
   $("#vehiclesContainer").innerHTML = vehicles.length
     ? vehicles.map((item) => `
@@ -861,12 +873,33 @@ function renderDriver() {
   select.innerHTML = vehicles.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join("");
   $("#expenseCreateForm select[name='vehicle_id']").innerHTML = renderVehicleOptions();
   $("#documentCreateForm select[name='vehicle_id']").innerHTML = renderVehicleOptions();
+  const vehicleIds = new Set(vehicles.map((item) => Number(item.id)));
+  if (state.selectedVehicleId && !vehicleIds.has(Number(state.selectedVehicleId))) {
+    state.selectedVehicleId = null;
+  }
   if (!state.selectedVehicleId && vehicles[0]) {
     state.selectedVehicleId = vehicles[0].id;
   }
   if (state.selectedVehicleId) {
     select.value = String(state.selectedVehicleId);
   }
+}
+
+function renderDriverOverview() {
+  const overview = state.driver?.overview || {};
+  const cards = [
+    ["Авто", overview.vehicles_count ?? 0, `максимальный пробег: ${overview.max_mileage_km ?? 0} км`],
+    ["Заправки", overview.fuel_entries_count ?? 0, `топливо: ${formatMoney(overview.fuel_total_cost ?? 0)}`],
+    ["Расходы", formatMoney(overview.driver_total_cost ?? overview.fuel_total_cost ?? 0), `прочие: ${formatMoney(overview.expense_total_cost ?? 0)}`],
+    ["Документы", overview.documents_active_count ?? 0, `скоро истекают: ${overview.documents_expiring_soon_count ?? 0}`],
+  ];
+  $("#driverOverview").innerHTML = cards.map(([label, value, detail]) => `
+    <article class="metric">
+      <div class="metric-value">${escapeHtml(value)}</div>
+      <div class="metric-label">${escapeHtml(label)}</div>
+      <div class="metric-detail">${escapeHtml(detail)}</div>
+    </article>
+  `).join("");
 }
 
 function renderVehiclePresetSelect() {
@@ -1541,11 +1574,15 @@ async function handleAction(event) {
       state.editingReminderId = null;
       await loadReminders();
     } else if (action === "taken-medication") {
-      await api(`/me/medications/${id}/taken`, { method: "POST" });
-      showMessage("Отметка сохранена.");
+      const result = await api(`/me/medications/${id}/taken`, { method: "POST" });
+      await loadMedications();
+      await loadSummary();
+      showMessage(result.ok ? "Прием отмечен." : "Этот прием уже отмечен или сейчас недоступен.", !result.ok);
     } else if (action === "skipped-medication") {
-      await api(`/me/medications/${id}/skipped`, { method: "POST" });
-      showMessage("Пропуск сохранен.");
+      const result = await api(`/me/medications/${id}/skipped`, { method: "POST" });
+      await loadMedications();
+      await loadSummary();
+      showMessage(result.ok ? "Пропуск отмечен." : "Этот прием уже отмечен или сейчас недоступен.", !result.ok);
     } else if (action === "edit-medication") {
       state.editingMedicationId = Number(id);
       await loadMedications();

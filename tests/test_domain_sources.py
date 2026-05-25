@@ -27,6 +27,16 @@ async def test_generic_lists_hide_driver_templates(db_session):
     assert total == 1
     assert [item.id for item in lists] == [general.id]
     assert driver.id not in [item.id for item in lists]
+    assert await service.get_list(driver.id, user.id) is None
+    assert await service.add_item(driver.id, user.id, "Should stay hidden") is None
+
+    driver_item = await service.add_item(
+        driver.id,
+        user.id,
+        "Driver-only item",
+        source_module="driver",
+    )
+    assert driver_item is not None
 
 
 @pytest.mark.asyncio

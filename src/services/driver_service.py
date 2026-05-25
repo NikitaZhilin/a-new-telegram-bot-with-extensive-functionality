@@ -4,10 +4,18 @@ from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import DriverDocument, DriverExpense, DriverFuelEntry, DriverVehicle
+from src.db.models import (
+    DriverDocument,
+    DriverExpense,
+    DriverFuelEntry,
+    DriverVehicle,
+    Reminder,
+    ReminderStatus,
+    RepeatRule,
+)
 
 
 class DriverService:
@@ -487,6 +495,7 @@ class DriverService:
         )
         self.db.add(document)
         await self.db.flush()
+        await self._sync_document_reminder(document)
         await self.db.refresh(document)
         return document
 
@@ -554,6 +563,7 @@ class DriverService:
         document.is_active = is_active
         document.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
+        await self._sync_document_reminder(document)
         await self.db.refresh(document)
         return document
 
@@ -562,9 +572,72 @@ class DriverService:
         document = await self.get_document(document_id, user_id)
         if not document:
             return False
+        await self._cancel_document_reminders(document_id, user_id)
         await self.db.delete(document)
         await self.db.flush()
         return True
+
+    async def _sync_document_reminder(self, document: DriverDocument) -> None:
+        """Keep one active reminder for an expiring active driver document."""
+        await self._cancel_document_reminders(document.id, document.user_id)
+
+        if not document.is_active or document.expires_at_utc is None:
+            return
+
+        expires_at = document.expires_at_utc
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        remind_at = expires_at - timedelta(days=document.remind_before_days)
+        self.db.add(
+            Reminder(
+                user_id=document.user_id,
+                title=f"Документ: {document.title}"[:255],
+                text=self._format_document_reminder_text(document, expires_at),
+                driver_document_id=document.id,
+                source_module="driver",
+                remind_at_utc=remind_at,
+                repeat_rule=RepeatRule.NONE,
+                status=ReminderStatus.ACTIVE,
+            )
+        )
+        await self.db.flush()
+
+    async def _cancel_document_reminders(self, document_id: int, user_id: int) -> None:
+        """Cancel active reminders linked to a driver document."""
+        result = await self.db.execute(
+            select(Reminder).where(
+                and_(
+                    Reminder.driver_document_id == document_id,
+                    Reminder.user_id == user_id,
+                    Reminder.status == ReminderStatus.ACTIVE,
+                )
+            )
+        )
+        for reminder in result.scalars().all():
+            reminder.status = ReminderStatus.CANCELED
+        await self.db.flush()
+
+    def _format_document_reminder_text(
+        self,
+        document: DriverDocument,
+        expires_at_utc: datetime,
+    ) -> str:
+        """Build user-facing reminder text for a driver document."""
+        expires_text = expires_at_utc.strftime("%d.%m.%Y")
+        if document.remind_before_days == 0:
+            lead_text = "Срок действия документа истекает сегодня."
+        else:
+            lead_text = f"До окончания срока действия осталось {document.remind_before_days} дн."
+
+        lines = [
+            lead_text,
+            f"Документ: {document.title}",
+            f"Срок: {expires_text}",
+        ]
+        if document.note:
+            lines.extend(["", document.note])
+        return "\n".join(lines)
 
     async def get_document_summary(
         self,

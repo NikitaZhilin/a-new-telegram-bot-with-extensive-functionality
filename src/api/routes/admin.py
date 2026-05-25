@@ -5,7 +5,7 @@ All endpoints require X-Admin-Token header for authentication.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.auth import require_admin
 from src.db.session import get_db
-from src.db.models import Medication, Note, TodoList, Reminder, ReminderStatus, User
+from src.db.models import Medication, TodoList, Reminder, ReminderStatus, User
 from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
 from src.services.subscription_service import SubscriptionService
@@ -68,7 +68,6 @@ class StatsReminders(BaseModel):
 class StatsResponse(BaseModel):
     """System statistics."""
     users: StatsCount
-    notes: StatsCount
     lists: StatsCount
     reminders: StatsReminders
     generated_at: str
@@ -363,7 +362,7 @@ async def get_stats(
     """
     Get system statistics.
     
-    Includes counts for users, notes, lists, and reminders with status breakdown.
+    Includes counts for users, lists, and reminders with status breakdown.
     
     Args:
         db: Database session
@@ -373,7 +372,7 @@ async def get_stats(
     """
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=7)
     
     # Helper to get count with optional date filter
     async def get_count(model, since: Optional[datetime] = None) -> int:
@@ -387,10 +386,6 @@ async def get_stats(
     users_total = await get_count(User)
     users_today = await get_count(User, today_start)
     users_week = await get_count(User, week_start)
-    
-    notes_total = await get_count(Note)
-    notes_today = await get_count(Note, today_start)
-    notes_week = await get_count(Note, week_start)
     
     lists_total = await get_count(TodoList)
     lists_today = await get_count(TodoList, today_start)
@@ -413,7 +408,6 @@ async def get_stats(
     reminders_missed = await count_by_status(ReminderStatus.MISSED)
     
     # Due soon (active, not notified, due in next hour)
-    from datetime import timedelta
     one_hour_later = now + timedelta(hours=1)
     
     due_soon_query = (
@@ -434,11 +428,6 @@ async def get_stats(
             total=users_total,
             created_today=users_today,
             created_week=users_week,
-        ),
-        notes=StatsCount(
-            total=notes_total,
-            created_today=notes_today,
-            created_week=notes_week,
         ),
         lists=StatsCount(
             total=lists_total,
@@ -476,7 +465,6 @@ async def get_due_reminders(
     Returns:
         List of due reminders
     """
-    from datetime import timedelta
     from sqlalchemy import and_
     
     now = datetime.now(timezone.utc)

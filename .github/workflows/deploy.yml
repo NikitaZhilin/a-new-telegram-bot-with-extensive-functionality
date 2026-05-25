@@ -91,14 +91,14 @@ jobs:
       BOT_USERNAME: ${{ vars.BOT_USERNAME || '' }}
       ADMIN_TELEGRAM_IDS: ${{ vars.ADMIN_TELEGRAM_IDS || '' }}
       WEB_PUBLIC_URL: ${{ vars.WEB_PUBLIC_URL || '' }}
-      WEB_TEST_LOGIN_ENABLED: ${{ vars.WEB_TEST_LOGIN_ENABLED || 'true' }}
+      WEB_TEST_LOGIN_ENABLED: ${{ vars.WEB_TEST_LOGIN_ENABLED || 'false' }}
       WEB_LOGIN_TOKEN_TTL_DAYS: ${{ vars.WEB_LOGIN_TOKEN_TTL_DAYS || '30' }}
       LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
       TIMEZONE_DEFAULT: ${{ vars.TIMEZONE_DEFAULT || 'Europe/Moscow' }}
       APP_VERSION: ${{ vars.APP_VERSION || format('0.1.{0}-beta', github.run_number) }}
-      STARTUP_UPDATE_MESSAGE: "${{ vars.STARTUP_UPDATE_MESSAGE || 'Beta update: deployment from main completed.' }}"
+      STARTUP_UPDATE_MESSAGE: "${{ vars.STARTUP_UPDATE_MESSAGE || 'Обновлена стабильность сервиса и web-версии.' }}"
       TESTING_NOTICE_ENABLED: ${{ vars.TESTING_NOTICE_ENABLED || 'true' }}
-      TESTING_NOTICE_TEXT: ${{ vars.TESTING_NOTICE_TEXT || '' }}
+      TESTING_NOTICE_TEXT: ${{ vars.TESTING_NOTICE_TEXT || '⚠️ Бот находится в тестировании. Данные могут быть изменены или утеряны.' }}
       SEND_STARTUP_MENU_ON_BOOT: ${{ vars.SEND_STARTUP_MENU_ON_BOOT || 'true' }}
       DEFAULT_SUBSCRIPTION_PLAN: ${{ vars.DEFAULT_SUBSCRIPTION_PLAN || 'free' }}
       WORKER_INTERVAL: ${{ vars.WORKER_INTERVAL || '60' }}

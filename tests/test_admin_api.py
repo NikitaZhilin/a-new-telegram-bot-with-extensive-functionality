@@ -1,6 +1,6 @@
 """Admin API regression tests."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -121,3 +121,40 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     assert driver_funnel["stages"][0]["key"] == "open"
     assert driver_funnel["stages"][2]["key"] == "fuel_add"
     assert "RememberMe Admin" in ui_response.text
+
+
+@pytest.mark.asyncio
+async def test_admin_stats_week_is_last_seven_days_without_legacy_notes(db_session):
+    """Admin stats should count the last 7 days, not only today."""
+    user = User(telegram_id=99002, username="admin_stats_user", timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all(
+        [
+            TodoList(user_id=user.id, title="Today list", created_at=now),
+            TodoList(user_id=user.id, title="Week list", created_at=now - timedelta(days=3)),
+            TodoList(user_id=user.id, title="Old list", created_at=now - timedelta(days=10)),
+        ]
+    )
+    await db_session.flush()
+
+    app = create_application()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    headers = {"X-Admin-Token": settings.ADMIN_TOKEN}
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/admin/stats", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "notes" not in payload
+    assert payload["lists"]["total"] == 3
+    assert payload["lists"]["created_today"] == 1
+    assert payload["lists"]["created_week"] == 2
