@@ -24,6 +24,11 @@ from src.bot.keyboards import (
     get_back_home_inline_keyboard,
     get_cancel_inline_keyboard,
     get_medication_dosage_keyboard,
+    get_medication_edit_dosage_keyboard,
+    get_medication_edit_importance_keyboard,
+    get_medication_edit_instructions_keyboard,
+    get_medication_edit_keyboard,
+    get_medication_edit_text_keyboard,
     get_medication_delete_confirm_keyboard,
     get_medication_importance_keyboard,
     get_medication_instructions_keyboard,
@@ -335,6 +340,268 @@ async def medication_view_callback(update: Update, context: ContextTypes.DEFAULT
 
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
+
+
+async def _refresh_medication_screen(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    medication_id: int,
+) -> int:
+    """Render medication screen after edit actions."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+
+    text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
+    if not text:
+        text = "❌ Лекарство не найдено"
+        keyboard = get_back_home_inline_keyboard()
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=keyboard)
+    else:
+        await _show_wizard_step(update, context, text, reply_markup=keyboard)
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def medication_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show medication edit field selector."""
+    query = update.callback_query
+    await query.answer()
+
+    medication_id = _parse_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        medication = await service.get_medication(medication_id, user_id)
+
+    if not medication:
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    lines = [
+        "✏️ Изменение лекарства",
+        "",
+        f"Название: {medication.name}",
+        f"Дозировка: {medication.dosage or 'не указана'}",
+        f"Инструкция: {medication.instructions or 'не указана'}",
+        f"Важность: {IMPORTANCE_LABELS.get(medication.importance, IMPORTANCE_LABELS['normal'])}",
+        "",
+        "Выберите, что изменить.",
+    ]
+    await query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=get_medication_edit_keyboard(medication_id),
+    )
+    return ConversationHandler.END
+
+
+async def medication_edit_name_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for a new medication name."""
+    query = update.callback_query
+    await query.answer()
+
+    medication_id = _parse_id(query.data)
+    context.user_data["med_edit_id"] = medication_id
+
+    await query.edit_message_text(
+        "✏️ Введите новое название препарата:",
+        reply_markup=get_medication_edit_text_keyboard(medication_id),
+    )
+    _remember_wizard_message(context, query.message.chat_id, query.message.message_id)
+    return MedicationStates.WAIT_EDIT_NAME
+
+
+async def medication_edit_dosage_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for a new medication dosage."""
+    query = update.callback_query
+    await query.answer()
+
+    medication_id = _parse_id(query.data)
+    context.user_data["med_edit_id"] = medication_id
+
+    await query.edit_message_text(
+        "✏️ Укажите новую дозировку.\n\nМожно выбрать кнопку или написать свой вариант.",
+        reply_markup=get_medication_edit_dosage_keyboard(medication_id),
+    )
+    _remember_wizard_message(context, query.message.chat_id, query.message.message_id)
+    return MedicationStates.WAIT_EDIT_DOSAGE
+
+
+async def medication_edit_instructions_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for new medication instructions."""
+    query = update.callback_query
+    await query.answer()
+
+    medication_id = _parse_id(query.data)
+    context.user_data["med_edit_id"] = medication_id
+
+    await query.edit_message_text(
+        "✏️ Укажите новую инструкцию.\n\nМожно выбрать кнопку или написать свой вариант.",
+        reply_markup=get_medication_edit_instructions_keyboard(medication_id),
+    )
+    _remember_wizard_message(context, query.message.chat_id, query.message.message_id)
+    return MedicationStates.WAIT_EDIT_INSTRUCTIONS
+
+
+async def medication_edit_importance_start_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Show medication importance choices for editing."""
+    query = update.callback_query
+    await query.answer()
+
+    medication_id = _parse_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        medication = await service.get_medication(medication_id, user_id)
+
+    if not medication:
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        "✏️ Выберите важность препарата:",
+        reply_markup=get_medication_edit_importance_keyboard(medication_id, medication.importance),
+    )
+    return ConversationHandler.END
+
+
+async def medication_edit_name_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save a new medication name."""
+    medication_id = context.user_data.get("med_edit_id")
+    value = update.message.text.strip() if update.message else ""
+    await _delete_user_message(update)
+
+    if not medication_id:
+        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if not value:
+        await _show_wizard_step(
+            update,
+            context,
+            "Название не должно быть пустым. Введите новое название препарата:",
+            get_medication_edit_text_keyboard(medication_id),
+        )
+        return MedicationStates.WAIT_EDIT_NAME
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        await service.update_medication(medication_id, user_id, name=value)
+        await session.commit()
+
+    return await _refresh_medication_screen(update, context, medication_id)
+
+
+async def medication_edit_dosage_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save a new medication dosage from text."""
+    medication_id = context.user_data.get("med_edit_id")
+    value = update.message.text.strip() if update.message else ""
+    await _delete_user_message(update)
+
+    if not medication_id:
+        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    dosage = "" if value == "-" else value
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        await service.update_medication(medication_id, user_id, dosage=dosage)
+        await session.commit()
+
+    return await _refresh_medication_screen(update, context, medication_id)
+
+
+async def medication_edit_instructions_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save new medication instructions from text."""
+    medication_id = context.user_data.get("med_edit_id")
+    value = update.message.text.strip() if update.message else ""
+    await _delete_user_message(update)
+
+    if not medication_id:
+        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    instructions = "" if value == "-" else value
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        await service.update_medication(medication_id, user_id, instructions=instructions)
+        await session.commit()
+
+    return await _refresh_medication_screen(update, context, medication_id)
+
+
+async def medication_edit_dosage_value_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Save a new medication dosage from a preset button."""
+    query = update.callback_query
+    await query.answer("Сохранено")
+
+    _, medication_id_str, key = query.data.split(":", 2)
+    medication_id = int(medication_id_str)
+    dosage = "" if key == "skip" else DOSAGE_PRESETS.get(key, "")
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        await service.update_medication(medication_id, user_id, dosage=dosage)
+        await session.commit()
+
+    return await _refresh_medication_screen(update, context, medication_id)
+
+
+async def medication_edit_instructions_value_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Save new medication instructions from a preset button."""
+    query = update.callback_query
+    await query.answer("Сохранено")
+
+    _, medication_id_str, key = query.data.split(":", 2)
+    medication_id = int(medication_id_str)
+    instructions = "" if key == "skip" else INSTRUCTION_PRESETS.get(key, "")
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        await service.update_medication(medication_id, user_id, instructions=instructions)
+        await session.commit()
+
+    return await _refresh_medication_screen(update, context, medication_id)
+
+
+async def medication_edit_importance_value_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Save medication importance from a preset button."""
+    query = update.callback_query
+    await query.answer("Сохранено")
+
+    _, medication_id_str, importance = query.data.split(":", 2)
+    medication_id = int(medication_id_str)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        await service.update_medication(medication_id, user_id, importance=importance)
+        await session.commit()
+
+    return await _refresh_medication_screen(update, context, medication_id)
 
 
 async def medication_create_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -933,6 +1200,32 @@ medication_create_conv = ConversationHandler(
         MedicationStates.WAIT_IMPORTANCE: [
             CallbackQueryHandler(medication_importance_callback, pattern="^med_importance:"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, medication_importance_text),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel_handler),
+        CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+    ],
+)
+
+
+medication_edit_conv = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(medication_edit_name_start, pattern="^med_edit_name:"),
+        CallbackQueryHandler(medication_edit_dosage_start, pattern="^med_edit_dosage:"),
+        CallbackQueryHandler(medication_edit_instructions_start, pattern="^med_edit_instr:"),
+    ],
+    states={
+        MedicationStates.WAIT_EDIT_NAME: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_edit_name_save),
+        ],
+        MedicationStates.WAIT_EDIT_DOSAGE: [
+            CallbackQueryHandler(medication_edit_dosage_value_callback, pattern="^med_edit_dosage_value:"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_edit_dosage_save),
+        ],
+        MedicationStates.WAIT_EDIT_INSTRUCTIONS: [
+            CallbackQueryHandler(medication_edit_instructions_value_callback, pattern="^med_edit_instr_value:"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_edit_instructions_save),
         ],
     },
     fallbacks=[

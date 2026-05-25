@@ -791,12 +791,130 @@ def get_medication_view_keyboard(
         ])
 
     keyboard.append([
+        InlineKeyboardButton("✏️ Изменить", callback_data=f"med_edit:{medication_id}"),
+    ])
+    keyboard.append([
         InlineKeyboardButton("🗑 Удалить", callback_data=f"med_delete:{medication_id}"),
     ])
     keyboard.append([
         InlineKeyboardButton("⬅️ Назад", callback_data="medications_list"),
         InlineKeyboardButton("🏠 В меню", callback_data="home"),
     ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_medication_edit_keyboard(medication_id: int) -> InlineKeyboardMarkup:
+    """Field selector for medication editing."""
+    keyboard = [
+        [
+            InlineKeyboardButton("Название", callback_data=f"med_edit_name:{medication_id}"),
+            InlineKeyboardButton("Дозировка", callback_data=f"med_edit_dosage:{medication_id}"),
+        ],
+        [
+            InlineKeyboardButton("Инструкция", callback_data=f"med_edit_instr:{medication_id}"),
+            InlineKeyboardButton("Важность", callback_data=f"med_edit_importance:{medication_id}"),
+        ],
+        [
+            InlineKeyboardButton("⏰ Время приема", callback_data=f"med_remind:{medication_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К лекарству", callback_data=f"med_view:{medication_id}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_medication_edit_text_keyboard(medication_id: int) -> InlineKeyboardMarkup:
+    """Back keyboard for medication text edit prompts."""
+    keyboard = [
+        [
+            InlineKeyboardButton("⬅️ К лекарству", callback_data=f"med_view:{medication_id}"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_medication_edit_dosage_keyboard(medication_id: int) -> InlineKeyboardMarkup:
+    """Preset dosage choices for medication editing."""
+    keyboard = [
+        [
+            InlineKeyboardButton("1 таблетка", callback_data=f"med_edit_dosage_value:{medication_id}:tablet1"),
+            InlineKeyboardButton("1/2 таблетки", callback_data=f"med_edit_dosage_value:{medication_id}:tablet_half"),
+        ],
+        [
+            InlineKeyboardButton("1 капля", callback_data=f"med_edit_dosage_value:{medication_id}:drop1"),
+            InlineKeyboardButton("5 мл", callback_data=f"med_edit_dosage_value:{medication_id}:ml5"),
+        ],
+        [
+            InlineKeyboardButton("Очистить", callback_data=f"med_edit_dosage_value:{medication_id}:skip"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К лекарству", callback_data=f"med_view:{medication_id}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_medication_edit_instructions_keyboard(medication_id: int) -> InlineKeyboardMarkup:
+    """Preset instruction choices for medication editing."""
+    keyboard = [
+        [
+            InlineKeyboardButton("После еды", callback_data=f"med_edit_instr_value:{medication_id}:after_food"),
+            InlineKeyboardButton("До еды", callback_data=f"med_edit_instr_value:{medication_id}:before_food"),
+        ],
+        [
+            InlineKeyboardButton("Во время еды", callback_data=f"med_edit_instr_value:{medication_id}:during_food"),
+        ],
+        [
+            InlineKeyboardButton("Запить водой", callback_data=f"med_edit_instr_value:{medication_id}:with_water"),
+            InlineKeyboardButton("Не смешивать", callback_data=f"med_edit_instr_value:{medication_id}:separate"),
+        ],
+        [
+            InlineKeyboardButton("Очистить", callback_data=f"med_edit_instr_value:{medication_id}:skip"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К лекарству", callback_data=f"med_view:{medication_id}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_medication_edit_importance_keyboard(medication_id: int, current: str = "normal") -> InlineKeyboardMarkup:
+    """Importance choices for medication editing."""
+    labels = {
+        "supplement": "🌿 БАД",
+        "normal": "💊 Обычное",
+        "important": "❗ Важное",
+        "critical": "🚨 Критичное",
+    }
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                f"{'✅' if current == 'supplement' else '⬜'} {labels['supplement']}",
+                callback_data=f"med_edit_importance_value:{medication_id}:supplement",
+            ),
+            InlineKeyboardButton(
+                f"{'✅' if current == 'normal' else '⬜'} {labels['normal']}",
+                callback_data=f"med_edit_importance_value:{medication_id}:normal",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                f"{'✅' if current == 'important' else '⬜'} {labels['important']}",
+                callback_data=f"med_edit_importance_value:{medication_id}:important",
+            ),
+            InlineKeyboardButton(
+                f"{'✅' if current == 'critical' else '⬜'} {labels['critical']}",
+                callback_data=f"med_edit_importance_value:{medication_id}:critical",
+            ),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К лекарству", callback_data=f"med_view:{medication_id}"),
+        ],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -1013,6 +1131,11 @@ def get_reminder_view_keyboard(reminder_id: int, status: str = "active") -> Inli
             InlineKeyboardButton("✅ Выполнено", callback_data=f"reminder_done:{reminder_id}"),
             InlineKeyboardButton("🚫 Отменить", callback_data=f"reminder_cancel:{reminder_id}"),
         ])
+        keyboard.append([
+            InlineKeyboardButton("✏️ Текст", callback_data=f"reminder_edit_text:{reminder_id}"),
+            InlineKeyboardButton("🕒 Время", callback_data=f"reminder_edit_time:{reminder_id}"),
+            InlineKeyboardButton("🔁 Повтор", callback_data=f"reminder_edit_repeat:{reminder_id}"),
+        ])
 
     keyboard.append([
         InlineKeyboardButton("🗑 Удалить", callback_data=f"reminder_delete:{reminder_id}"),
@@ -1022,6 +1145,40 @@ def get_reminder_view_keyboard(reminder_id: int, status: str = "active") -> Inli
         InlineKeyboardButton("🏠 В меню", callback_data="home"),
     ])
 
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_reminder_edit_repeat_keyboard(reminder_id: int, current: str = "none") -> InlineKeyboardMarkup:
+    """Repeat choices for editing an existing reminder."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "✅ Нет" if current == "none" else "⬜ Нет",
+                callback_data=f"reminder_edit_repeat_value:{reminder_id}:none",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ Ежедневно" if current == "daily" else "⬜ Ежедневно",
+                callback_data=f"reminder_edit_repeat_value:{reminder_id}:daily",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ Еженедельно" if current == "weekly" else "⬜ Еженедельно",
+                callback_data=f"reminder_edit_repeat_value:{reminder_id}:weekly",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ Ежемесячно" if current == "monthly" else "⬜ Ежемесячно",
+                callback_data=f"reminder_edit_repeat_value:{reminder_id}:monthly",
+            ),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К напоминанию", callback_data=f"reminder_view:{reminder_id}"),
+        ],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 

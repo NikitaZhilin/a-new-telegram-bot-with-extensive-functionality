@@ -29,8 +29,10 @@ from src.bot.handlers import (
     list_edit_item_conv,
     list_rename_conv,
     medication_create_conv,
+    medication_edit_conv,
     medication_reminder_conv,
     reminder_create_conv,
+    reminder_edit_conv,
     driver_fuel_create_conv,
     driver_service_conv,
     driver_vehicle_create_conv,
@@ -76,6 +78,11 @@ from src.bot.handlers.medications import (
     medications_list_callback,
     medications_page_callback,
     medication_view_callback,
+    medication_edit_callback,
+    medication_edit_dosage_value_callback,
+    medication_edit_importance_start_callback,
+    medication_edit_importance_value_callback,
+    medication_edit_instructions_value_callback,
     medication_mark_taken_callback,
     medication_skip_callback,
     medication_snooze_callback,
@@ -93,6 +100,8 @@ from src.bot.handlers.reminders import (
     reminder_done_callback,
     reminder_cancel_callback,
     reminder_delete_callback,
+    reminder_edit_repeat_start,
+    reminder_edit_repeat_value_callback,
     reminders_filter_callback,
 )
 from src.bot.handlers.settings import (
@@ -159,10 +168,12 @@ def create_application() -> Application:
 
     # Medications
     application.add_handler(medication_create_conv)
+    application.add_handler(medication_edit_conv)
     application.add_handler(medication_reminder_conv)
     
     # Reminders
     application.add_handler(reminder_create_conv)
+    application.add_handler(reminder_edit_conv)
 
     # Driver
     application.add_handler(driver_vehicle_create_conv)
@@ -201,6 +212,11 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(medications_list_callback, pattern="^medications_list$"))
     application.add_handler(CallbackQueryHandler(medications_page_callback, pattern="^med_page:"))
     application.add_handler(CallbackQueryHandler(medication_view_callback, pattern="^med_view:"))
+    application.add_handler(CallbackQueryHandler(medication_edit_dosage_value_callback, pattern="^med_edit_dosage_value:"))
+    application.add_handler(CallbackQueryHandler(medication_edit_instructions_value_callback, pattern="^med_edit_instr_value:"))
+    application.add_handler(CallbackQueryHandler(medication_edit_importance_value_callback, pattern="^med_edit_importance_value:"))
+    application.add_handler(CallbackQueryHandler(medication_edit_importance_start_callback, pattern="^med_edit_importance:"))
+    application.add_handler(CallbackQueryHandler(medication_edit_callback, pattern="^med_edit:"))
     application.add_handler(CallbackQueryHandler(medication_mark_taken_callback, pattern="^med_taken:"))
     application.add_handler(CallbackQueryHandler(medication_skip_callback, pattern="^med_skip:"))
     application.add_handler(CallbackQueryHandler(medication_snooze_callback, pattern="^med_snooze:"))
@@ -217,6 +233,8 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(reminder_done_callback, pattern="^reminder_done:"))
     application.add_handler(CallbackQueryHandler(reminder_cancel_callback, pattern="^reminder_cancel:"))
     application.add_handler(CallbackQueryHandler(reminder_delete_callback, pattern="^reminder_delete:"))
+    application.add_handler(CallbackQueryHandler(reminder_edit_repeat_value_callback, pattern="^reminder_edit_repeat_value:"))
+    application.add_handler(CallbackQueryHandler(reminder_edit_repeat_start, pattern="^reminder_edit_repeat:"))
     application.add_handler(CallbackQueryHandler(reminders_filter_callback, pattern="^reminders_filter_"))
     application.add_handler(CallbackQueryHandler(reminders_page_callback, pattern="^reminders_page:"))
 

@@ -134,6 +134,45 @@ async def test_reminder_service_links_only_owned_lists(db_session):
 
 
 @pytest.mark.asyncio
+async def test_reminder_service_updates_keep_ownership(db_session):
+    """Reminder edit operations should be scoped to the owner."""
+    user = User(telegram_id=4011, timezone="UTC")
+    other_user = User(telegram_id=4012, timezone="UTC")
+    db_session.add_all([user, other_user])
+    await db_session.flush()
+
+    service = ReminderService(db_session)
+    reminder = await service.create_reminder(
+        user_id=user.id,
+        text="Old reminder",
+        remind_at_utc=datetime(2026, 5, 23, 10, 0, tzinfo=timezone.utc),
+        repeat_rule=RepeatRule.NONE,
+    )
+
+    blocked_text = await service.update_reminder_text(reminder.id, other_user.id, "Other")
+    blocked_time = await service.update_reminder_time(
+        reminder.id,
+        other_user.id,
+        datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc),
+    )
+    updated_text = await service.update_reminder_text(reminder.id, user.id, "Updated")
+    updated_time = await service.update_reminder_time(
+        reminder.id,
+        user.id,
+        datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc),
+    )
+    updated_repeat = await service.update_reminder_repeat(reminder.id, user.id, RepeatRule.DAILY)
+
+    assert blocked_text is None
+    assert blocked_time is None
+    assert updated_text.text == "Updated"
+    assert updated_time.remind_at_utc.replace(tzinfo=timezone.utc) == datetime(
+        2026, 5, 24, 12, 0, tzinfo=timezone.utc
+    )
+    assert updated_repeat.repeat_rule == RepeatRule.DAILY
+
+
+@pytest.mark.asyncio
 async def test_list_share_token_imports_copy_for_another_user(db_session):
     """Sharing should copy a list without granting access to the original."""
     owner = User(telegram_id=7001, timezone="UTC")

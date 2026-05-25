@@ -32,6 +32,11 @@ from src.bot.keyboards.builder import (
     # Medications
     get_medications_list_keyboard,
     get_medication_view_keyboard,
+    get_medication_edit_keyboard,
+    get_medication_edit_text_keyboard,
+    get_medication_edit_dosage_keyboard,
+    get_medication_edit_instructions_keyboard,
+    get_medication_edit_importance_keyboard,
     get_medication_delete_confirm_keyboard,
     get_medication_dosage_keyboard,
     get_medication_instructions_keyboard,
@@ -44,6 +49,7 @@ from src.bot.keyboards.builder import (
     get_reminder_time_keyboard,
     get_reminder_confirm_keyboard,
     get_reminder_repeat_keyboard,
+    get_reminder_edit_repeat_keyboard,
     # Driver
     get_driver_menu_keyboard,
     get_driver_section_keyboard,
@@ -93,6 +99,11 @@ __all__ = [
     # Medications
     "get_medications_list_keyboard",
     "get_medication_view_keyboard",
+    "get_medication_edit_keyboard",
+    "get_medication_edit_text_keyboard",
+    "get_medication_edit_dosage_keyboard",
+    "get_medication_edit_instructions_keyboard",
+    "get_medication_edit_importance_keyboard",
     "get_medication_delete_confirm_keyboard",
     "get_medication_dosage_keyboard",
     "get_medication_instructions_keyboard",
@@ -105,6 +116,7 @@ __all__ = [
     "get_reminder_time_keyboard",
     "get_reminder_confirm_keyboard",
     "get_reminder_repeat_keyboard",
+    "get_reminder_edit_repeat_keyboard",
     # Driver
     "get_driver_menu_keyboard",
     "get_driver_section_keyboard",

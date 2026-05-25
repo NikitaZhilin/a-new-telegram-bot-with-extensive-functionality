@@ -27,6 +27,7 @@ from src.bot.keyboards import (
     get_reminder_time_keyboard,
     get_reminder_confirm_keyboard,
     get_reminder_repeat_keyboard,
+    get_reminder_edit_repeat_keyboard,
     get_back_home_inline_keyboard,
     get_cancel_keyboard,
     get_cancel_inline_keyboard,
@@ -43,6 +44,62 @@ from src.utils.date_parser import parse_datetime
 logger = logging.getLogger(__name__)
 
 ITEMS_PER_PAGE = 20
+
+
+async def _delete_user_message(update: Update) -> None:
+    """Best-effort cleanup for text inputs in reminder edit flows."""
+    if not update.message:
+        return
+    try:
+        await update.message.delete()
+    except Exception:
+        logger.debug("Could not delete reminder user input", exc_info=True)
+
+
+def _remember_reminder_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    message_id: int,
+) -> None:
+    """Remember a reminder message that can be edited after text input."""
+    context.user_data["reminder_wizard_chat_id"] = chat_id
+    context.user_data["reminder_wizard_message_id"] = message_id
+
+
+async def _show_reminder_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    reply_markup,
+) -> None:
+    """Edit the current reminder message when possible, otherwise send a new one."""
+    query = update.callback_query
+    if query and query.message:
+        await query.edit_message_text(text, reply_markup=reply_markup)
+        _remember_reminder_message(context, query.message.chat_id, query.message.message_id)
+        return
+
+    chat_id = context.user_data.get("reminder_wizard_chat_id")
+    message_id = context.user_data.get("reminder_wizard_message_id")
+    if chat_id and message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            return
+        except Exception:
+            logger.debug("Could not edit reminder message", exc_info=True)
+
+    if update.effective_chat:
+        message = await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+        _remember_reminder_message(context, message.chat_id, message.message_id)
 
 
 async def _get_app_user_id(update: Update, session) -> int:
@@ -730,37 +787,202 @@ async def reminder_view_callback(update: Update, context: ContextTypes.DEFAULT_T
     """View reminder details."""
     query = update.callback_query
     await query.answer()
-    
+
     reminder_id = int(query.data.split(":")[1])
-    user_id = update.effective_user.id
-    
+
+    return await _refresh_reminder_screen(update, context, reminder_id, clear_context=False)
+
+
+async def _render_reminder_screen(
+    reminder_id: int,
+    user_id: int,
+    user_timezone: str,
+) -> tuple[str | None, object | None]:
+    """Build reminder details screen."""
     async with async_session_maker() as session:
-        user_repo = UserRepository(session)
-        user = await user_repo.get_by_telegram_id(user_id)
-        
         reminder_service = ReminderService(session)
-        reminder = await reminder_service.get_reminder(reminder_id, user.id if user else user_id)
-    
+        reminder = await reminder_service.get_reminder(reminder_id, user_id)
+
     if not reminder:
-        await query.edit_message_text("❌ Напоминание не найдено")
-        return ConversationHandler.END
-    
-    time_str = reminder.remind_at_utc.strftime("%d.%m.%Y %H:%M")
-    
+        return None, None
+
+    remind_at = reminder.remind_at_utc
+    if remind_at.tzinfo is None:
+        remind_at = remind_at.replace(tzinfo=timezone.utc)
+    time_str = remind_at.astimezone(ZoneInfo(user_timezone)).strftime("%d.%m.%Y %H:%M")
+    repeat_value = reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule
+    status_value = reminder.status.value if hasattr(reminder.status, "value") else reminder.status
+
     text = (
         f"⏰ Напоминание #{reminder.id}\n\n"
         f"{reminder.text}\n\n"
-        f"📅 Запланировано: {time_str} UTC\n"
-        f"🔁 Повтор: {reminder.repeat_rule.value}\n"
-        f"⏰ Статус: {reminder.status.value}"
+        f"📅 Запланировано: {time_str} ({user_timezone})\n"
+        f"🔁 Повтор: {repeat_value}\n"
+        f"⏰ Статус: {status_value}"
     )
-    
-    await query.edit_message_text(
-        text,
-        reply_markup=get_reminder_view_keyboard(reminder.id, reminder.status.value),
-    )
-    
+
+    return text, get_reminder_view_keyboard(reminder.id, status_value)
+
+
+async def _refresh_reminder_screen(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reminder_id: int,
+    clear_context: bool = True,
+) -> int:
+    """Render reminder details after edit actions."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+
+    text, keyboard = await _render_reminder_screen(reminder_id, user_id, user_timezone)
+    if not text:
+        text = "❌ Напоминание не найдено"
+        keyboard = get_back_home_inline_keyboard()
+
+    await _show_reminder_message(update, context, text, keyboard)
+    if clear_context:
+        context.user_data.clear()
     return ConversationHandler.END
+
+
+async def reminder_edit_text_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for new reminder text."""
+    query = update.callback_query
+    await query.answer()
+
+    reminder_id = int(query.data.split(":")[1])
+    context.user_data["reminder_edit_id"] = reminder_id
+
+    await query.edit_message_text(
+        "✏️ Введите новый текст напоминания:",
+        reply_markup=get_cancel_inline_keyboard(),
+    )
+    _remember_reminder_message(context, query.message.chat_id, query.message.message_id)
+    return ReminderStates.WAIT_EDIT_TEXT
+
+
+async def reminder_edit_text_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save new reminder text."""
+    reminder_id = context.user_data.get("reminder_edit_id")
+    value = update.message.text.strip() if update.message else ""
+    await _delete_user_message(update)
+
+    if not reminder_id:
+        await _show_reminder_message(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if not value:
+        await _show_reminder_message(
+            update,
+            context,
+            "Текст не должен быть пустым. Введите новый текст напоминания:",
+            get_cancel_inline_keyboard(),
+        )
+        return ReminderStates.WAIT_EDIT_TEXT
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        reminder_service = ReminderService(session)
+        await reminder_service.update_reminder_text(reminder_id, user_id, value)
+        await session.commit()
+
+    return await _refresh_reminder_screen(update, context, reminder_id)
+
+
+async def reminder_edit_time_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for a new reminder time."""
+    query = update.callback_query
+    await query.answer()
+
+    reminder_id = int(query.data.split(":")[1])
+    context.user_data["reminder_edit_id"] = reminder_id
+
+    async with async_session_maker() as session:
+        context.user_data["user_timezone"] = await _get_user_timezone(update, session)
+
+    await query.edit_message_text(
+        "🕒 Введите новое время или фразу:\n\n10\n10:30\nзавтра 10\nчерез 2 часа",
+        reply_markup=get_cancel_inline_keyboard(),
+    )
+    _remember_reminder_message(context, query.message.chat_id, query.message.message_id)
+    return ReminderStates.WAIT_EDIT_TIME
+
+
+async def reminder_edit_time_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save new reminder time."""
+    reminder_id = context.user_data.get("reminder_edit_id")
+    if not reminder_id:
+        await _delete_user_message(update)
+        await _show_reminder_message(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    try:
+        remind_at_utc = _parse_flexible_datetime(update.message.text.strip(), context)
+    except ValueError:
+        await _delete_user_message(update)
+        await _show_reminder_message(
+            update,
+            context,
+            "❌ Не понял время. Попробуйте так: 10, 10:30, завтра 10, через 2 часа",
+            get_cancel_inline_keyboard(),
+        )
+        return ReminderStates.WAIT_EDIT_TIME
+
+    await _delete_user_message(update)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        reminder_service = ReminderService(session)
+        await reminder_service.update_reminder_time(reminder_id, user_id, remind_at_utc)
+        await session.commit()
+
+    return await _refresh_reminder_screen(update, context, reminder_id)
+
+
+async def reminder_edit_repeat_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show repeat choices for an existing reminder."""
+    query = update.callback_query
+    await query.answer()
+
+    reminder_id = int(query.data.split(":")[1])
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        reminder_service = ReminderService(session)
+        reminder = await reminder_service.get_reminder(reminder_id, user_id)
+
+    if not reminder:
+        await query.edit_message_text("❌ Напоминание не найдено", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    repeat_value = reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule
+    await query.edit_message_text(
+        "🔁 Выберите повтор напоминания:",
+        reply_markup=get_reminder_edit_repeat_keyboard(reminder_id, repeat_value),
+    )
+    return ConversationHandler.END
+
+
+async def reminder_edit_repeat_value_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save repeat rule for an existing reminder."""
+    query = update.callback_query
+    await query.answer("Сохранено")
+
+    _, reminder_id_str, repeat_value = query.data.split(":", 2)
+    reminder_id = int(reminder_id_str)
+    try:
+        repeat_rule = RepeatRule(repeat_value)
+    except ValueError:
+        repeat_rule = RepeatRule.NONE
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        reminder_service = ReminderService(session)
+        await reminder_service.update_reminder_repeat(reminder_id, user_id, repeat_rule)
+        await session.commit()
+
+    return await _refresh_reminder_screen(update, context, reminder_id)
 
 
 async def reminder_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -853,6 +1075,26 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
     context.user_data.clear()
     return ConversationHandler.END
+
+
+reminder_edit_conv = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(reminder_edit_text_start, pattern="^reminder_edit_text:"),
+        CallbackQueryHandler(reminder_edit_time_start, pattern="^reminder_edit_time:"),
+    ],
+    states={
+        ReminderStates.WAIT_EDIT_TEXT: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_edit_text_save),
+        ],
+        ReminderStates.WAIT_EDIT_TIME: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_edit_time_save),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel_handler),
+        CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+    ],
+)
 
 
 # Conversation handler for reminder creation

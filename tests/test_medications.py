@@ -162,6 +162,46 @@ async def test_medication_importance_defaults_and_validation(db_session):
     assert fallback.importance == "normal"
 
 
+@pytest.mark.asyncio
+async def test_medication_update_keeps_ownership_and_validates_importance(db_session):
+    """Medication edits should update only user-owned records."""
+    user = User(telegram_id=6011, timezone="Europe/Moscow")
+    other_user = User(telegram_id=6012, timezone="Europe/Moscow")
+    db_session.add_all([user, other_user])
+    await db_session.flush()
+
+    service = MedicationService(db_session)
+    medication = await service.create_medication(
+        user_id=user.id,
+        name="Old name",
+        dosage="old dosage",
+        instructions="old instruction",
+        importance="normal",
+    )
+
+    blocked = await service.update_medication(
+        medication.id,
+        other_user.id,
+        name="Other name",
+        importance="critical",
+    )
+    updated = await service.update_medication(
+        medication.id,
+        user.id,
+        name="New name",
+        dosage="2 tablets",
+        instructions="after food",
+        importance="wrong",
+    )
+
+    assert blocked is None
+    assert updated is not None
+    assert updated.name == "New name"
+    assert updated.dosage == "2 tablets"
+    assert updated.instructions == "after food"
+    assert updated.importance == "normal"
+
+
 def test_medication_frequency_time_parser():
     """Medication frequency flow should accept human-friendly time lists."""
     assert _normalize_hhmm("9") == "0900"

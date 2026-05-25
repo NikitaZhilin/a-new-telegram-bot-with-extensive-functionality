@@ -27,3 +27,5 @@ class ReminderStates(StatesGroup):
     WAIT_TIME_CUSTOM = State("WAIT_TIME_CUSTOM")
     WAIT_CONFIRM = State("WAIT_CONFIRM")
     WAIT_REPEAT = State("WAIT_REPEAT")
+    WAIT_EDIT_TEXT = State("WAIT_EDIT_TEXT")
+    WAIT_EDIT_TIME = State("WAIT_EDIT_TIME")

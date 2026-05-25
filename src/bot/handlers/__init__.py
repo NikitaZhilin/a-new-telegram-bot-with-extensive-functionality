@@ -31,10 +31,12 @@ from src.bot.handlers.lists import (
 )
 from src.bot.handlers.medications import (
     medication_create_conv,
+    medication_edit_conv,
     medication_reminder_conv,
 )
 from src.bot.handlers.reminders import (
     reminder_create_conv,
+    reminder_edit_conv,
 )
 from src.bot.handlers.settings import (
     settings_timezone_conv,
@@ -62,9 +64,11 @@ __all__ = [
     "join_list_handler",
     # Medications
     "medication_create_conv",
+    "medication_edit_conv",
     "medication_reminder_conv",
     # Reminders
     "reminder_create_conv",
+    "reminder_edit_conv",
     # Settings
     "settings_timezone_conv",
     # Driver
