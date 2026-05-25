@@ -40,6 +40,7 @@ from src.services.reminder_service import ReminderService
 from src.repositories.user_repo import UserRepository
 from src.db.models import RepeatRule
 from src.utils.date_parser import parse_datetime
+from src.utils.labels import reminder_status_label, repeat_rule_label
 
 logger = logging.getLogger(__name__)
 
@@ -763,7 +764,7 @@ async def reminder_save_repeat(update: Update, context: ContextTypes.DEFAULT_TYP
     remind_at = datetime.fromisoformat(remind_at_str) if remind_at_str else datetime.now(timezone.utc)
     
     await query.edit_message_text(
-        _build_confirmation_text(context, remind_at, prefix=f"🔁 Повтор: {repeat_rule.value}\n\n"),
+        _build_confirmation_text(context, remind_at, prefix=f"🔁 Повтор: {repeat_rule_label(repeat_rule)}\n\n"),
         reply_markup=get_reminder_confirm_keyboard(remind_at, repeat_rule.value),
     )
     
@@ -810,15 +811,14 @@ async def _render_reminder_screen(
     if remind_at.tzinfo is None:
         remind_at = remind_at.replace(tzinfo=timezone.utc)
     time_str = remind_at.astimezone(ZoneInfo(user_timezone)).strftime("%d.%m.%Y %H:%M")
-    repeat_value = reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule
     status_value = reminder.status.value if hasattr(reminder.status, "value") else reminder.status
 
     text = (
         f"⏰ Напоминание #{reminder.id}\n\n"
         f"{reminder.text}\n\n"
         f"📅 Запланировано: {time_str} ({user_timezone})\n"
-        f"🔁 Повтор: {repeat_value}\n"
-        f"⏰ Статус: {status_value}"
+        f"🔁 Повтор: {repeat_rule_label(reminder.repeat_rule)}\n"
+        f"⏰ Статус: {reminder_status_label(status_value)}"
     )
 
     return text, get_reminder_view_keyboard(reminder.id, status_value)

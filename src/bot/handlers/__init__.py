@@ -42,6 +42,8 @@ from src.bot.handlers.settings import (
     settings_timezone_conv,
 )
 from src.bot.handlers.driver import (
+    driver_document_conv,
+    driver_expense_conv,
     driver_fuel_create_conv,
     driver_service_conv,
     driver_vehicle_create_conv,
@@ -73,6 +75,8 @@ __all__ = [
     "settings_timezone_conv",
     # Driver
     "driver_fuel_create_conv",
+    "driver_expense_conv",
+    "driver_document_conv",
     "driver_service_conv",
     "driver_vehicle_create_conv",
     "driver_vehicle_mileage_conv",

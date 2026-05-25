@@ -2,7 +2,7 @@
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from telegram import Update
 from telegram.ext import (
@@ -23,10 +23,20 @@ from src.bot.keyboards import (
     get_driver_fuel_keyboard,
     get_driver_full_tank_keyboard,
     get_driver_menu_keyboard,
+    get_driver_document_delete_confirm_keyboard,
+    get_driver_document_remind_keyboard,
+    get_driver_document_type_keyboard,
+    get_driver_document_view_keyboard,
+    get_driver_documents_keyboard,
+    get_driver_expense_category_keyboard,
+    get_driver_expense_delete_confirm_keyboard,
+    get_driver_expense_view_keyboard,
+    get_driver_expenses_keyboard,
     get_driver_section_keyboard,
     get_driver_service_keyboard,
     get_driver_step_keyboard,
     get_driver_templates_keyboard,
+    get_driver_vehicle_choice_keyboard,
     get_driver_vehicle_delete_confirm_keyboard,
     get_driver_vehicle_view_keyboard,
     get_driver_vehicles_keyboard,
@@ -198,6 +208,12 @@ DRIVER_CONTEXT_KEYS = {
     "driver_fuel_entry_id",
     "driver_fuel_data",
     "driver_service_vehicle_id",
+    "driver_expense_mode",
+    "driver_expense_id",
+    "driver_expense_data",
+    "driver_document_mode",
+    "driver_document_id",
+    "driver_document_data",
 }
 
 
@@ -272,6 +288,24 @@ def _format_date(value: datetime | None) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).strftime("%d.%m.%Y")
+
+
+def _parse_date(value: str) -> datetime:
+    """Parse a simple date and store it as UTC noon."""
+    raw = value.strip().replace("/", ".").replace("-", ".")
+    today = datetime.now(timezone.utc).date()
+    match = re.fullmatch(r"(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?", raw)
+    if not match:
+        raise ValueError("date")
+    day = int(match.group(1))
+    month = int(match.group(2))
+    year = int(match.group(3)) if match.group(3) else today.year
+    if year < 100:
+        year += 2000
+    parsed = date(year, month, day)
+    if parsed < today and not match.group(3):
+        parsed = date(year + 1, month, day)
+    return datetime.combine(parsed, time(hour=12), tzinfo=timezone.utc)
 
 
 def _status_text(status: str) -> str:
@@ -465,6 +499,49 @@ def _format_document_type(value: str) -> str:
     }.get(value, value or "другое")
 
 
+def _format_expense(entry, vehicle_title: str | None = None) -> str:
+    """Format one manual driver expense."""
+    lines = [
+        f"💰 {entry.title}",
+        "",
+        f"Сумма: {_format_money(entry.amount)}",
+        f"Категория: {_format_expense_category(entry.category)}",
+        f"Дата: {_format_date(entry.spent_at_utc)}",
+    ]
+    if vehicle_title:
+        lines.append(f"Авто: {vehicle_title}")
+    elif entry.vehicle_id:
+        lines.append("Авто: привязано")
+    else:
+        lines.append("Авто: без привязки")
+    if entry.note:
+        lines.extend(["", entry.note])
+    return "\n".join(lines)
+
+
+def _format_document(document, vehicle_title: str | None = None) -> str:
+    """Format one driver document."""
+    lines = [
+        f"📄 {document.title}",
+        "",
+        f"Тип: {_format_document_type(document.document_type)}",
+        f"Статус: {'активен' if document.is_active else 'архив'}",
+        f"Срок: {_format_date(document.expires_at_utc) if document.expires_at_utc else 'не указан'}",
+        f"Напомнить за: {document.remind_before_days} дн.",
+    ]
+    if vehicle_title:
+        lines.append(f"Авто: {vehicle_title}")
+    elif document.vehicle_id:
+        lines.append("Авто: привязано")
+    else:
+        lines.append("Авто: без привязки")
+    if document.identifier:
+        lines.append(f"Номер/пометка: {document.identifier}")
+    if document.note:
+        lines.extend(["", document.note])
+    return "\n".join(lines)
+
+
 async def _render_vehicles(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Render vehicle profiles."""
     async with async_session_maker() as session:
@@ -590,7 +667,7 @@ async def _render_driver_costs(update: Update, context: ContextTypes.DEFAULT_TYP
         user_id = await _get_app_user_id(update, session)
         service = DriverService(session)
         overview = await service.get_user_overview(user_id)
-        expenses = await service.get_expenses(user_id, limit=5)
+        expenses = await service.get_expenses(user_id, limit=10)
 
     lines = [
         "💰 Расходы",
@@ -613,11 +690,11 @@ async def _render_driver_costs(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"{_format_money(item.amount)} ({_format_expense_category(item.category)})"
             )
     else:
-        lines.extend(["", "Ручных расходов пока нет. Их можно добавить в web-версии."])
+        lines.extend(["", "Ручных расходов пока нет. Добавьте первый расход кнопкой ниже."])
 
     await update.callback_query.edit_message_text(
         "\n".join(lines),
-        reply_markup=get_driver_section_keyboard(),
+        reply_markup=get_driver_expenses_keyboard(expenses),
     )
     return ConversationHandler.END
 
@@ -628,7 +705,7 @@ async def _render_driver_documents(update: Update, context: ContextTypes.DEFAULT
         user_id = await _get_app_user_id(update, session)
         service = DriverService(session)
         overview = await service.get_user_overview(user_id)
-        documents = await service.get_documents(user_id, active_only=False, limit=10)
+        documents = await service.get_documents(user_id, active_only=False, limit=20)
 
     lines = [
         "📄 Документы",
@@ -647,11 +724,11 @@ async def _render_driver_documents(update: Update, context: ContextTypes.DEFAULT
                 f"{expires}, {status}"
             )
     else:
-        lines.extend(["", "Документов пока нет. Их можно добавить в web-версии."])
+        lines.extend(["", "Документов пока нет. Добавьте первый документ кнопкой ниже."])
 
     await update.callback_query.edit_message_text(
         "\n".join(lines),
-        reply_markup=get_driver_section_keyboard(),
+        reply_markup=get_driver_documents_keyboard(documents),
     )
     return ConversationHandler.END
 
@@ -949,6 +1026,128 @@ async def driver_service_view_callback(update: Update, context: ContextTypes.DEF
         reply_markup=get_driver_service_keyboard(vehicle_id),
     )
     return ConversationHandler.END
+
+
+async def driver_expense_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show one manual driver expense."""
+    query = update.callback_query
+    await query.answer()
+    expense_id = _parse_callback_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        expense = await service.get_expense(expense_id, user_id)
+        vehicle_title = None
+        if expense and expense.vehicle_id:
+            vehicle = await service.get_vehicle(expense.vehicle_id, user_id)
+            vehicle_title = vehicle.title if vehicle else None
+
+    if not expense:
+        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        _format_expense(expense, vehicle_title),
+        reply_markup=get_driver_expense_view_keyboard(expense.id),
+    )
+    return ConversationHandler.END
+
+
+async def driver_expense_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask to confirm manual expense deletion."""
+    query = update.callback_query
+    await query.answer()
+    expense_id = _parse_callback_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        expense = await DriverService(session).get_expense(expense_id, user_id)
+
+    if not expense:
+        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        "Удалить этот расход?\n\n" + _format_expense(expense),
+        reply_markup=get_driver_expense_delete_confirm_keyboard(expense.id),
+    )
+    return ConversationHandler.END
+
+
+async def driver_expense_delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Delete manual expense after confirmation."""
+    query = update.callback_query
+    await query.answer()
+    expense_id = _parse_callback_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        await DriverService(session).delete_expense(expense_id, user_id)
+        await session.commit()
+
+    return await _render_driver_costs(update, context)
+
+
+async def driver_document_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show one driver document."""
+    query = update.callback_query
+    await query.answer()
+    document_id = _parse_callback_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        document = await service.get_document(document_id, user_id)
+        vehicle_title = None
+        if document and document.vehicle_id:
+            vehicle = await service.get_vehicle(document.vehicle_id, user_id)
+            vehicle_title = vehicle.title if vehicle else None
+
+    if not document:
+        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        _format_document(document, vehicle_title),
+        reply_markup=get_driver_document_view_keyboard(document.id),
+    )
+    return ConversationHandler.END
+
+
+async def driver_document_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask to confirm driver document deletion."""
+    query = update.callback_query
+    await query.answer()
+    document_id = _parse_callback_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        document = await DriverService(session).get_document(document_id, user_id)
+
+    if not document:
+        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        "Удалить этот документ?\n\n" + _format_document(document),
+        reply_markup=get_driver_document_delete_confirm_keyboard(document.id),
+    )
+    return ConversationHandler.END
+
+
+async def driver_document_delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Delete driver document after confirmation."""
+    query = update.callback_query
+    await query.answer()
+    document_id = _parse_callback_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        await DriverService(session).delete_document(document_id, user_id)
+        await session.commit()
+
+    return await _render_driver_documents(update, context)
 
 
 async def _ask_vehicle_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1615,6 +1814,528 @@ async def _finish_service_done(
     return ConversationHandler.END
 
 
+async def _ask_expense_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for manual expense title."""
+    mode = context.user_data.get("driver_expense_mode", "create")
+    current = context.user_data.setdefault("driver_expense_data", {}).get("title")
+    text = "💰 Расход\n\nШаг 1/5. Что это за расход?\n\nНапример: мойка, ремонт, страховка."
+    if current:
+        text += f"\n\nТекущее значение: {current}"
+    await _show_driver_step(
+        update,
+        context,
+        text,
+        get_driver_step_keyboard(can_skip=mode == "edit", skip_text="Оставить"),
+    )
+    return DriverStates.WAIT_EXPENSE_TITLE
+
+
+async def _ask_expense_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for manual expense amount."""
+    current = context.user_data.setdefault("driver_expense_data", {}).get("amount")
+    text = "💰 Расход\n\nШаг 2/5. Какая сумма?"
+    if current is not None:
+        text += f"\n\nТекущее значение: {_format_money(current)}"
+    await _show_driver_step(
+        update,
+        context,
+        text,
+        get_driver_step_keyboard(
+            can_skip=context.user_data.get("driver_expense_mode") == "edit",
+            skip_text="Оставить",
+        ),
+    )
+    return DriverStates.WAIT_EXPENSE_AMOUNT
+
+
+async def _ask_expense_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for manual expense category."""
+    await _show_driver_step(
+        update,
+        context,
+        "💰 Расход\n\nШаг 3/5. Выберите категорию.",
+        get_driver_expense_category_keyboard(),
+    )
+    return DriverStates.WAIT_EXPENSE_CATEGORY
+
+
+async def _ask_expense_vehicle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for optional vehicle binding."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        vehicles = await DriverService(session).get_vehicles(user_id)
+    await _show_driver_step(
+        update,
+        context,
+        "💰 Расход\n\nШаг 4/5. К какому авто привязать расход?",
+        get_driver_vehicle_choice_keyboard(
+            vehicles,
+            "driver_expense_vehicle",
+            can_skip=context.user_data.get("driver_expense_mode") == "edit",
+        ),
+    )
+    return DriverStates.WAIT_EXPENSE_VEHICLE
+
+
+async def _ask_expense_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for optional manual expense note."""
+    current = context.user_data.setdefault("driver_expense_data", {}).get("note")
+    text = "💰 Расход\n\nШаг 5/5. Добавьте комментарий или пропустите."
+    if current:
+        text += f"\n\nТекущее значение: {current}"
+    await _show_driver_step(update, context, text, get_driver_step_keyboard(can_skip=True))
+    return DriverStates.WAIT_EXPENSE_NOTE
+
+
+async def driver_expense_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start manual expense creation."""
+    query = update.callback_query
+    await query.answer()
+    _clear_driver_context(context)
+    context.user_data["driver_expense_mode"] = "create"
+    context.user_data["driver_expense_data"] = {}
+    return await _ask_expense_title(update, context)
+
+
+async def driver_expense_edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start manual expense editing."""
+    query = update.callback_query
+    await query.answer()
+    expense_id = _parse_callback_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        expense = await DriverService(session).get_expense(expense_id, user_id)
+    if not expense:
+        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+    _clear_driver_context(context)
+    context.user_data["driver_expense_mode"] = "edit"
+    context.user_data["driver_expense_id"] = expense_id
+    context.user_data["driver_expense_data"] = {
+        "title": expense.title,
+        "amount": expense.amount,
+        "category": expense.category,
+        "vehicle_id": expense.vehicle_id,
+        "spent_at_utc": expense.spent_at_utc,
+        "note": expense.note,
+    }
+    return await _ask_expense_title(update, context)
+
+
+async def driver_expense_title_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save manual expense title."""
+    title = _limit_text(update.message.text, 255)
+    await _delete_user_message(update)
+    if not title:
+        return await _ask_expense_title(update, context)
+    context.user_data.setdefault("driver_expense_data", {})["title"] = title
+    return await _ask_expense_amount(update, context)
+
+
+async def driver_expense_title_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Keep manual expense title while editing."""
+    query = update.callback_query
+    await query.answer()
+    if not context.user_data.get("driver_expense_data", {}).get("title"):
+        return await _ask_expense_title(update, context)
+    return await _ask_expense_amount(update, context)
+
+
+async def driver_expense_amount_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save manual expense amount."""
+    try:
+        amount = _parse_float(update.message.text, "сумма")
+    except ValueError:
+        await _delete_user_message(update)
+        await _show_driver_step(update, context, "Введите сумму числом, например 1500.", get_driver_step_keyboard())
+        return DriverStates.WAIT_EXPENSE_AMOUNT
+    await _delete_user_message(update)
+    context.user_data.setdefault("driver_expense_data", {})["amount"] = amount
+    return await _ask_expense_category(update, context)
+
+
+async def driver_expense_amount_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Keep manual expense amount while editing."""
+    query = update.callback_query
+    await query.answer()
+    if "amount" not in context.user_data.get("driver_expense_data", {}):
+        return await _ask_expense_amount(update, context)
+    return await _ask_expense_category(update, context)
+
+
+async def driver_expense_category_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save expense category."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.setdefault("driver_expense_data", {})["category"] = query.data.split(":", 1)[1]
+    return await _ask_expense_vehicle(update, context)
+
+
+async def driver_expense_vehicle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save optional expense vehicle binding."""
+    query = update.callback_query
+    await query.answer()
+    value = query.data.split(":", 1)[1]
+    context.user_data.setdefault("driver_expense_data", {})["vehicle_id"] = None if value == "none" else int(value)
+    return await _ask_expense_note(update, context)
+
+
+async def driver_expense_vehicle_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Keep expense vehicle binding while editing."""
+    query = update.callback_query
+    await query.answer()
+    return await _ask_expense_note(update, context)
+
+
+async def driver_expense_note_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save manual expense note and finish."""
+    note = _limit_text(update.message.text, 1000)
+    await _delete_user_message(update)
+    context.user_data.setdefault("driver_expense_data", {})["note"] = note or None
+    return await _finish_expense_wizard(update, context)
+
+
+async def driver_expense_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip manual expense note."""
+    query = update.callback_query
+    await query.answer()
+    if context.user_data.get("driver_expense_mode") != "edit":
+        context.user_data.setdefault("driver_expense_data", {})["note"] = None
+    return await _finish_expense_wizard(update, context)
+
+
+async def _finish_expense_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Create or update manual expense."""
+    mode = context.user_data.get("driver_expense_mode", "create")
+    expense_id = context.user_data.get("driver_expense_id")
+    data = context.user_data.get("driver_expense_data", {})
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        if mode == "edit":
+            expense = await service.update_expense(
+                expense_id=expense_id,
+                user_id=user_id,
+                title=data["title"],
+                amount=data["amount"],
+                category=data.get("category", "other"),
+                vehicle_id=data.get("vehicle_id"),
+                spent_at_utc=data.get("spent_at_utc"),
+                note=data.get("note"),
+            )
+        else:
+            expense = await service.create_expense(
+                user_id=user_id,
+                title=data["title"],
+                amount=data["amount"],
+                category=data.get("category", "other"),
+                vehicle_id=data.get("vehicle_id"),
+                note=data.get("note"),
+            )
+        await session.commit()
+
+    if not expense:
+        await _show_driver_step(update, context, "❌ Расход не сохранен", get_back_home_inline_keyboard())
+        _clear_driver_context(context)
+        return ConversationHandler.END
+
+    text = "✅ Расход обновлен\n\n" if mode == "edit" else "✅ Расход добавлен\n\n"
+    await _show_driver_step(update, context, text + _format_expense(expense), get_driver_expense_view_keyboard(expense.id))
+    _clear_driver_context(context)
+    return ConversationHandler.END
+
+
+async def _ask_document_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for document title."""
+    mode = context.user_data.get("driver_document_mode", "create")
+    current = context.user_data.setdefault("driver_document_data", {}).get("title")
+    text = "📄 Документ\n\nШаг 1/6. Что это за документ?\n\nНапример: ОСАГО, права, диагностика."
+    if current:
+        text += f"\n\nТекущее значение: {current}"
+    await _show_driver_step(
+        update,
+        context,
+        text,
+        get_driver_step_keyboard(can_skip=mode == "edit", skip_text="Оставить"),
+    )
+    return DriverStates.WAIT_DOCUMENT_TITLE
+
+
+async def _ask_document_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for document type."""
+    await _show_driver_step(update, context, "📄 Документ\n\nШаг 2/7. Выберите тип.", get_driver_document_type_keyboard())
+    return DriverStates.WAIT_DOCUMENT_TYPE
+
+
+async def _ask_document_vehicle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for optional document vehicle binding."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        vehicles = await DriverService(session).get_vehicles(user_id)
+    await _show_driver_step(
+        update,
+        context,
+        "📄 Документ\n\nШаг 3/7. К какому авто привязать документ?",
+        get_driver_vehicle_choice_keyboard(
+            vehicles,
+            "driver_document_vehicle",
+            can_skip=context.user_data.get("driver_document_mode") == "edit",
+        ),
+    )
+    return DriverStates.WAIT_DOCUMENT_VEHICLE
+
+
+async def _ask_document_identifier(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for optional document identifier."""
+    current = context.user_data.setdefault("driver_document_data", {}).get("identifier")
+    text = "📄 Документ\n\nШаг 4/7. Укажите номер или короткую пометку."
+    if current:
+        text += f"\n\nТекущее значение: {current}"
+    await _show_driver_step(update, context, text, get_driver_step_keyboard(can_skip=True))
+    return DriverStates.WAIT_DOCUMENT_IDENTIFIER
+
+
+async def _ask_document_expires(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for document expiry date."""
+    current = context.user_data.setdefault("driver_document_data", {}).get("expires_at_utc")
+    text = "📄 Документ\n\nШаг 5/7. До какой даты действует документ?\n\nНапример: 25.12.2026 или 25.12."
+    if current:
+        text += f"\n\nТекущее значение: {_format_date(current)}"
+    await _show_driver_step(update, context, text, get_driver_step_keyboard(can_skip=True, skip_text="Без срока/оставить"))
+    return DriverStates.WAIT_DOCUMENT_EXPIRES
+
+
+async def _ask_document_remind_days(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for document reminder offset."""
+    await _show_driver_step(
+        update,
+        context,
+        "📄 Документ\n\nШаг 6/7. За сколько дней напомнить о сроке?",
+        get_driver_document_remind_keyboard(),
+    )
+    return DriverStates.WAIT_DOCUMENT_REMIND_DAYS
+
+
+async def _ask_document_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for optional document note."""
+    current = context.user_data.setdefault("driver_document_data", {}).get("note")
+    text = "📄 Документ\n\nШаг 7/7. Добавьте комментарий или пропустите."
+    if current:
+        text += f"\n\nТекущее значение: {current}"
+    await _show_driver_step(update, context, text, get_driver_step_keyboard(can_skip=True))
+    return DriverStates.WAIT_DOCUMENT_NOTE
+
+
+async def driver_document_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start driver document creation."""
+    query = update.callback_query
+    await query.answer()
+    _clear_driver_context(context)
+    context.user_data["driver_document_mode"] = "create"
+    context.user_data["driver_document_data"] = {"remind_before_days": 14, "is_active": True}
+    return await _ask_document_title(update, context)
+
+
+async def driver_document_edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start driver document editing."""
+    query = update.callback_query
+    await query.answer()
+    document_id = _parse_callback_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        document = await DriverService(session).get_document(document_id, user_id)
+    if not document:
+        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+    _clear_driver_context(context)
+    context.user_data["driver_document_mode"] = "edit"
+    context.user_data["driver_document_id"] = document_id
+    context.user_data["driver_document_data"] = {
+        "title": document.title,
+        "document_type": document.document_type,
+        "vehicle_id": document.vehicle_id,
+        "identifier": document.identifier,
+        "expires_at_utc": document.expires_at_utc,
+        "remind_before_days": document.remind_before_days,
+        "note": document.note,
+        "is_active": document.is_active,
+    }
+    return await _ask_document_title(update, context)
+
+
+async def driver_document_title_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save document title."""
+    title = _limit_text(update.message.text, 255)
+    await _delete_user_message(update)
+    if not title:
+        return await _ask_document_title(update, context)
+    context.user_data.setdefault("driver_document_data", {})["title"] = title
+    return await _ask_document_type(update, context)
+
+
+async def driver_document_title_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Keep document title while editing."""
+    query = update.callback_query
+    await query.answer()
+    if not context.user_data.get("driver_document_data", {}).get("title"):
+        return await _ask_document_title(update, context)
+    return await _ask_document_type(update, context)
+
+
+async def driver_document_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save document type."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.setdefault("driver_document_data", {})["document_type"] = query.data.split(":", 1)[1]
+    return await _ask_document_vehicle(update, context)
+
+
+async def driver_document_vehicle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save optional document vehicle binding."""
+    query = update.callback_query
+    await query.answer()
+    value = query.data.split(":", 1)[1]
+    context.user_data.setdefault("driver_document_data", {})["vehicle_id"] = None if value == "none" else int(value)
+    return await _ask_document_identifier(update, context)
+
+
+async def driver_document_vehicle_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Keep document vehicle binding while editing."""
+    query = update.callback_query
+    await query.answer()
+    return await _ask_document_identifier(update, context)
+
+
+async def driver_document_identifier_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save optional document identifier."""
+    identifier = _limit_text(update.message.text, 255)
+    await _delete_user_message(update)
+    context.user_data.setdefault("driver_document_data", {})["identifier"] = identifier or None
+    return await _ask_document_expires(update, context)
+
+
+async def driver_document_identifier_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip or keep document identifier."""
+    query = update.callback_query
+    await query.answer()
+    if context.user_data.get("driver_document_mode") != "edit":
+        context.user_data.setdefault("driver_document_data", {})["identifier"] = None
+    return await _ask_document_expires(update, context)
+
+
+async def driver_document_expires_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save document expiry date."""
+    raw = update.message.text.strip().lower()
+    try:
+        expires_at = None if raw in {"-", "нет", "без срока", "пропустить"} else _parse_date(raw)
+    except ValueError:
+        await _delete_user_message(update)
+        await _show_driver_step(update, context, "Введите дату в формате 25.12.2026 или нажмите кнопку пропуска.", get_driver_step_keyboard(can_skip=True))
+        return DriverStates.WAIT_DOCUMENT_EXPIRES
+    await _delete_user_message(update)
+    context.user_data.setdefault("driver_document_data", {})["expires_at_utc"] = expires_at
+    return await _ask_document_remind_days(update, context)
+
+
+async def driver_document_expires_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip or keep document expiry date."""
+    query = update.callback_query
+    await query.answer()
+    if context.user_data.get("driver_document_mode") != "edit":
+        context.user_data.setdefault("driver_document_data", {})["expires_at_utc"] = None
+    return await _ask_document_remind_days(update, context)
+
+
+async def driver_document_remind_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save document reminder offset from button."""
+    query = update.callback_query
+    await query.answer()
+    value = query.data.split(":", 1)[1]
+    if value == "custom":
+        await _show_driver_step(update, context, "Введите количество дней числом.", get_driver_step_keyboard())
+        return DriverStates.WAIT_DOCUMENT_REMIND_DAYS
+    context.user_data.setdefault("driver_document_data", {})["remind_before_days"] = int(value)
+    return await _ask_document_note(update, context)
+
+
+async def driver_document_remind_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save document reminder offset from text."""
+    try:
+        days = _parse_int(update.message.text, "дни")
+    except ValueError:
+        await _delete_user_message(update)
+        await _show_driver_step(update, context, "Введите число дней, например 14.", get_driver_document_remind_keyboard())
+        return DriverStates.WAIT_DOCUMENT_REMIND_DAYS
+    await _delete_user_message(update)
+    context.user_data.setdefault("driver_document_data", {})["remind_before_days"] = days
+    return await _ask_document_note(update, context)
+
+
+async def driver_document_note_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save document note and finish."""
+    note = _limit_text(update.message.text, 1000)
+    await _delete_user_message(update)
+    context.user_data.setdefault("driver_document_data", {})["note"] = note or None
+    return await _finish_document_wizard(update, context)
+
+
+async def driver_document_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip document note."""
+    query = update.callback_query
+    await query.answer()
+    if context.user_data.get("driver_document_mode") != "edit":
+        context.user_data.setdefault("driver_document_data", {})["note"] = None
+    return await _finish_document_wizard(update, context)
+
+
+async def _finish_document_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Create or update driver document."""
+    mode = context.user_data.get("driver_document_mode", "create")
+    document_id = context.user_data.get("driver_document_id")
+    data = context.user_data.get("driver_document_data", {})
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = DriverService(session)
+        if mode == "edit":
+            document = await service.update_document(
+                document_id=document_id,
+                user_id=user_id,
+                title=data["title"],
+                document_type=data.get("document_type", "other"),
+                vehicle_id=data.get("vehicle_id"),
+                identifier=data.get("identifier"),
+                expires_at_utc=data.get("expires_at_utc"),
+                remind_before_days=data.get("remind_before_days", 14),
+                note=data.get("note"),
+                is_active=data.get("is_active", True),
+            )
+        else:
+            document = await service.create_document(
+                user_id=user_id,
+                title=data["title"],
+                document_type=data.get("document_type", "other"),
+                vehicle_id=data.get("vehicle_id"),
+                identifier=data.get("identifier"),
+                expires_at_utc=data.get("expires_at_utc"),
+                remind_before_days=data.get("remind_before_days", 14),
+                note=data.get("note"),
+                is_active=True,
+            )
+        await session.commit()
+
+    if not document:
+        await _show_driver_step(update, context, "❌ Документ не сохранен", get_back_home_inline_keyboard())
+        _clear_driver_context(context)
+        return ConversationHandler.END
+
+    text = "✅ Документ обновлен\n\n" if mode == "edit" else "✅ Документ добавлен\n\n"
+    await _show_driver_step(update, context, text + _format_document(document), get_driver_document_view_keyboard(document.id))
+    _clear_driver_context(context)
+    return ConversationHandler.END
+
+
 async def driver_cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel driver assistant input."""
     _clear_driver_context(context)
@@ -1696,6 +2417,80 @@ driver_fuel_create_conv = ConversationHandler(
         DriverStates.WAIT_FUEL_STATION: [
             CallbackQueryHandler(driver_fuel_station_skip, pattern="^driver_skip$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, driver_fuel_station_save),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", driver_cancel_handler),
+        CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+    ],
+)
+
+
+driver_expense_conv = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(driver_expense_add_start, pattern="^driver_expense_add$"),
+        CallbackQueryHandler(driver_expense_edit_start, pattern="^driver_expense_edit:"),
+    ],
+    states={
+        DriverStates.WAIT_EXPENSE_TITLE: [
+            CallbackQueryHandler(driver_expense_title_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_expense_title_save),
+        ],
+        DriverStates.WAIT_EXPENSE_AMOUNT: [
+            CallbackQueryHandler(driver_expense_amount_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_expense_amount_save),
+        ],
+        DriverStates.WAIT_EXPENSE_CATEGORY: [
+            CallbackQueryHandler(driver_expense_category_callback, pattern="^driver_expense_category:"),
+        ],
+        DriverStates.WAIT_EXPENSE_VEHICLE: [
+            CallbackQueryHandler(driver_expense_vehicle_skip, pattern="^driver_skip$"),
+            CallbackQueryHandler(driver_expense_vehicle_callback, pattern="^driver_expense_vehicle:"),
+        ],
+        DriverStates.WAIT_EXPENSE_NOTE: [
+            CallbackQueryHandler(driver_expense_note_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_expense_note_save),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", driver_cancel_handler),
+        CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+    ],
+)
+
+
+driver_document_conv = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(driver_document_add_start, pattern="^driver_document_add$"),
+        CallbackQueryHandler(driver_document_edit_start, pattern="^driver_document_edit:"),
+    ],
+    states={
+        DriverStates.WAIT_DOCUMENT_TITLE: [
+            CallbackQueryHandler(driver_document_title_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_title_save),
+        ],
+        DriverStates.WAIT_DOCUMENT_TYPE: [
+            CallbackQueryHandler(driver_document_type_callback, pattern="^driver_document_type:"),
+        ],
+        DriverStates.WAIT_DOCUMENT_VEHICLE: [
+            CallbackQueryHandler(driver_document_vehicle_skip, pattern="^driver_skip$"),
+            CallbackQueryHandler(driver_document_vehicle_callback, pattern="^driver_document_vehicle:"),
+        ],
+        DriverStates.WAIT_DOCUMENT_IDENTIFIER: [
+            CallbackQueryHandler(driver_document_identifier_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_identifier_save),
+        ],
+        DriverStates.WAIT_DOCUMENT_EXPIRES: [
+            CallbackQueryHandler(driver_document_expires_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_expires_save),
+        ],
+        DriverStates.WAIT_DOCUMENT_REMIND_DAYS: [
+            CallbackQueryHandler(driver_document_remind_callback, pattern="^driver_document_remind:"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_remind_save),
+        ],
+        DriverStates.WAIT_DOCUMENT_NOTE: [
+            CallbackQueryHandler(driver_document_note_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_note_save),
         ],
     },
     fallbacks=[

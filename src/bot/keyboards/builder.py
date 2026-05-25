@@ -131,6 +131,200 @@ def get_driver_section_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_driver_expenses_keyboard(expenses: List) -> InlineKeyboardMarkup:
+    """Manual driver expenses keyboard."""
+    keyboard = []
+    for expense in expenses:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"💰 {truncate(expense.title, 28)} · {expense.amount:.0f} ₽",
+                callback_data=f"driver_expense_view:{expense.id}",
+            )
+        ])
+    keyboard.append([
+        InlineKeyboardButton("➕ Добавить расход", callback_data="driver_expense_add"),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_expense_view_keyboard(expense_id: int) -> InlineKeyboardMarkup:
+    """Manual driver expense view keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Изменить", callback_data=f"driver_expense_edit:{expense_id}"),
+            InlineKeyboardButton("🗑 Удалить", callback_data=f"driver_expense_delete:{expense_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К расходам", callback_data="driver_section:costs"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_expense_delete_confirm_keyboard(expense_id: int) -> InlineKeyboardMarkup:
+    """Confirm manual expense deletion."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🗑 Да, удалить расход", callback_data=f"driver_expense_delete_confirm:{expense_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К расходу", callback_data=f"driver_expense_view:{expense_id}"),
+            InlineKeyboardButton("💰 Расходы", callback_data="driver_section:costs"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_expense_category_keyboard() -> InlineKeyboardMarkup:
+    """Manual expense category choices."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🔧 ТО/ремонт", callback_data="driver_expense_category:service"),
+            InlineKeyboardButton("🧩 Запчасти", callback_data="driver_expense_category:parts"),
+        ],
+        [
+            InlineKeyboardButton("🧼 Мойка", callback_data="driver_expense_category:wash"),
+            InlineKeyboardButton("📄 Страховка", callback_data="driver_expense_category:insurance"),
+        ],
+        [
+            InlineKeyboardButton("🅿️ Парковка", callback_data="driver_expense_category:parking"),
+            InlineKeyboardButton("⚠️ Штраф", callback_data="driver_expense_category:fine"),
+        ],
+        [
+            InlineKeyboardButton("Другое", callback_data="driver_expense_category:other"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_vehicle_choice_keyboard(
+    vehicles: List,
+    callback_prefix: str,
+    can_skip: bool = False,
+) -> InlineKeyboardMarkup:
+    """Vehicle choice keyboard for expense/document flows."""
+    keyboard = []
+    for vehicle in vehicles:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"🚗 {truncate(vehicle.title, 32)}",
+                callback_data=f"{callback_prefix}:{vehicle.id}",
+            )
+        ])
+    keyboard.append([
+        InlineKeyboardButton("Без привязки к авто", callback_data=f"{callback_prefix}:none"),
+    ])
+    if can_skip:
+        keyboard.append([
+            InlineKeyboardButton("Оставить как есть", callback_data="driver_skip"),
+        ])
+    keyboard.append([
+        InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_documents_keyboard(documents: List) -> InlineKeyboardMarkup:
+    """Driver documents keyboard."""
+    keyboard = []
+    for document in documents:
+        status_icon = "📄" if document.is_active else "📦"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{status_icon} {truncate(document.title, 34)}",
+                callback_data=f"driver_document_view:{document.id}",
+            )
+        ])
+    keyboard.append([
+        InlineKeyboardButton("➕ Добавить документ", callback_data="driver_document_add"),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_document_view_keyboard(document_id: int) -> InlineKeyboardMarkup:
+    """Driver document view keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Изменить", callback_data=f"driver_document_edit:{document_id}"),
+            InlineKeyboardButton("🗑 Удалить", callback_data=f"driver_document_delete:{document_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К документам", callback_data="driver_section:docs"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_document_delete_confirm_keyboard(document_id: int) -> InlineKeyboardMarkup:
+    """Confirm driver document deletion."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🗑 Да, удалить документ", callback_data=f"driver_document_delete_confirm:{document_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К документу", callback_data=f"driver_document_view:{document_id}"),
+            InlineKeyboardButton("📄 Документы", callback_data="driver_section:docs"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_document_type_keyboard() -> InlineKeyboardMarkup:
+    """Driver document type choices."""
+    keyboard = [
+        [
+            InlineKeyboardButton("ОСАГО/КАСКО", callback_data="driver_document_type:insurance"),
+            InlineKeyboardButton("Права", callback_data="driver_document_type:license"),
+        ],
+        [
+            InlineKeyboardButton("Диагностика", callback_data="driver_document_type:diagnostic"),
+            InlineKeyboardButton("Налог", callback_data="driver_document_type:tax"),
+        ],
+        [
+            InlineKeyboardButton("Штраф", callback_data="driver_document_type:fine"),
+            InlineKeyboardButton("Другое", callback_data="driver_document_type:other"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_document_remind_keyboard() -> InlineKeyboardMarkup:
+    """Driver document reminder offset choices."""
+    keyboard = [
+        [
+            InlineKeyboardButton("За 7 дней", callback_data="driver_document_remind:7"),
+            InlineKeyboardButton("За 14 дней", callback_data="driver_document_remind:14"),
+        ],
+        [
+            InlineKeyboardButton("За 30 дней", callback_data="driver_document_remind:30"),
+            InlineKeyboardButton("Не напоминать заранее", callback_data="driver_document_remind:0"),
+        ],
+        [
+            InlineKeyboardButton("Ввести число", callback_data="driver_document_remind:custom"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_driver_templates_keyboard() -> InlineKeyboardMarkup:
     """Quick driver templates keyboard."""
     keyboard = [

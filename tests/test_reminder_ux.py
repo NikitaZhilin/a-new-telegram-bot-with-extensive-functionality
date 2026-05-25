@@ -12,6 +12,7 @@ from src.bot.handlers.reminders import (
 from src.bot.keyboards.builder import get_lists_list_keyboard
 from src.db.models import RepeatRule, User
 from src.repositories.user_repo import UserRepository
+from src.utils.labels import repeat_rule_label
 from src.worker.reminder_worker import ReminderWorkerService
 
 
@@ -94,6 +95,31 @@ def test_worker_displays_default_timezone_for_utc_user():
     message = worker._format_reminder_message(reminder)
 
     assert "23.05.2026 09:06 (Europe/Moscow)" in message
+
+
+def test_repeat_rule_label_is_russian():
+    """User-facing repeat labels should not leak enum values."""
+    assert repeat_rule_label(RepeatRule.DAILY) == "ежедневно"
+    assert repeat_rule_label("weekly") == "еженедельно"
+
+
+def test_worker_uses_russian_repeat_label():
+    """Reminder notifications should show localized repeat labels."""
+    worker = ReminderWorkerService(bot=object())
+    reminder = SimpleNamespace(
+        title="Test",
+        text="Body",
+        remind_at_utc=datetime(2026, 5, 25, 7, 0, tzinfo=timezone.utc),
+        repeat_rule=RepeatRule.DAILY,
+        list_id=None,
+        medication_id=None,
+        user=SimpleNamespace(timezone="Europe/Moscow"),
+    )
+
+    message = worker._format_reminder_message(reminder)
+
+    assert "Повтор: ежедневно" in message
+    assert "Повтор: daily" not in message
 
 
 @pytest.mark.asyncio

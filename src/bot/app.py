@@ -33,6 +33,8 @@ from src.bot.handlers import (
     medication_reminder_conv,
     reminder_create_conv,
     reminder_edit_conv,
+    driver_document_conv,
+    driver_expense_conv,
     driver_fuel_create_conv,
     driver_service_conv,
     driver_vehicle_create_conv,
@@ -111,6 +113,12 @@ from src.bot.handlers.settings import (
     settings_web_login_callback,
 )
 from src.bot.handlers.driver import (
+    driver_document_delete_callback,
+    driver_document_delete_confirm_callback,
+    driver_document_view_callback,
+    driver_expense_delete_callback,
+    driver_expense_delete_confirm_callback,
+    driver_expense_view_callback,
     driver_fuel_delete_callback,
     driver_fuel_delete_confirm_callback,
     driver_fuel_history_callback,
@@ -179,6 +187,8 @@ def create_application() -> Application:
     application.add_handler(driver_vehicle_create_conv)
     application.add_handler(driver_vehicle_mileage_conv)
     application.add_handler(driver_fuel_create_conv)
+    application.add_handler(driver_expense_conv)
+    application.add_handler(driver_document_conv)
     application.add_handler(driver_service_conv)
 
     # Settings
@@ -255,6 +265,12 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(driver_fuel_view_callback, pattern="^driver_fuel_view:"))
     application.add_handler(CallbackQueryHandler(driver_fuel_delete_confirm_callback, pattern="^driver_fuel_delete_confirm:"))
     application.add_handler(CallbackQueryHandler(driver_fuel_delete_callback, pattern="^driver_fuel_delete:"))
+    application.add_handler(CallbackQueryHandler(driver_expense_view_callback, pattern="^driver_expense_view:"))
+    application.add_handler(CallbackQueryHandler(driver_expense_delete_confirm_callback, pattern="^driver_expense_delete_confirm:"))
+    application.add_handler(CallbackQueryHandler(driver_expense_delete_callback, pattern="^driver_expense_delete:"))
+    application.add_handler(CallbackQueryHandler(driver_document_view_callback, pattern="^driver_document_view:"))
+    application.add_handler(CallbackQueryHandler(driver_document_delete_confirm_callback, pattern="^driver_document_delete_confirm:"))
+    application.add_handler(CallbackQueryHandler(driver_document_delete_callback, pattern="^driver_document_delete:"))
     application.add_handler(CallbackQueryHandler(driver_service_view_callback, pattern="^driver_service_view:"))
 
     application.add_handler(CallbackQueryHandler(share_bot_callback, pattern="^share_bot$"))

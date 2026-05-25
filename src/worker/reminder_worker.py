@@ -33,6 +33,7 @@ from src.repositories.reminder_repo import (
     calculate_next_occurrence,
 )
 from src.services.medication_service import MedicationService
+from src.utils.labels import repeat_rule_label
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +359,7 @@ class ReminderWorkerService:
                 RepeatRule.MONTHLY: "🗓️",
             }
             emoji = repeat_emoji.get(reminder.repeat_rule, "🔁")
-            message += f"\n\n{emoji} Повтор: {reminder.repeat_rule.value}"
+            message += f"\n\n{emoji} Повтор: {repeat_rule_label(reminder.repeat_rule)}"
         
         message += f"\n\n🕒 Время: {remind_time} ({user_timezone})"
         
