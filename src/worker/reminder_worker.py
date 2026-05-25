@@ -98,13 +98,17 @@ class ReminderWorkerService:
         while self._running:
             try:
                 await self.process_cycle()
+                if self._running:
+                    await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
+                self._running = False
                 break
             except Exception as e:
                 logger.exception(f"Worker cycle failed: {e}")
                 # Don't fail completely, wait and retry
-                await asyncio.sleep(self.poll_interval)
+                if self._running:
+                    await asyncio.sleep(self.poll_interval)
 
         logger.info("Reminder worker stopped")
 

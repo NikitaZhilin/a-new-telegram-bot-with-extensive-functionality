@@ -1,5 +1,6 @@
 """Tests for one safe reminder worker cycle."""
 
+import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -65,6 +66,35 @@ class FakeReminderRepository:
     async def create_next_occurrence(self, reminder, next_time):
         self.next_occurrences.append((reminder.id, next_time))
         return None
+
+
+@pytest.mark.asyncio
+async def test_worker_start_sleeps_after_successful_cycle(monkeypatch):
+    """The long-running worker loop must not spin in a tight loop when idle."""
+    worker = ReminderWorkerService(
+        bot=FakeBot(),
+        poll_interval=7,
+    )
+    cycle_calls = 0
+    sleep_calls = []
+
+    async def fake_process_cycle():
+        nonlocal cycle_calls
+        cycle_calls += 1
+        return WorkerCycleResult()
+
+    async def fake_sleep(interval):
+        sleep_calls.append(interval)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(worker, "process_cycle", fake_process_cycle)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    await worker.start()
+
+    assert cycle_calls == 1
+    assert sleep_calls == [7]
+    assert worker._running is False
 
 
 @pytest.mark.asyncio
