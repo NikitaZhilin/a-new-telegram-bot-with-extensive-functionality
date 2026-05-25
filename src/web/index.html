@@ -40,7 +40,7 @@
         </div>
         <div class="status-row">
           <span id="authStatus" class="pill muted">не подключено</span>
-          <button id="logoutButton" class="secondary small" type="button">Выйти</button>
+          <button id="logoutButton" class="secondary small action-cancel" type="button">Выйти</button>
         </div>
       </header>
 
@@ -75,7 +75,7 @@
           </div>
         </details>
         <div class="actions">
-          <button id="loginButton" type="button">Войти</button>
+          <button id="loginButton" class="action-save" type="button">Войти</button>
         </div>
       </section>
 
@@ -91,7 +91,7 @@
             <h2>Новый список</h2>
             <form id="listCreateForm" class="stack">
               <input name="title" type="text" placeholder="Название списка" required>
-              <button type="submit">Создать</button>
+              <button class="action-save" type="submit">Создать</button>
             </form>
           </div>
           <div class="panel">
@@ -116,7 +116,7 @@
                 <option value="weekly">Каждую неделю</option>
                 <option value="monthly">Каждый месяц</option>
               </select>
-              <button type="submit">Создать</button>
+              <button class="action-save" type="submit">Создать</button>
             </form>
           </div>
           <div class="panel">
@@ -141,7 +141,7 @@
                 <option value="critical">Критичное</option>
               </select>
               <input name="daily_times_local" type="text" placeholder="Время: 09:00, 21:00">
-              <button type="submit">Создать</button>
+              <button class="action-save" type="submit">Создать</button>
             </form>
           </div>
           <div class="panel">
@@ -160,7 +160,7 @@
               <input name="current_mileage_km" type="number" min="0" placeholder="Пробег, км">
               <input name="service_interval_km" type="number" min="1" placeholder="Интервал ТО, км" value="10000">
               <input name="service_interval_months" type="number" min="1" placeholder="Интервал ТО, месяцев" value="12">
-              <button type="submit">Добавить авто</button>
+              <button class="action-save" type="submit">Добавить авто</button>
             </form>
             <div id="vehiclesContainer" class="item-list"></div>
           </div>
@@ -176,7 +176,7 @@
                 <input name="is_full_tank" type="checkbox" checked>
                 <span>Полный бак</span>
               </label>
-              <button type="submit">Сохранить заправку</button>
+              <button class="action-save" type="submit">Сохранить заправку</button>
             </form>
             <div id="fuelContainer" class="item-list"></div>
           </div>

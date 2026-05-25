@@ -19,11 +19,12 @@ from contextlib import suppress
 import structlog
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from src.config import settings
 from src.db.base import Base
 from src.db.session import engine, async_session_maker
+from src.services.activity_service import ActivityService
 
 
 # Configure logging
@@ -53,6 +54,7 @@ def setup_logging(level: str = "INFO") -> None:
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+STARTUP_UPDATE_EVENT_PREFIX = "startup_update_sent"
 
 
 def _make_alembic_config() -> Config:
@@ -64,19 +66,59 @@ def _make_alembic_config() -> Config:
 
 
 async def _database_has_table(table_name: str) -> bool:
-    """Return whether a table exists in the current PostgreSQL database."""
+    """Return whether a table exists in the current database."""
+    async with engine.begin() as conn:
+        return await conn.run_sync(lambda sync_conn: inspect(sync_conn).has_table(table_name))
+
+
+async def _startup_update_sent(
+    *,
+    telegram_id: int,
+    app_version: str,
+) -> bool:
+    """Return whether this user already received startup update for this version."""
+    if not await _database_has_table("bot_activity_events"):
+        return False
+
+    event_name = f"{STARTUP_UPDATE_EVENT_PREFIX}:{app_version}"[:120]
     query = text(
         """
         SELECT EXISTS (
             SELECT 1
-            FROM information_schema.tables
-            WHERE table_name = :table_name
+            FROM bot_activity_events
+            WHERE telegram_id = :telegram_id
+              AND event_name = :event_name
+              AND domain = 'system'
         )
         """
     )
-    async with engine.begin() as conn:
-        result = await conn.execute(query, {"table_name": table_name})
+    async with async_session_maker() as session:
+        result = await session.execute(
+            query,
+            {"telegram_id": telegram_id, "event_name": event_name},
+        )
         return bool(result.scalar())
+
+
+async def _record_startup_update_sent(
+    *,
+    telegram_id: int,
+    user_id: int | None,
+    app_version: str,
+) -> None:
+    """Persist a marker after successful startup update delivery."""
+    event_name = f"{STARTUP_UPDATE_EVENT_PREFIX}:{app_version}"[:120]
+    async with async_session_maker() as session:
+        await ActivityService(session).record_event(
+            event_type="system",
+            event_name=event_name,
+            domain="system",
+            user_id=user_id,
+            telegram_id=telegram_id,
+            source="system",
+            metadata={"app_version": app_version},
+        )
+        await session.commit()
 
 
 async def _run_alembic_upgrade_head() -> None:
@@ -424,6 +466,12 @@ async def run_bot() -> None:
 
         for telegram_id, user_id in startup_recipients.items():
             try:
+                if await _startup_update_sent(
+                    telegram_id=telegram_id,
+                    app_version=settings.APP_VERSION,
+                ):
+                    continue
+
                 update_message = (
                     settings.STARTUP_UPDATE_MESSAGE.strip()
                     .strip("\"'")
@@ -443,6 +491,11 @@ async def run_bot() -> None:
                         f"{testing_notice}"
                     ),
                     reply_markup=get_main_menu_keyboard(),
+                )
+                await _record_startup_update_sent(
+                    telegram_id=telegram_id,
+                    user_id=user_id,
+                    app_version=settings.APP_VERSION,
                 )
             except Exception:
                 logger.warning(

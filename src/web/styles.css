@@ -10,6 +10,20 @@
   --accent-2: #0f766e;
   --danger: #dc2626;
   --warning: #b45309;
+  --btn-open-bg: #dbeafe;
+  --btn-open-text: #1d4ed8;
+  --btn-done-bg: #d1fae5;
+  --btn-done-text: #047857;
+  --btn-skip-bg: #fdecc8;
+  --btn-skip-text: #9a5b00;
+  --btn-edit-bg: #e9d5ff;
+  --btn-edit-text: #7e22ce;
+  --btn-danger-bg: #ffe4e6;
+  --btn-danger-text: #be123c;
+  --btn-share-bg: #ccfbf1;
+  --btn-share-text: #0f766e;
+  --btn-cancel-bg: #e5e7eb;
+  --btn-cancel-text: #475569;
   --shadow: 0 10px 30px rgba(17, 24, 39, 0.08);
 }
 
@@ -25,6 +39,20 @@
   --accent-2: #2dd4bf;
   --danger: #f87171;
   --warning: #fbbf24;
+  --btn-open-bg: #1e3a8a;
+  --btn-open-text: #bfdbfe;
+  --btn-done-bg: #064e3b;
+  --btn-done-text: #bbf7d0;
+  --btn-skip-bg: #78350f;
+  --btn-skip-text: #fde68a;
+  --btn-edit-bg: #581c87;
+  --btn-edit-text: #f3e8ff;
+  --btn-danger-bg: #7f1d1d;
+  --btn-danger-text: #fecdd3;
+  --btn-share-bg: #134e4a;
+  --btn-share-text: #ccfbf1;
+  --btn-cancel-bg: #334155;
+  --btn-cancel-text: #e2e8f0;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
 
@@ -71,7 +99,52 @@ button.secondary {
 }
 
 button.danger {
-  background: var(--danger);
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-text);
+  border: 1px solid color-mix(in srgb, var(--btn-danger-text) 22%, transparent);
+}
+
+button.action-open,
+button.action-save {
+  background: var(--btn-open-bg);
+  color: var(--btn-open-text);
+  border: 1px solid color-mix(in srgb, var(--btn-open-text) 22%, transparent);
+}
+
+button.action-done {
+  background: var(--btn-done-bg);
+  color: var(--btn-done-text);
+  border: 1px solid color-mix(in srgb, var(--btn-done-text) 22%, transparent);
+}
+
+button.action-skip {
+  background: var(--btn-skip-bg);
+  color: var(--btn-skip-text);
+  border: 1px solid color-mix(in srgb, var(--btn-skip-text) 22%, transparent);
+}
+
+button.action-edit {
+  background: var(--btn-edit-bg);
+  color: var(--btn-edit-text);
+  border: 1px solid color-mix(in srgb, var(--btn-edit-text) 22%, transparent);
+}
+
+button.action-danger {
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-text);
+  border: 1px solid color-mix(in srgb, var(--btn-danger-text) 22%, transparent);
+}
+
+button.action-share {
+  background: var(--btn-share-bg);
+  color: var(--btn-share-text);
+  border: 1px solid color-mix(in srgb, var(--btn-share-text) 22%, transparent);
+}
+
+button.action-cancel {
+  background: var(--btn-cancel-bg);
+  color: var(--btn-cancel-text);
+  border: 1px solid color-mix(in srgb, var(--btn-cancel-text) 20%, transparent);
 }
 
 button.small {
@@ -322,6 +395,14 @@ h3 {
 .stack {
   display: grid;
   gap: 8px;
+}
+
+.inline-edit-form {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 10px;
 }
 
 .split-layout {

@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # Application
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
     TIMEZONE_DEFAULT: str = Field(default="Europe/Moscow", description="Default timezone")
-    APP_VERSION: str = Field(default="dev", description="Human-readable application version")
+    APP_VERSION: str = Field(default="0.1.0-beta", description="Human-readable application version")
     STARTUP_UPDATE_MESSAGE: str = Field(
         default="Можно продолжать пользоваться.",
         description="Short changelog sent with startup menu"

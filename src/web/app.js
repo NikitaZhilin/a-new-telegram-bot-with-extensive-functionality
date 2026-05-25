@@ -16,6 +16,7 @@ const state = {
   fuelEntries: [],
   selectedListId: null,
   selectedVehicleId: null,
+  editingMedicationId: null,
 };
 
 const titles = {
@@ -257,6 +258,27 @@ function parseTimes(value) {
     .filter(Boolean);
 }
 
+function renderMedicationEditForm(item) {
+  return `
+    <form class="stack inline-edit-form medication-edit-form" data-id="${item.id}">
+      <input name="name" type="text" value="${escapeHtml(item.name)}" placeholder="Название" required>
+      <input name="dosage" type="text" value="${escapeHtml(item.dosage || "")}" placeholder="Дозировка">
+      <textarea name="instructions" rows="3" placeholder="Комментарий">${escapeHtml(item.instructions || "")}</textarea>
+      <select name="importance">
+        <option value="supplement" ${item.importance === "supplement" ? "selected" : ""}>БАД</option>
+        <option value="normal" ${item.importance === "normal" ? "selected" : ""}>Обычное</option>
+        <option value="important" ${item.importance === "important" ? "selected" : ""}>Важное</option>
+        <option value="critical" ${item.importance === "critical" ? "selected" : ""}>Критичное</option>
+      </select>
+      <input name="daily_times_local" type="text" value="${escapeHtml(item.daily_times_local?.join(", ") || "")}" placeholder="Время: 09:00, 21:00">
+      <div class="item-actions">
+        <button class="small action-save" type="submit">Сохранить</button>
+        <button class="secondary small action-cancel" type="button" data-action="cancel-medication-edit">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
 async function loadSummary() {
   state.summary = await api("/me/summary");
   state.user = state.summary.user;
@@ -278,10 +300,10 @@ async function loadLists() {
           </div>
         </div>
         <div class="item-actions">
-          <button class="small" data-action="open-list" data-id="${item.id}">Открыть</button>
+          <button class="small action-open" data-action="open-list" data-id="${item.id}">Открыть</button>
           ${canManage ? `
-            <button class="secondary small" data-action="rename-list" data-id="${item.id}" data-title="${escapeHtml(item.title)}">Переименовать</button>
-            <button class="danger small" data-action="delete-list" data-id="${item.id}">Удалить</button>
+            <button class="secondary small action-edit" data-action="rename-list" data-id="${item.id}" data-title="${escapeHtml(item.title)}">Переименовать</button>
+            <button class="danger small action-danger" data-action="delete-list" data-id="${item.id}">Удалить</button>
           ` : ""}
         </div>
       </article>
@@ -301,15 +323,15 @@ async function openList(listId) {
     <div class="item-meta">${detail.items_done}/${detail.items_total} выполнено · ${formatRole(detail.access_role)}</div>
     ${canManage ? `
       <div class="item-actions">
-        <button class="secondary small" data-action="share-list" data-id="${detail.id}">Ссылки доступа</button>
-        <button class="secondary small" data-action="refresh-members" data-id="${detail.id}">Участники</button>
+        <button class="secondary small action-share" data-action="share-list" data-id="${detail.id}">Ссылки доступа</button>
+        <button class="secondary small action-open" data-action="refresh-members" data-id="${detail.id}">Участники</button>
       </div>
       <div id="listSharePanel" class="subpanel hidden"></div>
       <div id="listMembersPanel" class="subpanel hidden"></div>
     ` : ""}
     ${canEdit ? `<form id="listItemCreateForm" class="stack" data-list-id="${detail.id}">
       <textarea name="text" rows="3" placeholder="Новый пункт или несколько строк" required></textarea>
-      <button type="submit">Добавить</button>
+      <button class="action-save" type="submit">Добавить</button>
     </form>` : `<div class="item-meta">У вас доступ только на просмотр.</div>`}
     <div class="item-list">
       ${detail.items.length ? detail.items.map((item) => `
@@ -318,8 +340,8 @@ async function openList(listId) {
           <span>${escapeHtml(item.text)}</span>
           <div class="actions">
             ${canEdit ? `
-              <button class="secondary small" data-action="edit-item" data-id="${item.id}" data-text="${escapeHtml(item.text)}">Изм.</button>
-              <button class="danger small" data-action="delete-item" data-id="${item.id}">Удалить</button>
+              <button class="secondary small action-edit" data-action="edit-item" data-id="${item.id}" data-text="${escapeHtml(item.text)}">Изм.</button>
+              <button class="danger small action-danger" data-action="delete-item" data-id="${item.id}">Удалить</button>
             ` : ""}
           </div>
         </div>
@@ -347,7 +369,7 @@ function renderListSharePanel(data) {
             <div class="item-title">${escapeHtml(label)}</div>
             <div class="item-meta">${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">Открыть ссылку</a>` : escapeHtml(command)}</div>
           </div>
-          <button class="secondary small" data-action="copy-share-text" data-text="${escapeHtml(link || command)}">Копировать</button>
+          <button class="secondary small action-share" data-action="copy-share-text" data-text="${escapeHtml(link || command)}">Копировать</button>
         </article>
       `).join("")}
     </div>
@@ -369,10 +391,10 @@ function renderListMembersPanel(members) {
           </div>
           ${member.role === "owner" ? "" : `
             <div class="item-actions no-margin">
-              <button class="secondary small" data-action="set-member-role" data-id="${member.member_id}" data-role="${member.role === "editor" ? "viewer" : "editor"}">
+              <button class="secondary small action-edit" data-action="set-member-role" data-id="${member.member_id}" data-role="${member.role === "editor" ? "viewer" : "editor"}">
                 ${member.role === "editor" ? "Сделать viewer" : "Сделать editor"}
               </button>
-              <button class="danger small" data-action="remove-member" data-id="${member.member_id}">Убрать</button>
+              <button class="danger small action-danger" data-action="remove-member" data-id="${member.member_id}">Убрать</button>
             </div>
           `}
         </article>
@@ -394,9 +416,9 @@ async function loadReminders() {
         </div>
         <div class="item-text">${escapeHtml(item.text)}</div>
         <div class="item-actions">
-          <button class="secondary small" data-action="done-reminder" data-id="${item.id}">Выполнено</button>
-          <button class="secondary small" data-action="cancel-reminder" data-id="${item.id}">Отменить</button>
-          <button class="danger small" data-action="delete-reminder" data-id="${item.id}">Удалить</button>
+          <button class="secondary small action-done" data-action="done-reminder" data-id="${item.id}">Выполнено</button>
+          <button class="secondary small action-cancel" data-action="cancel-reminder" data-id="${item.id}">Отменить</button>
+          <button class="danger small action-danger" data-action="delete-reminder" data-id="${item.id}">Удалить</button>
         </div>
       </article>
     `).join("")
@@ -416,15 +438,20 @@ async function loadMedications() {
         </div>
         <div class="item-text">${escapeHtml([item.dosage, item.instructions].filter(Boolean).join("\n"))}</div>
         <div class="item-meta">Время: ${escapeHtml(item.daily_times_local?.join(", ") || "не задано")}</div>
-        <div class="item-actions">
-          <button class="small" data-action="taken-medication" data-id="${item.id}">Принял</button>
-          <button class="secondary small" data-action="skipped-medication" data-id="${item.id}">Пропустил</button>
-          <button class="secondary small" data-action="edit-medication" data-id="${item.id}">Изм.</button>
-          <button class="danger small" data-action="archive-medication" data-id="${item.id}">Архив</button>
-        </div>
+        ${state.editingMedicationId === item.id ? renderMedicationEditForm(item) : `
+          <div class="item-actions">
+            <button class="small action-done" data-action="taken-medication" data-id="${item.id}">Принял</button>
+            <button class="secondary small action-skip" data-action="skipped-medication" data-id="${item.id}">Пропустил</button>
+            <button class="secondary small action-edit" data-action="edit-medication" data-id="${item.id}">Изм.</button>
+            <button class="danger small action-danger" data-action="archive-medication" data-id="${item.id}">Архив</button>
+          </div>
+        `}
       </article>
     `).join("")
     : `<div class="item-meta">Лекарств пока нет.</div>`;
+  $$(".medication-edit-form").forEach((form) => {
+    form.addEventListener("submit", (event) => handleMedicationUpdate(event).catch((error) => showMessage(error.message, true)));
+  });
 }
 
 function renderDriver() {
@@ -436,10 +463,10 @@ function renderDriver() {
         <div class="item-meta">${item.current_mileage_km} км · ТО каждые ${item.service_interval_km} км / ${item.service_interval_months} мес.</div>
         <div class="item-meta">${escapeHtml(formatServicePlan(item.service_plan))}</div>
         <div class="item-actions">
-          <button class="small" data-action="select-vehicle" data-id="${item.id}">Выбрать</button>
-          <button class="secondary small" data-action="edit-vehicle" data-id="${item.id}">Изм.</button>
-          <button class="secondary small" data-action="service-done" data-id="${item.id}">ТО сделано</button>
-          <button class="danger small" data-action="delete-vehicle" data-id="${item.id}">Удалить</button>
+          <button class="small action-open" data-action="select-vehicle" data-id="${item.id}">Выбрать</button>
+          <button class="secondary small action-edit" data-action="edit-vehicle" data-id="${item.id}">Изм.</button>
+          <button class="secondary small action-done" data-action="service-done" data-id="${item.id}">ТО сделано</button>
+          <button class="danger small action-danger" data-action="delete-vehicle" data-id="${item.id}">Удалить</button>
         </div>
       </article>
     `).join("")
@@ -476,8 +503,8 @@ async function loadFuel(vehicleId) {
         <div class="item-meta">${escapeHtml(item.station || "АЗС не указана")} · ${formatDate(item.filled_at_utc)}</div>
         <div class="item-meta">${item.consumption_l_per_100 ? `${item.consumption_l_per_100.toFixed(1)} л/100 км` : "расход пока не рассчитан"}</div>
         <div class="item-actions">
-          <button class="secondary small" data-action="edit-fuel" data-id="${item.id}">Изм.</button>
-          <button class="danger small" data-action="delete-fuel" data-id="${item.id}">Удалить</button>
+          <button class="secondary small action-edit" data-action="edit-fuel" data-id="${item.id}">Изм.</button>
+          <button class="danger small action-danger" data-action="delete-fuel" data-id="${item.id}">Удалить</button>
         </div>
       </article>
     `).join("")
@@ -604,8 +631,29 @@ async function handleMedicationCreate(event) {
     }),
   });
   form.reset();
+  state.editingMedicationId = null;
   await loadMedications();
   await loadSummary();
+}
+
+async function handleMedicationUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const medicationId = form.dataset.id;
+  await api(`/me/medications/${medicationId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: form.name.value,
+      dosage: form.dosage.value,
+      instructions: form.instructions.value,
+      importance: form.importance.value,
+      daily_times_local: parseTimes(form.daily_times_local.value),
+    }),
+  });
+  state.editingMedicationId = null;
+  await loadMedications();
+  await loadSummary();
+  showMessage("Лекарство обновлено.");
 }
 
 async function handleVehicleCreate(event) {
@@ -729,30 +777,11 @@ async function handleAction(event) {
       await api(`/me/medications/${id}/skipped`, { method: "POST" });
       showMessage("Пропуск сохранен.");
     } else if (action === "edit-medication") {
-      const current = state.medications.find((item) => String(item.id) === String(id));
-      if (!current) return;
-      const name = window.prompt("Название", current.name);
-      if (!name) return;
-      const dosage = window.prompt("Дозировка", current.dosage || "");
-      if (dosage === null) return;
-      const instructions = window.prompt("Комментарий", current.instructions || "");
-      if (instructions === null) return;
-      const importance = window.prompt("Важность: supplement, normal, important, critical", current.importance || "normal");
-      if (!importance) return;
-      const times = window.prompt("Время через запятую", current.daily_times_local?.join(", ") || "");
-      if (times === null) return;
-      await api(`/me/medications/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name,
-          dosage,
-          instructions,
-          importance,
-          daily_times_local: parseTimes(times),
-        }),
-      });
+      state.editingMedicationId = Number(id);
       await loadMedications();
-      await loadSummary();
+    } else if (action === "cancel-medication-edit") {
+      state.editingMedicationId = null;
+      await loadMedications();
     } else if (action === "archive-medication") {
       await api(`/me/medications/${id}`, { method: "DELETE" });
       await loadMedications();
