@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "002"
@@ -106,7 +107,12 @@ def upgrade() -> None:
     op.create_index(op.f("ix_medications_is_active"), "medications", ["is_active"], unique=False)
     op.create_index("ix_medications_user_active", "medications", ["user_id", "is_active"], unique=False)
 
-    medication_status = sa.Enum("TAKEN", "SKIPPED", name="medicationintakestatus")
+    medication_status = postgresql.ENUM(
+        "TAKEN",
+        "SKIPPED",
+        name="medicationintakestatus",
+        create_type=False,
+    )
     medication_status.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "medication_intakes",
@@ -150,7 +156,12 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_medication_intakes_user_id"), table_name="medication_intakes")
     op.drop_index(op.f("ix_medication_intakes_medication_id"), table_name="medication_intakes")
     op.drop_table("medication_intakes")
-    sa.Enum("TAKEN", "SKIPPED", name="medicationintakestatus").drop(op.get_bind(), checkfirst=True)
+    postgresql.ENUM(
+        "TAKEN",
+        "SKIPPED",
+        name="medicationintakestatus",
+        create_type=False,
+    ).drop(op.get_bind(), checkfirst=True)
 
     op.drop_index("ix_medications_user_active", table_name="medications")
     op.drop_index(op.f("ix_medications_is_active"), table_name="medications")
