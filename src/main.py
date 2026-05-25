@@ -228,6 +228,17 @@ async def _ensure_legacy_unversioned_schema() -> None:
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_source VARCHAR(100)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_is_admin ON users (is_admin)"))
         await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS manual_mileage_km INTEGER NOT NULL DEFAULT 0"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS preset_slug VARCHAR(120)"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS body_type VARCHAR(80)"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS engine_volume_l DOUBLE PRECISION"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS engine_power_hp INTEGER"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS fuel_type VARCHAR(40)"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS transmission VARCHAR(40)"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS drive_type VARCHAR(40)"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS expected_consumption_city_l_per_100 DOUBLE PRECISION"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS expected_consumption_highway_l_per_100 DOUBLE PRECISION"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS expected_consumption_mixed_l_per_100 DOUBLE PRECISION"))
+        await conn.execute(text("ALTER TABLE driver_vehicles ADD COLUMN IF NOT EXISTS vehicle_specs_note TEXT"))
         await conn.execute(
             text(
                 """
@@ -291,6 +302,26 @@ async def _ensure_legacy_unversioned_schema() -> None:
             "ck_driver_vehicles_last_service_mileage_non_negative": (
                 "driver_vehicles",
                 "last_service_mileage_km IS NULL OR last_service_mileage_km >= 0",
+            ),
+            "ck_driver_vehicles_engine_volume_positive": (
+                "driver_vehicles",
+                "engine_volume_l IS NULL OR engine_volume_l > 0",
+            ),
+            "ck_driver_vehicles_engine_power_positive": (
+                "driver_vehicles",
+                "engine_power_hp IS NULL OR engine_power_hp > 0",
+            ),
+            "ck_driver_vehicles_consumption_city_positive": (
+                "driver_vehicles",
+                "expected_consumption_city_l_per_100 IS NULL OR expected_consumption_city_l_per_100 > 0",
+            ),
+            "ck_driver_vehicles_consumption_highway_positive": (
+                "driver_vehicles",
+                "expected_consumption_highway_l_per_100 IS NULL OR expected_consumption_highway_l_per_100 > 0",
+            ),
+            "ck_driver_vehicles_consumption_mixed_positive": (
+                "driver_vehicles",
+                "expected_consumption_mixed_l_per_100 IS NULL OR expected_consumption_mixed_l_per_100 > 0",
             ),
             "ck_driver_fuel_entries_mileage_non_negative": (
                 "driver_fuel_entries",

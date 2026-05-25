@@ -29,6 +29,7 @@ from src.services.medication_service import MedicationService
 from src.services.reminder_service import ReminderService
 from src.services.settings_service import SettingsService
 from src.services.subscription_service import SubscriptionService
+from src.services.vehicle_presets import list_vehicle_presets
 from src.db.models import RepeatRule
 
 
@@ -208,6 +209,20 @@ class DriverVehicleSummaryResponse(BaseModel):
 
     id: int
     title: str
+    preset_slug: Optional[str] = None
+    make: Optional[str] = None
+    model: Optional[str] = None
+    year: Optional[int] = None
+    body_type: Optional[str] = None
+    engine_volume_l: Optional[float] = None
+    engine_power_hp: Optional[int] = None
+    fuel_type: Optional[str] = None
+    transmission: Optional[str] = None
+    drive_type: Optional[str] = None
+    expected_consumption_city_l_per_100: Optional[float] = None
+    expected_consumption_highway_l_per_100: Optional[float] = None
+    expected_consumption_mixed_l_per_100: Optional[float] = None
+    vehicle_specs_note: Optional[str] = None
     current_mileage_km: int
     service_interval_km: int
     service_interval_months: int
@@ -271,6 +286,31 @@ class DriverDashboardResponse(BaseModel):
     documents: List[DriverDocumentResponse] = Field(default_factory=list)
 
 
+class DriverVehiclePresetResponse(BaseModel):
+    """Curated vehicle preset."""
+
+    slug: str
+    label: str
+    title: str
+    make: str
+    model: str
+    year: Optional[int]
+    generation: Optional[str]
+    body_type: str
+    engine_volume_l: float
+    engine_power_hp: Optional[int]
+    fuel_type: str
+    transmission: str
+    drive_type: str
+    consumption_city_l_per_100: Optional[float]
+    consumption_highway_l_per_100: Optional[float]
+    consumption_mixed_l_per_100: Optional[float]
+    service_interval_km: int
+    service_interval_months: int
+    confidence: str
+    note: str
+
+
 class DriverVehicleCreateRequest(BaseModel):
     """Create vehicle."""
 
@@ -278,9 +318,20 @@ class DriverVehicleCreateRequest(BaseModel):
     current_mileage_km: int = Field(default=0, ge=0)
     service_interval_km: int = Field(default=10000, gt=0)
     service_interval_months: int = Field(default=12, gt=0)
+    preset_slug: Optional[str] = Field(default=None, max_length=120)
     make: Optional[str] = Field(default=None, max_length=120)
     model: Optional[str] = Field(default=None, max_length=120)
     year: Optional[int] = Field(default=None, ge=1886, le=2100)
+    body_type: Optional[str] = Field(default=None, max_length=80)
+    engine_volume_l: Optional[float] = Field(default=None, gt=0)
+    engine_power_hp: Optional[int] = Field(default=None, gt=0)
+    fuel_type: Optional[str] = Field(default=None, max_length=40)
+    transmission: Optional[str] = Field(default=None, max_length=40)
+    drive_type: Optional[str] = Field(default=None, max_length=40)
+    expected_consumption_city_l_per_100: Optional[float] = Field(default=None, gt=0)
+    expected_consumption_highway_l_per_100: Optional[float] = Field(default=None, gt=0)
+    expected_consumption_mixed_l_per_100: Optional[float] = Field(default=None, gt=0)
+    vehicle_specs_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class DriverVehicleUpdateRequest(BaseModel):
@@ -290,6 +341,20 @@ class DriverVehicleUpdateRequest(BaseModel):
     current_mileage_km: int = Field(ge=0)
     service_interval_km: int = Field(gt=0)
     service_interval_months: int = Field(gt=0)
+    preset_slug: Optional[str] = Field(default=None, max_length=120)
+    make: Optional[str] = Field(default=None, max_length=120)
+    model: Optional[str] = Field(default=None, max_length=120)
+    year: Optional[int] = Field(default=None, ge=1886, le=2100)
+    body_type: Optional[str] = Field(default=None, max_length=80)
+    engine_volume_l: Optional[float] = Field(default=None, gt=0)
+    engine_power_hp: Optional[int] = Field(default=None, gt=0)
+    fuel_type: Optional[str] = Field(default=None, max_length=40)
+    transmission: Optional[str] = Field(default=None, max_length=40)
+    drive_type: Optional[str] = Field(default=None, max_length=40)
+    expected_consumption_city_l_per_100: Optional[float] = Field(default=None, gt=0)
+    expected_consumption_highway_l_per_100: Optional[float] = Field(default=None, gt=0)
+    expected_consumption_mixed_l_per_100: Optional[float] = Field(default=None, gt=0)
+    vehicle_specs_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class DriverFuelCreateRequest(BaseModel):
@@ -467,6 +532,20 @@ async def _vehicle_response(
     return DriverVehicleSummaryResponse(
         id=vehicle.id,
         title=vehicle.title,
+        preset_slug=vehicle.preset_slug,
+        make=vehicle.make,
+        model=vehicle.model,
+        year=vehicle.year,
+        body_type=vehicle.body_type,
+        engine_volume_l=vehicle.engine_volume_l,
+        engine_power_hp=vehicle.engine_power_hp,
+        fuel_type=vehicle.fuel_type,
+        transmission=vehicle.transmission,
+        drive_type=vehicle.drive_type,
+        expected_consumption_city_l_per_100=vehicle.expected_consumption_city_l_per_100,
+        expected_consumption_highway_l_per_100=vehicle.expected_consumption_highway_l_per_100,
+        expected_consumption_mixed_l_per_100=vehicle.expected_consumption_mixed_l_per_100,
+        vehicle_specs_note=vehicle.vehicle_specs_note,
         current_mileage_km=vehicle.current_mileage_km,
         service_interval_km=vehicle.service_interval_km,
         service_interval_months=vehicle.service_interval_months,
@@ -1127,6 +1206,14 @@ async def get_my_driver_dashboard(
     )
 
 
+@router.get("/me/driver/vehicle-presets", response_model=List[DriverVehiclePresetResponse])
+async def get_my_driver_vehicle_presets(
+    current_user: User = Depends(get_current_web_user),
+) -> List[DriverVehiclePresetResponse]:
+    """Return curated vehicle presets for quick vehicle creation."""
+    return [DriverVehiclePresetResponse(**preset.as_dict()) for preset in list_vehicle_presets()]
+
+
 @router.post("/me/driver/vehicles", response_model=DriverVehicleSummaryResponse, status_code=status.HTTP_201_CREATED)
 async def create_my_driver_vehicle(
     payload: DriverVehicleCreateRequest,
@@ -1142,9 +1229,20 @@ async def create_my_driver_vehicle(
             current_mileage_km=payload.current_mileage_km,
             service_interval_km=payload.service_interval_km,
             service_interval_months=payload.service_interval_months,
+            preset_slug=payload.preset_slug,
             make=payload.make,
             model=payload.model,
             year=payload.year,
+            body_type=payload.body_type,
+            engine_volume_l=payload.engine_volume_l,
+            engine_power_hp=payload.engine_power_hp,
+            fuel_type=payload.fuel_type,
+            transmission=payload.transmission,
+            drive_type=payload.drive_type,
+            expected_consumption_city_l_per_100=payload.expected_consumption_city_l_per_100,
+            expected_consumption_highway_l_per_100=payload.expected_consumption_highway_l_per_100,
+            expected_consumption_mixed_l_per_100=payload.expected_consumption_mixed_l_per_100,
+            vehicle_specs_note=payload.vehicle_specs_note,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
@@ -1162,6 +1260,22 @@ async def update_my_driver_vehicle(
 ) -> DriverVehicleSummaryResponse:
     """Update a vehicle profile."""
     service = DriverService(db)
+    spec_fields = {
+        "preset_slug",
+        "make",
+        "model",
+        "year",
+        "body_type",
+        "engine_volume_l",
+        "engine_power_hp",
+        "fuel_type",
+        "transmission",
+        "drive_type",
+        "expected_consumption_city_l_per_100",
+        "expected_consumption_highway_l_per_100",
+        "expected_consumption_mixed_l_per_100",
+        "vehicle_specs_note",
+    }
     try:
         vehicle = await service.update_vehicle(
             vehicle_id=vehicle_id,
@@ -1170,6 +1284,21 @@ async def update_my_driver_vehicle(
             current_mileage_km=payload.current_mileage_km,
             service_interval_km=payload.service_interval_km,
             service_interval_months=payload.service_interval_months,
+            update_specs=bool(payload.model_fields_set & spec_fields),
+            preset_slug=payload.preset_slug,
+            make=payload.make,
+            model=payload.model,
+            year=payload.year,
+            body_type=payload.body_type,
+            engine_volume_l=payload.engine_volume_l,
+            engine_power_hp=payload.engine_power_hp,
+            fuel_type=payload.fuel_type,
+            transmission=payload.transmission,
+            drive_type=payload.drive_type,
+            expected_consumption_city_l_per_100=payload.expected_consumption_city_l_per_100,
+            expected_consumption_highway_l_per_100=payload.expected_consumption_highway_l_per_100,
+            expected_consumption_mixed_l_per_100=payload.expected_consumption_mixed_l_per_100,
+            vehicle_specs_note=payload.vehicle_specs_note,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None

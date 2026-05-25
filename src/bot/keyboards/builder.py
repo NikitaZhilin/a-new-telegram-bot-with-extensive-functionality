@@ -374,6 +374,45 @@ def get_driver_vehicles_keyboard(vehicles: List) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_driver_vehicle_preset_keyboard(presets: List) -> InlineKeyboardMarkup:
+    """Vehicle preset selection keyboard."""
+    keyboard = []
+    for preset in presets:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"🚗 {truncate(preset.label, 46)}",
+                callback_data=f"driver_vehicle_preset:{preset.slug}",
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("✍️ Ввести вручную", callback_data="driver_vehicle_manual"),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("⬅️ К авто", callback_data="driver_section:vehicles"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_vehicle_preset_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Vehicle preset confirmation keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Выбрать", callback_data="driver_vehicle_preset_confirm"),
+        ],
+        [
+            InlineKeyboardButton("🚗 Другой вариант", callback_data="driver_vehicle_create"),
+            InlineKeyboardButton("✍️ Вручную", callback_data="driver_vehicle_manual"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К авто", callback_data="driver_section:vehicles"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_driver_vehicle_view_keyboard(vehicle_id: int) -> InlineKeyboardMarkup:
     """Vehicle profile keyboard."""
     keyboard = [

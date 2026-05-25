@@ -27,6 +27,8 @@ from src.bot.keyboards import (
     get_driver_step_keyboard,
     get_driver_templates_keyboard,
     get_driver_vehicle_delete_confirm_keyboard,
+    get_driver_vehicle_preset_confirm_keyboard,
+    get_driver_vehicle_preset_keyboard,
     get_driver_vehicles_keyboard,
     get_driver_vehicle_view_keyboard,
     get_driver_fuel_keyboard,
@@ -48,6 +50,7 @@ from src.bot.keyboards import (
     get_reminder_view_keyboard,
 )
 from src.db.models import User
+from src.services.vehicle_presets import list_vehicle_presets
 
 
 def _collect_callback_patterns(handler) -> set[str]:
@@ -150,6 +153,9 @@ def test_important_callback_patterns_are_registered():
         "^driver_list_template:",
         "^driver_reminder_template:",
         "^driver_vehicle_create$",
+        "^driver_vehicle_manual$",
+        "^driver_vehicle_preset:",
+        "^driver_vehicle_preset_confirm$",
         "^driver_vehicle_edit:",
         "^driver_vehicle_view:",
         "^driver_vehicle_delete:",
@@ -283,6 +289,8 @@ def test_driver_keyboards_have_registered_callbacks():
         get_driver_section_keyboard(),
         get_driver_templates_keyboard(),
         get_driver_vehicles_keyboard([]),
+        get_driver_vehicle_preset_keyboard(list_vehicle_presets()),
+        get_driver_vehicle_preset_confirm_keyboard(),
         get_driver_vehicle_view_keyboard(10),
         get_driver_vehicle_delete_confirm_keyboard(10),
         get_driver_fuel_keyboard([]),

@@ -38,6 +38,8 @@ from src.bot.keyboards import (
     get_driver_templates_keyboard,
     get_driver_vehicle_choice_keyboard,
     get_driver_vehicle_delete_confirm_keyboard,
+    get_driver_vehicle_preset_confirm_keyboard,
+    get_driver_vehicle_preset_keyboard,
     get_driver_vehicle_view_keyboard,
     get_driver_vehicles_keyboard,
 )
@@ -47,6 +49,7 @@ from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
+from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_presets
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +284,74 @@ def _format_money(value: float) -> str:
     return f"{value:.0f} ₽" if value >= 100 else f"{value:.2f} ₽"
 
 
+def _fuel_type_label(value: str | None) -> str:
+    """Human-readable fuel type."""
+    return {
+        "petrol": "бензин",
+        "diesel": "дизель",
+        "hybrid": "гибрид",
+        "electric": "электро",
+        "lpg": "газ",
+    }.get(value or "", value or "не указано")
+
+
+def _transmission_label(value: str | None) -> str:
+    """Human-readable transmission type."""
+    return {
+        "manual": "МКПП",
+        "automatic": "АКПП",
+        "robot": "робот",
+        "cvt": "вариатор",
+    }.get(value or "", value or "не указано")
+
+
+def _drive_type_label(value: str | None) -> str:
+    """Human-readable drive type."""
+    return {
+        "fwd": "передний",
+        "rwd": "задний",
+        "awd": "полный",
+    }.get(value or "", value or "не указано")
+
+
+def _format_consumption(
+    city: float | None,
+    highway: float | None,
+    mixed: float | None,
+) -> str:
+    """Format expected vehicle fuel consumption."""
+    parts = []
+    if city is not None:
+        parts.append(f"город {city:.1f}")
+    if highway is not None:
+        parts.append(f"трасса {highway:.1f}")
+    if mixed is not None:
+        parts.append(f"смешанный {mixed:.1f}")
+    if not parts:
+        return "не указан"
+    return ", ".join(parts) + " л/100 км"
+
+
+def _format_preset_details(preset) -> str:
+    """Format curated vehicle preset for confirmation screens."""
+    lines = [
+        f"🚗 {preset.label}",
+        "",
+        f"Марка/модель: {preset.make} {preset.model}",
+        f"Кузов: {preset.body_type}",
+        f"Год: {preset.year if preset.year else 'уточняется вручную'}",
+        f"Двигатель: {preset.engine_volume_l:.1f} л"
+        + (f", {preset.engine_power_hp} л.с." if preset.engine_power_hp else ""),
+        f"Топливо: {_fuel_type_label(preset.fuel_type)}",
+        f"Коробка/привод: {_transmission_label(preset.transmission)} / {_drive_type_label(preset.drive_type)}",
+        "Ориентир расхода: "
+        f"{_format_consumption(preset.consumption_city_l_per_100, preset.consumption_highway_l_per_100, preset.consumption_mixed_l_per_100)}",
+        "",
+        preset.note,
+    ]
+    return "\n".join(lines)
+
+
 def _format_date(value: datetime | None) -> str:
     """Format UTC datetime for compact bot output."""
     if not value:
@@ -395,6 +466,39 @@ def _format_vehicle(vehicle) -> str:
         f"Пробег: {vehicle.current_mileage_km:,} км".replace(",", " "),
         f"Интервал ТО: {vehicle.service_interval_km:,} км / {vehicle.service_interval_months} мес.".replace(",", " "),
     ]
+    if vehicle.make or vehicle.model or vehicle.body_type or vehicle.engine_volume_l:
+        lines.append("")
+        lines.append("Параметры:")
+        make_model = " ".join(part for part in [vehicle.make, vehicle.model] if part)
+        if make_model:
+            if vehicle.year:
+                make_model += f", {vehicle.year}"
+            lines.append(f"• {make_model}")
+        if vehicle.body_type:
+            lines.append(f"• кузов: {vehicle.body_type}")
+        if vehicle.engine_volume_l or vehicle.engine_power_hp:
+            engine = f"{vehicle.engine_volume_l:.1f} л" if vehicle.engine_volume_l else "объем не указан"
+            if vehicle.engine_power_hp:
+                engine += f", {vehicle.engine_power_hp} л.с."
+            lines.append(f"• двигатель: {engine}")
+        if vehicle.fuel_type or vehicle.transmission or vehicle.drive_type:
+            lines.append(
+                "• топливо/КПП/привод: "
+                f"{_fuel_type_label(vehicle.fuel_type)}, "
+                f"{_transmission_label(vehicle.transmission)}, "
+                f"{_drive_type_label(vehicle.drive_type)}"
+            )
+        if (
+            vehicle.expected_consumption_city_l_per_100
+            or vehicle.expected_consumption_highway_l_per_100
+            or vehicle.expected_consumption_mixed_l_per_100
+        ):
+            lines.append(
+                "• ориентир расхода: "
+                f"{_format_consumption(vehicle.expected_consumption_city_l_per_100, vehicle.expected_consumption_highway_l_per_100, vehicle.expected_consumption_mixed_l_per_100)}"
+            )
+        if vehicle.vehicle_specs_note:
+            lines.append(f"• примечание: {vehicle.vehicle_specs_note}")
     if vehicle.last_service_mileage_km is not None or vehicle.last_service_at_utc is not None:
         lines.append("")
         lines.append(
@@ -1167,6 +1271,35 @@ async def _ask_vehicle_title(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return DriverStates.WAIT_VEHICLE_TITLE
 
 
+async def _ask_vehicle_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for quick vehicle preset or manual input."""
+    await _show_driver_step(
+        update,
+        context,
+        "🚗 Новое авто\n\nВыберите готовый вариант или введите автомобиль вручную.",
+        get_driver_vehicle_preset_keyboard(list_vehicle_presets()),
+    )
+    return DriverStates.WAIT_VEHICLE_PRESET
+
+
+def _apply_vehicle_preset_to_context(context: ContextTypes.DEFAULT_TYPE, slug: str) -> bool:
+    """Put selected vehicle preset into FSM context."""
+    preset = get_vehicle_preset(slug)
+    if not preset:
+        return False
+    data = context.user_data.setdefault("driver_vehicle_data", {})
+    data.update(
+        {
+            "title": preset.title,
+            "service_interval_km": preset.service_interval_km,
+            "service_interval_months": preset.service_interval_months,
+            **preset.vehicle_kwargs(),
+        }
+    )
+    context.user_data["driver_vehicle_preset_slug"] = slug
+    return True
+
+
 async def _ask_vehicle_mileage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for current mileage."""
     data = context.user_data.setdefault("driver_vehicle_data", {})
@@ -1222,7 +1355,65 @@ async def driver_vehicle_create_start(update: Update, context: ContextTypes.DEFA
         "service_interval_km": 10000,
         "service_interval_months": 12,
     }
+    return await _ask_vehicle_preset(update, context)
+
+
+async def driver_vehicle_manual_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Continue vehicle creation with manual input."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.setdefault("driver_vehicle_data", {}).update(
+        {
+            "preset_slug": None,
+            "make": None,
+            "model": None,
+            "year": None,
+            "body_type": None,
+            "engine_volume_l": None,
+            "engine_power_hp": None,
+            "fuel_type": None,
+            "transmission": None,
+            "drive_type": None,
+            "expected_consumption_city_l_per_100": None,
+            "expected_consumption_highway_l_per_100": None,
+            "expected_consumption_mixed_l_per_100": None,
+            "vehicle_specs_note": None,
+        }
+    )
     return await _ask_vehicle_title(update, context)
+
+
+async def driver_vehicle_preset_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show selected vehicle preset before continuing."""
+    query = update.callback_query
+    await query.answer()
+    slug = query.data.split(":", 1)[1]
+    preset = get_vehicle_preset(slug)
+    if not preset or not _apply_vehicle_preset_to_context(context, slug):
+        await _show_driver_step(
+            update,
+            context,
+            "❌ Не нашёл такой вариант авто. Выберите другой или введите вручную.",
+            get_driver_vehicle_preset_keyboard(list_vehicle_presets()),
+        )
+        return DriverStates.WAIT_VEHICLE_PRESET
+
+    await _show_driver_step(
+        update,
+        context,
+        _format_preset_details(preset),
+        get_driver_vehicle_preset_confirm_keyboard(),
+    )
+    return DriverStates.WAIT_VEHICLE_PRESET
+
+
+async def driver_vehicle_preset_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Confirm selected vehicle preset."""
+    query = update.callback_query
+    await query.answer()
+    if not context.user_data.get("driver_vehicle_data", {}).get("title"):
+        return await _ask_vehicle_preset(update, context)
+    return await _ask_vehicle_mileage(update, context)
 
 
 async def driver_vehicle_edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1377,6 +1568,20 @@ async def _finish_vehicle_wizard(update: Update, context: ContextTypes.DEFAULT_T
                 current_mileage_km=data.get("current_mileage_km", 0),
                 service_interval_km=data.get("service_interval_km", 10000),
                 service_interval_months=data.get("service_interval_months", 12),
+                preset_slug=data.get("preset_slug"),
+                make=data.get("make"),
+                model=data.get("model"),
+                year=data.get("year"),
+                body_type=data.get("body_type"),
+                engine_volume_l=data.get("engine_volume_l"),
+                engine_power_hp=data.get("engine_power_hp"),
+                fuel_type=data.get("fuel_type"),
+                transmission=data.get("transmission"),
+                drive_type=data.get("drive_type"),
+                expected_consumption_city_l_per_100=data.get("expected_consumption_city_l_per_100"),
+                expected_consumption_highway_l_per_100=data.get("expected_consumption_highway_l_per_100"),
+                expected_consumption_mixed_l_per_100=data.get("expected_consumption_mixed_l_per_100"),
+                vehicle_specs_note=data.get("vehicle_specs_note"),
             )
         await session.commit()
 
@@ -2354,6 +2559,13 @@ driver_vehicle_create_conv = ConversationHandler(
         CallbackQueryHandler(driver_vehicle_edit_start, pattern="^driver_vehicle_edit:"),
     ],
     states={
+        DriverStates.WAIT_VEHICLE_PRESET: [
+            CallbackQueryHandler(driver_vehicle_create_start, pattern="^driver_vehicle_create$"),
+            CallbackQueryHandler(driver_section_callback, pattern="^driver_section:"),
+            CallbackQueryHandler(driver_vehicle_manual_start, pattern="^driver_vehicle_manual$"),
+            CallbackQueryHandler(driver_vehicle_preset_confirm, pattern="^driver_vehicle_preset_confirm$"),
+            CallbackQueryHandler(driver_vehicle_preset_select, pattern="^driver_vehicle_preset:"),
+        ],
         DriverStates.WAIT_VEHICLE_TITLE: [
             CallbackQueryHandler(driver_vehicle_title_skip, pattern="^driver_skip$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, driver_vehicle_title_save),

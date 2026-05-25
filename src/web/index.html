@@ -156,10 +156,15 @@
           <div class="panel">
             <h2>Автомобиль</h2>
             <form id="vehicleCreateForm" class="stack">
+              <select name="preset_slug">
+                <option value="">Выбрать из справочника или ввести вручную</option>
+              </select>
+              <div id="vehiclePresetDetails" class="item-meta"></div>
               <input name="title" type="text" placeholder="Название авто" required>
               <input name="current_mileage_km" type="number" min="0" placeholder="Пробег, км">
               <input name="service_interval_km" type="number" min="1" placeholder="Интервал ТО, км" value="10000">
               <input name="service_interval_months" type="number" min="1" placeholder="Интервал ТО, месяцев" value="12">
+              <input name="expected_consumption_mixed_l_per_100" type="number" min="0.1" step="0.1" placeholder="Ориентировочный смешанный расход, л/100 км">
               <button class="action-save" type="submit">Добавить авто</button>
             </form>
             <div id="vehiclesContainer" class="item-list"></div>

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from src.db.models import User
 from src.services.driver_service import DriverService
+from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_presets
 
 
 @pytest.mark.asyncio
@@ -28,6 +29,20 @@ async def test_driver_vehicle_profile_and_mileage_update(db_session):
     assert updated is not None
     assert updated.current_mileage_km == 126500
     assert updated.service_interval_km == 10000
+
+
+def test_vehicle_presets_include_requested_variants():
+    """Curated presets should expose all requested cars as direct choices."""
+    slugs = {preset.slug for preset in list_vehicle_presets()}
+
+    assert "hyundai_verna_2007_1_4_mt" in slugs
+    assert "lada_niva_21213_1997_1_7_mt" in slugs
+    assert "lada_niva_21214_1_7_mt" in slugs
+    assert "ford_focus_2_hatchback_1_6_100_mt" in slugs
+    assert "ford_focus_2_hatchback_1_6_115_mt" in slugs
+    assert "mitsubishi_pajero_pinin_1_8_mt_awd" in slugs
+    assert "mitsubishi_pajero_pinin_2_0_mt_awd" in slugs
+    assert "lada_kalina_1118_2008_1_6_8v_mt" in slugs
 
 
 @pytest.mark.asyncio
@@ -255,6 +270,10 @@ async def test_driver_service_rejects_invalid_vehicle_and_fuel_values(db_session
         await service.create_vehicle(user.id, "Bad interval", service_interval_km=0)
     with pytest.raises(ValueError):
         await service.create_vehicle(user.id, "Bad months", service_interval_months=0)
+    with pytest.raises(ValueError):
+        await service.create_vehicle(user.id, "Bad engine", engine_volume_l=0)
+    with pytest.raises(ValueError):
+        await service.create_vehicle(user.id, "Bad expected consumption", expected_consumption_mixed_l_per_100=-1)
 
     vehicle = await service.create_vehicle(user.id, "Valid car", current_mileage_km=1000)
 
@@ -270,6 +289,34 @@ async def test_driver_service_rejects_invalid_vehicle_and_fuel_values(db_session
     entry = await service.add_fuel_entry(user.id, vehicle.id, 1100, 10, 1000, True)
     with pytest.raises(ValueError):
         await service.update_fuel_entry(entry.id, user.id, 1200, -5, 1000, True)
+
+
+@pytest.mark.asyncio
+async def test_driver_vehicle_stores_preset_snapshot(db_session):
+    """Vehicle presets should be copied into user-owned vehicle snapshots."""
+    user = User(telegram_id=7011, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    preset = get_vehicle_preset("lada_kalina_1118_2008_1_6_8v_mt")
+    assert preset is not None
+
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(
+        user_id=user.id,
+        title=preset.title,
+        current_mileage_km=123000,
+        service_interval_km=preset.service_interval_km,
+        service_interval_months=preset.service_interval_months,
+        **preset.vehicle_kwargs(),
+    )
+
+    assert vehicle.preset_slug == preset.slug
+    assert vehicle.make == "Lada"
+    assert vehicle.model == "Kalina 1118"
+    assert vehicle.engine_volume_l == pytest.approx(1.6)
+    assert vehicle.engine_power_hp == 81
+    assert vehicle.expected_consumption_mixed_l_per_100 == pytest.approx(7.1)
 
 
 @pytest.mark.asyncio

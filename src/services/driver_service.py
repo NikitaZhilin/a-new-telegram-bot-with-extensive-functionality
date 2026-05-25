@@ -26,15 +26,44 @@ class DriverService:
         make: Optional[str] = None,
         model: Optional[str] = None,
         year: Optional[int] = None,
+        preset_slug: Optional[str] = None,
+        body_type: Optional[str] = None,
+        engine_volume_l: Optional[float] = None,
+        engine_power_hp: Optional[int] = None,
+        fuel_type: Optional[str] = None,
+        transmission: Optional[str] = None,
+        drive_type: Optional[str] = None,
+        expected_consumption_city_l_per_100: Optional[float] = None,
+        expected_consumption_highway_l_per_100: Optional[float] = None,
+        expected_consumption_mixed_l_per_100: Optional[float] = None,
+        vehicle_specs_note: Optional[str] = None,
     ) -> DriverVehicle:
         """Create a vehicle profile."""
         self._validate_vehicle_values(current_mileage_km, service_interval_km, service_interval_months, year)
+        self._validate_vehicle_specs(
+            engine_volume_l=engine_volume_l,
+            engine_power_hp=engine_power_hp,
+            expected_consumption_city_l_per_100=expected_consumption_city_l_per_100,
+            expected_consumption_highway_l_per_100=expected_consumption_highway_l_per_100,
+            expected_consumption_mixed_l_per_100=expected_consumption_mixed_l_per_100,
+        )
         vehicle = DriverVehicle(
             user_id=user_id,
             title=title,
+            preset_slug=preset_slug,
             make=make,
             model=model,
             year=year,
+            body_type=body_type,
+            engine_volume_l=engine_volume_l,
+            engine_power_hp=engine_power_hp,
+            fuel_type=fuel_type,
+            transmission=transmission,
+            drive_type=drive_type,
+            expected_consumption_city_l_per_100=expected_consumption_city_l_per_100,
+            expected_consumption_highway_l_per_100=expected_consumption_highway_l_per_100,
+            expected_consumption_mixed_l_per_100=expected_consumption_mixed_l_per_100,
+            vehicle_specs_note=vehicle_specs_note,
             manual_mileage_km=current_mileage_km,
             current_mileage_km=current_mileage_km,
             service_interval_km=service_interval_km,
@@ -72,17 +101,55 @@ class DriverService:
         current_mileage_km: int,
         service_interval_km: int,
         service_interval_months: int,
+        update_specs: bool = False,
+        make: Optional[str] = None,
+        model: Optional[str] = None,
+        year: Optional[int] = None,
+        preset_slug: Optional[str] = None,
+        body_type: Optional[str] = None,
+        engine_volume_l: Optional[float] = None,
+        engine_power_hp: Optional[int] = None,
+        fuel_type: Optional[str] = None,
+        transmission: Optional[str] = None,
+        drive_type: Optional[str] = None,
+        expected_consumption_city_l_per_100: Optional[float] = None,
+        expected_consumption_highway_l_per_100: Optional[float] = None,
+        expected_consumption_mixed_l_per_100: Optional[float] = None,
+        vehicle_specs_note: Optional[str] = None,
     ) -> Optional[DriverVehicle]:
         """Update a vehicle profile owned by the user."""
         vehicle = await self.get_vehicle(vehicle_id, user_id)
         if not vehicle:
             return None
 
-        self._validate_vehicle_values(current_mileage_km, service_interval_km, service_interval_months)
+        self._validate_vehicle_values(current_mileage_km, service_interval_km, service_interval_months, year)
+        if update_specs:
+            self._validate_vehicle_specs(
+                engine_volume_l=engine_volume_l,
+                engine_power_hp=engine_power_hp,
+                expected_consumption_city_l_per_100=expected_consumption_city_l_per_100,
+                expected_consumption_highway_l_per_100=expected_consumption_highway_l_per_100,
+                expected_consumption_mixed_l_per_100=expected_consumption_mixed_l_per_100,
+            )
         vehicle.title = title
         vehicle.manual_mileage_km = current_mileage_km
         vehicle.service_interval_km = service_interval_km
         vehicle.service_interval_months = service_interval_months
+        if update_specs:
+            vehicle.preset_slug = preset_slug
+            vehicle.make = make
+            vehicle.model = model
+            vehicle.year = year
+            vehicle.body_type = body_type
+            vehicle.engine_volume_l = engine_volume_l
+            vehicle.engine_power_hp = engine_power_hp
+            vehicle.fuel_type = fuel_type
+            vehicle.transmission = transmission
+            vehicle.drive_type = drive_type
+            vehicle.expected_consumption_city_l_per_100 = expected_consumption_city_l_per_100
+            vehicle.expected_consumption_highway_l_per_100 = expected_consumption_highway_l_per_100
+            vehicle.expected_consumption_mixed_l_per_100 = expected_consumption_mixed_l_per_100
+            vehicle.vehicle_specs_note = vehicle_specs_note
         vehicle.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         await self._recalculate_vehicle_current_mileage(vehicle)
@@ -611,6 +678,28 @@ class DriverService:
             raise ValueError("service_interval_months must be positive")
         if year is not None and not 1886 <= year <= 2100:
             raise ValueError("year must be between 1886 and 2100")
+
+    def _validate_vehicle_specs(
+        self,
+        *,
+        engine_volume_l: Optional[float] = None,
+        engine_power_hp: Optional[int] = None,
+        expected_consumption_city_l_per_100: Optional[float] = None,
+        expected_consumption_highway_l_per_100: Optional[float] = None,
+        expected_consumption_mixed_l_per_100: Optional[float] = None,
+    ) -> None:
+        """Reject invalid optional vehicle specs."""
+        if engine_volume_l is not None and engine_volume_l <= 0:
+            raise ValueError("engine_volume_l must be positive")
+        if engine_power_hp is not None and engine_power_hp <= 0:
+            raise ValueError("engine_power_hp must be positive")
+        for value, field_name in (
+            (expected_consumption_city_l_per_100, "expected_consumption_city_l_per_100"),
+            (expected_consumption_highway_l_per_100, "expected_consumption_highway_l_per_100"),
+            (expected_consumption_mixed_l_per_100, "expected_consumption_mixed_l_per_100"),
+        ):
+            if value is not None and value <= 0:
+                raise ValueError(f"{field_name} must be positive")
 
     def _validate_fuel_values(
         self,

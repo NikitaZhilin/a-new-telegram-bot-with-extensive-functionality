@@ -13,6 +13,7 @@ const state = {
   reminders: [],
   medications: [],
   driver: null,
+  driverPresets: [],
   fuelEntries: [],
   driverExpenses: [],
   driverDocuments: [],
@@ -290,6 +291,48 @@ function formatDocumentType(value) {
 function formatVehicleName(vehicleId) {
   const vehicle = (state.driver?.vehicles || []).find((item) => Number(item.id) === Number(vehicleId));
   return vehicle ? vehicle.title : "без привязки к авто";
+}
+
+function fuelTypeLabel(value) {
+  return {
+    petrol: "бензин",
+    diesel: "дизель",
+    hybrid: "гибрид",
+    electric: "электро",
+    lpg: "газ",
+  }[value] || value || "не указано";
+}
+
+function transmissionLabel(value) {
+  return {
+    manual: "МКПП",
+    automatic: "АКПП",
+    robot: "робот",
+    cvt: "вариатор",
+  }[value] || value || "не указано";
+}
+
+function driveTypeLabel(value) {
+  return {
+    fwd: "передний",
+    rwd: "задний",
+    awd: "полный",
+  }[value] || value || "не указано";
+}
+
+function formatExpectedConsumption(item) {
+  const city = item.expected_consumption_city_l_per_100 ?? item.consumption_city_l_per_100;
+  const highway = item.expected_consumption_highway_l_per_100 ?? item.consumption_highway_l_per_100;
+  const mixed = item.expected_consumption_mixed_l_per_100 ?? item.consumption_mixed_l_per_100;
+  const parts = [];
+  if (city) parts.push(`город ${Number(city).toFixed(1)}`);
+  if (highway) parts.push(`трасса ${Number(highway).toFixed(1)}`);
+  if (mixed) parts.push(`смешанный ${Number(mixed).toFixed(1)}`);
+  return parts.length ? `${parts.join(", ")} л/100 км` : "не указан";
+}
+
+function findVehiclePreset(slug) {
+  return state.driverPresets.find((item) => item.slug === slug) || null;
 }
 
 function formatRole(value) {
@@ -767,6 +810,7 @@ async function loadMedications() {
 
 function renderDriver() {
   const vehicles = state.driver?.vehicles || [];
+  renderVehiclePresetSelect();
   $("#vehiclesContainer").innerHTML = vehicles.length
     ? vehicles.map((item) => `
       <article class="item-card">
@@ -774,6 +818,20 @@ function renderDriver() {
           <div>
             <div class="item-title">${escapeHtml(item.title)}</div>
             <div class="item-meta">${item.current_mileage_km} км · ТО каждые ${item.service_interval_km} км / ${item.service_interval_months} мес.</div>
+            ${(item.make || item.model || item.engine_volume_l || item.expected_consumption_mixed_l_per_100) ? `
+              <div class="item-meta">
+                ${escapeHtml([item.make, item.model, item.year].filter(Boolean).join(" ")) || "Параметры авто"}
+                ${item.body_type ? ` · ${escapeHtml(item.body_type)}` : ""}
+              </div>
+              <div class="item-meta">
+                ${item.engine_volume_l ? `${Number(item.engine_volume_l).toFixed(1)} л` : "объем не указан"}
+                ${item.engine_power_hp ? ` · ${item.engine_power_hp} л.с.` : ""}
+                · ${escapeHtml(fuelTypeLabel(item.fuel_type))}
+                · ${escapeHtml(transmissionLabel(item.transmission))}
+                · ${escapeHtml(driveTypeLabel(item.drive_type))}
+              </div>
+              <div class="item-meta">Ориентир расхода: ${escapeHtml(formatExpectedConsumption(item))}</div>
+            ` : ""}
             <div class="item-meta">${escapeHtml(formatServicePlan(item.service_plan))}</div>
           </div>
         </div>
@@ -811,7 +869,56 @@ function renderDriver() {
   }
 }
 
+function renderVehiclePresetSelect() {
+  const select = $("#vehicleCreateForm select[name='preset_slug']");
+  if (!select) return;
+  const currentValue = select.value;
+  select.innerHTML = [
+    `<option value="">Выбрать из справочника или ввести вручную</option>`,
+    ...state.driverPresets.map((preset) => (
+      `<option value="${escapeHtml(preset.slug)}">${escapeHtml(preset.label)}</option>`
+    )),
+  ].join("");
+  select.value = currentValue;
+  renderVehiclePresetDetails();
+}
+
+function renderVehiclePresetDetails() {
+  const form = $("#vehicleCreateForm");
+  const target = $("#vehiclePresetDetails");
+  if (!form || !target) return;
+  const preset = findVehiclePreset(form.preset_slug.value);
+  if (!preset) {
+    target.innerHTML = "Можно выбрать готовый вариант или заполнить поля вручную.";
+    return;
+  }
+  target.innerHTML = `
+    <strong>${escapeHtml(preset.label)}</strong><br>
+    ${escapeHtml(preset.body_type)} · ${preset.year || "год уточняется вручную"} ·
+    ${Number(preset.engine_volume_l).toFixed(1)} л${preset.engine_power_hp ? ` · ${preset.engine_power_hp} л.с.` : ""}
+    · ${escapeHtml(fuelTypeLabel(preset.fuel_type))}
+    · ${escapeHtml(transmissionLabel(preset.transmission))}
+    · ${escapeHtml(driveTypeLabel(preset.drive_type))}<br>
+    Ориентир расхода: ${escapeHtml(formatExpectedConsumption(preset))}<br>
+    ${escapeHtml(preset.note)}
+  `;
+}
+
+function applyVehiclePresetToCreateForm() {
+  const form = $("#vehicleCreateForm");
+  const preset = findVehiclePreset(form.preset_slug.value);
+  renderVehiclePresetDetails();
+  if (!preset) return;
+  form.title.value = preset.title;
+  form.service_interval_km.value = preset.service_interval_km || 10000;
+  form.service_interval_months.value = preset.service_interval_months || 12;
+  form.expected_consumption_mixed_l_per_100.value = preset.consumption_mixed_l_per_100 || "";
+}
+
 async function loadDriver() {
+  if (!state.driverPresets.length) {
+    state.driverPresets = await api("/me/driver/vehicle-presets");
+  }
   state.driver = await api("/me/driver");
   state.driverExpenses = state.driver.expenses || [];
   state.driverDocuments = state.driver.documents || [];
@@ -1148,6 +1255,10 @@ async function handleMedicationUpdate(event) {
 async function handleVehicleCreate(event) {
   event.preventDefault();
   const form = event.currentTarget;
+  const preset = findVehiclePreset(form.preset_slug.value);
+  const expectedMixed = form.expected_consumption_mixed_l_per_100.value
+    ? Number(form.expected_consumption_mixed_l_per_100.value)
+    : preset?.consumption_mixed_l_per_100 || null;
   await api("/me/driver/vehicles", {
     method: "POST",
     body: JSON.stringify({
@@ -1155,9 +1266,24 @@ async function handleVehicleCreate(event) {
       current_mileage_km: Number(form.current_mileage_km.value || 0),
       service_interval_km: Number(form.service_interval_km.value || 10000),
       service_interval_months: Number(form.service_interval_months.value || 12),
+      preset_slug: preset?.slug || null,
+      make: preset?.make || null,
+      model: preset?.model || null,
+      year: preset?.year || null,
+      body_type: preset?.body_type || null,
+      engine_volume_l: preset?.engine_volume_l || null,
+      engine_power_hp: preset?.engine_power_hp || null,
+      fuel_type: preset?.fuel_type || null,
+      transmission: preset?.transmission || null,
+      drive_type: preset?.drive_type || null,
+      expected_consumption_city_l_per_100: preset?.consumption_city_l_per_100 || null,
+      expected_consumption_highway_l_per_100: preset?.consumption_highway_l_per_100 || null,
+      expected_consumption_mixed_l_per_100: expectedMixed,
+      vehicle_specs_note: preset?.note || null,
     }),
   });
   form.reset();
+  renderVehiclePresetDetails();
   await loadDriver();
   await loadSummary();
 }
@@ -1515,6 +1641,7 @@ function bindEvents() {
     loadAdmin().catch((error) => showMessage(error.message, true));
   });
   document.body.addEventListener("click", handleAction);
+  $("#vehicleCreateForm select[name='preset_slug']").addEventListener("change", applyVehiclePresetToCreateForm);
   $("#fuelCreateForm select[name='vehicle_id']").addEventListener("change", (event) => loadFuel(event.target.value).catch((error) => showMessage(error.message, true)));
 }
 

@@ -471,9 +471,20 @@ class DriverVehicle(Base):
         index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    preset_slug: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     make: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    body_type: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    engine_volume_l: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    engine_power_hp: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fuel_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    transmission: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    drive_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    expected_consumption_city_l_per_100: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    expected_consumption_highway_l_per_100: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    expected_consumption_mixed_l_per_100: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    vehicle_specs_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     manual_mileage_km: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     current_mileage_km: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     service_interval_km: Mapped[int] = mapped_column(Integer, nullable=False, default=10000, server_default="10000")
@@ -519,6 +530,20 @@ class DriverVehicle(Base):
         CheckConstraint("service_interval_km > 0", name="ck_driver_vehicles_service_interval_km_positive"),
         CheckConstraint("service_interval_months > 0", name="ck_driver_vehicles_service_interval_months_positive"),
         CheckConstraint("year IS NULL OR (year >= 1886 AND year <= 2100)", name="ck_driver_vehicles_year_reasonable"),
+        CheckConstraint("engine_volume_l IS NULL OR engine_volume_l > 0", name="ck_driver_vehicles_engine_volume_positive"),
+        CheckConstraint("engine_power_hp IS NULL OR engine_power_hp > 0", name="ck_driver_vehicles_engine_power_positive"),
+        CheckConstraint(
+            "expected_consumption_city_l_per_100 IS NULL OR expected_consumption_city_l_per_100 > 0",
+            name="ck_driver_vehicles_consumption_city_positive",
+        ),
+        CheckConstraint(
+            "expected_consumption_highway_l_per_100 IS NULL OR expected_consumption_highway_l_per_100 > 0",
+            name="ck_driver_vehicles_consumption_highway_positive",
+        ),
+        CheckConstraint(
+            "expected_consumption_mixed_l_per_100 IS NULL OR expected_consumption_mixed_l_per_100 > 0",
+            name="ck_driver_vehicles_consumption_mixed_positive",
+        ),
         CheckConstraint(
             "last_service_mileage_km IS NULL OR last_service_mileage_km >= 0",
             name="ck_driver_vehicles_last_service_mileage_non_negative",
