@@ -167,6 +167,19 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
           if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_TOKEN" ] || [ -z "$POSTGRES_PASSWORD" ]; then
+            umask 077
+            {
+              printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
+              printf 'APP_IMAGE=%s\n' "$APP_IMAGE"
+              printf 'WORKER_IMAGE=%s\n' "$WORKER_IMAGE"
+              printf 'APP_VERSION=%s\n' "$APP_VERSION"
+              printf 'STARTUP_UPDATE_MESSAGE=%s\n' "$STARTUP_UPDATE_MESSAGE"
+              printf 'TESTING_NOTICE_ENABLED=%s\n' "$TESTING_NOTICE_ENABLED"
+              printf 'TESTING_NOTICE_TEXT=%s\n' "$TESTING_NOTICE_TEXT"
+              printf 'SEND_STARTUP_MENU_ON_BOOT=%s\n' "$SEND_STARTUP_MENU_ON_BOOT"
+            } > .env.prod.overrides
+            scp -i ~/.ssh/deploy_key -P "$VPS_PORT" .env.prod.overrides "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/.env.prod.overrides"
+            rm -f .env.prod.overrides
             ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "
               set -e
               if [ ! -s '$DEPLOY_PATH/.env' ]; then
@@ -174,6 +187,13 @@ jobs:
                 exit 1
               fi
               cp '$DEPLOY_PATH/.env' '$DEPLOY_PATH/.env.prod'
+              while IFS= read -r line; do
+                key=\"\${line%%=*}\"
+                grep -v \"^\${key}=\" '$DEPLOY_PATH/.env.prod' > '$DEPLOY_PATH/.env.prod.tmp' || true
+                printf '%s\n' \"\$line\" >> '$DEPLOY_PATH/.env.prod.tmp'
+                mv '$DEPLOY_PATH/.env.prod.tmp' '$DEPLOY_PATH/.env.prod'
+              done < '$DEPLOY_PATH/.env.prod.overrides'
+              rm -f '$DEPLOY_PATH/.env.prod.overrides'
               chmod 600 '$DEPLOY_PATH/.env.prod'
             "
             exit 0
