@@ -239,6 +239,7 @@ async def _render_medication_view(
         medication = await service.get_medication(medication_id, user_id)
         intakes = await service.get_recent_intakes(medication_id, user_id, limit=5)
         action_state = await service.get_intake_action_state(medication_id, user_id, user_timezone)
+        today_slots = await service.get_today_slots(medication_id, user_id, user_timezone)
 
     if not medication:
         return None, None
@@ -255,6 +256,12 @@ async def _render_medication_view(
     lines.append("")
     lines.extend(_format_medication_action_state(action_state, user_timezone))
 
+    if today_slots:
+        lines.append("")
+        lines.append("Сегодня:")
+        for slot in today_slots:
+            lines.append(_format_medication_today_slot(slot, user_timezone))
+
     lines.append("")
     if intakes:
         lines.append("Последние отметки:")
@@ -269,6 +276,29 @@ async def _render_medication_view(
         lines.append("Отметок приема пока нет.")
 
     return "\n".join(lines), get_medication_view_keyboard(medication_id, can_mark=action_state.can_mark)
+
+
+def _format_medication_today_slot(slot, user_timezone: str) -> str:
+    """Human-readable daily slot line for a medication card."""
+    icon = {
+        "taken": "✅",
+        "skipped": "⏭",
+        "available": "🟢",
+        "pending": "⏳",
+        "missed": "⚪",
+    }.get(slot.status, "•")
+    label = {
+        "taken": "принято",
+        "skipped": "пропущено",
+        "available": "можно отметить",
+        "pending": "ожидает",
+        "missed": "без отметки",
+    }.get(slot.status, slot.status)
+    line = f"{icon} {slot.label}: {label}"
+    if slot.marked_at_utc:
+        local_dt = slot.marked_at_utc.astimezone(ZoneInfo(user_timezone))
+        line += f" в {local_dt.strftime('%H:%M')}"
+    return line
 
 
 def _format_medication_action_state(action_state, user_timezone: str) -> list[str]:
@@ -289,6 +319,16 @@ def _format_medication_action_state(action_state, user_timezone: str) -> list[st
             ]
 
     return ["Сейчас прием недоступен."]
+
+
+def _format_medication_action_alert(action_state, user_timezone: str) -> str:
+    """Short alert for stale or unavailable medication action buttons."""
+    if action_state.reason == "not_found":
+        return "Лекарство не найдено"
+    if action_state.next_available_at_utc:
+        next_local = action_state.next_available_at_utc.astimezone(ZoneInfo(user_timezone))
+        return f"Этот прием уже закрыт. Следующее окно: {next_local.strftime('%d.%m %H:%M')}"
+    return "Сейчас прием недоступен"
 
 
 async def medications_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -768,7 +808,7 @@ async def medication_mark_taken_callback(update: Update, context: ContextTypes.D
             await query.answer("Лекарство не найдено")
             await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
             return ConversationHandler.END
-        await query.answer("Этот прием уже отмечен")
+        await query.answer(_format_medication_action_alert(state, user_timezone), show_alert=True)
     else:
         await query.answer("Отмечено")
 
@@ -794,7 +834,7 @@ async def medication_skip_callback(update: Update, context: ContextTypes.DEFAULT
             await query.answer("Лекарство не найдено")
             await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
             return ConversationHandler.END
-        await query.answer("Этот прием уже закрыт")
+        await query.answer(_format_medication_action_alert(state, user_timezone), show_alert=True)
     else:
         await query.answer("Отмечено как пропущено")
 

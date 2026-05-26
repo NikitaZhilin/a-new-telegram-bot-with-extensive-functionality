@@ -472,3 +472,6 @@ async def test_web_medication_response_exposes_mark_availability(db_session):
     assert item["can_mark_now"] is False
     assert item["marked_at_utc"]
     assert item["next_available_at_utc"]
+    assert item["today_slots"][0]["label"] == "Сегодня"
+    assert item["today_slots"][0]["status"] == "taken"
+    assert item["today_slots"][0]["status_label"] == "принято"

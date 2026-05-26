@@ -26,6 +26,20 @@ class MedicationIntakeActionState:
     has_schedule: bool = False
 
 
+@dataclass(frozen=True)
+class MedicationDailySlot:
+    """One visible intake slot for the current local day."""
+
+    label: str
+    status: str
+    scheduled_time_local: Optional[str] = None
+    slot_at_utc: Optional[datetime] = None
+    window_start_utc: Optional[datetime] = None
+    next_window_start_utc: Optional[datetime] = None
+    marked_at_utc: Optional[datetime] = None
+    intake_id: Optional[int] = None
+
+
 class MedicationService:
     """Business logic for medication schedules and intake marks."""
 
@@ -137,6 +151,7 @@ class MedicationService:
         user_id: int,
         taken_at_utc: Optional[datetime] = None,
         note: Optional[str] = None,
+        scheduled_slot_at_utc: Optional[datetime] = None,
     ) -> Optional[MedicationIntake]:
         """Mark medication as taken, with ownership check."""
         medication = await self.get_medication(medication_id, user_id)
@@ -152,6 +167,11 @@ class MedicationService:
             user_id=user_id,
             taken_at_utc=taken_at_utc,
             note=note,
+            scheduled_slot_at_utc=scheduled_slot_at_utc,
+            medication_name_snapshot=medication.name,
+            dosage_snapshot=medication.dosage,
+            instructions_snapshot=medication.instructions,
+            importance_snapshot=medication.importance,
         )
         medication.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
@@ -163,6 +183,7 @@ class MedicationService:
         user_id: int,
         skipped_at_utc: Optional[datetime] = None,
         note: Optional[str] = None,
+        scheduled_slot_at_utc: Optional[datetime] = None,
     ) -> Optional[MedicationIntake]:
         """Mark medication intake as skipped."""
         medication = await self.get_medication(medication_id, user_id)
@@ -179,6 +200,11 @@ class MedicationService:
             taken_at_utc=skipped_at_utc,
             status=MedicationIntakeStatus.SKIPPED,
             note=note,
+            scheduled_slot_at_utc=scheduled_slot_at_utc,
+            medication_name_snapshot=medication.name,
+            dosage_snapshot=medication.dosage,
+            instructions_snapshot=medication.instructions,
+            importance_snapshot=medication.importance,
         )
         medication.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
@@ -263,7 +289,12 @@ class MedicationService:
         state = await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
         if not state.can_mark:
             return None, state
-        intake = await self.mark_taken(medication_id, user_id, taken_at_utc=now_utc)
+        intake = await self.mark_taken(
+            medication_id,
+            user_id,
+            taken_at_utc=now_utc,
+            scheduled_slot_at_utc=state.current_slot_at_utc,
+        )
         updated_state = await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
         return intake, updated_state
 
@@ -279,7 +310,12 @@ class MedicationService:
         state = await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
         if not state.can_mark:
             return None, state
-        intake = await self.mark_skipped(medication_id, user_id, skipped_at_utc=now_utc)
+        intake = await self.mark_skipped(
+            medication_id,
+            user_id,
+            skipped_at_utc=now_utc,
+            scheduled_slot_at_utc=state.current_slot_at_utc,
+        )
         updated_state = await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
         return intake, updated_state
 
@@ -316,6 +352,78 @@ class MedicationService:
             return []
         return list(await self.repo.get_intakes_for_user(medication_id, user_id, limit=limit))
 
+    async def get_today_slots(
+        self,
+        medication_id: int,
+        user_id: int,
+        user_timezone: str,
+        now_utc: Optional[datetime] = None,
+    ) -> list[MedicationDailySlot]:
+        """Return today's visible intake slots with taken/skipped/pending state."""
+        medication = await self.get_medication(medication_id, user_id)
+        if not medication or not medication.is_active:
+            return []
+
+        now_utc = now_utc or datetime.now(timezone.utc)
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+
+        tz = ZoneInfo(user_timezone)
+        local_today = now_utc.astimezone(tz).date()
+        schedule = await self._get_daily_schedule_times(medication_id, user_id, user_timezone)
+
+        if not schedule:
+            start_utc = self._local_day_start_utc(now_utc, user_timezone)
+            end_utc = start_utc + timedelta(days=1)
+            intake = await self._get_intake_record_in_window(medication_id, user_id, start_utc, end_utc)
+            return [
+                MedicationDailySlot(
+                    label="Сегодня",
+                    status=self._slot_status_from_intake(intake) if intake else "available",
+                    window_start_utc=start_utc,
+                    next_window_start_utc=end_utc,
+                    marked_at_utc=self._ensure_utc(intake.taken_at_utc) if intake else None,
+                    intake_id=intake.id if intake else None,
+                )
+            ]
+
+        occurrences: list[tuple[time, datetime, datetime]] = []
+        for scheduled_time in schedule:
+            slot_local = datetime.combine(local_today, scheduled_time, tzinfo=tz)
+            open_utc = (slot_local - self.SLOT_OPEN_BEFORE).astimezone(timezone.utc)
+            occurrences.append((scheduled_time, slot_local.astimezone(timezone.utc), open_utc))
+
+        result: list[MedicationDailySlot] = []
+        for index, (scheduled_time, slot_utc, open_utc) in enumerate(occurrences):
+            next_open_utc = (
+                occurrences[index + 1][2]
+                if index + 1 < len(occurrences)
+                else (datetime.combine(local_today + timedelta(days=1), schedule[0], tzinfo=tz) - self.SLOT_OPEN_BEFORE).astimezone(timezone.utc)
+            )
+            intake = await self._get_intake_record_in_window(medication_id, user_id, open_utc, next_open_utc)
+            if intake:
+                status = self._slot_status_from_intake(intake)
+            elif now_utc < open_utc:
+                status = "pending"
+            elif now_utc < next_open_utc:
+                status = "available"
+            else:
+                status = "missed"
+
+            result.append(
+                MedicationDailySlot(
+                    label=scheduled_time.strftime("%H:%M"),
+                    scheduled_time_local=scheduled_time.strftime("%H:%M"),
+                    status=status,
+                    slot_at_utc=slot_utc,
+                    window_start_utc=open_utc,
+                    next_window_start_utc=next_open_utc,
+                    marked_at_utc=self._ensure_utc(intake.taken_at_utc) if intake else None,
+                    intake_id=intake.id if intake else None,
+                )
+            )
+        return result
+
     async def _get_daily_schedule_times(
         self,
         medication_id: int,
@@ -351,8 +459,19 @@ class MedicationService:
         end_utc: datetime,
     ) -> Optional[datetime]:
         """Return latest intake mark inside a window."""
+        intake = await self._get_intake_record_in_window(medication_id, user_id, start_utc, end_utc)
+        return self._ensure_utc(intake.taken_at_utc) if intake else None
+
+    async def _get_intake_record_in_window(
+        self,
+        medication_id: int,
+        user_id: int,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> Optional[MedicationIntake]:
+        """Return latest intake record inside a window."""
         query = (
-            select(MedicationIntake.taken_at_utc)
+            select(MedicationIntake)
             .where(
                 and_(
                     MedicationIntake.medication_id == medication_id,
@@ -365,10 +484,21 @@ class MedicationService:
             .limit(1)
         )
         result = await self.db.execute(query)
-        marked_at = result.scalar_one_or_none()
-        if marked_at and marked_at.tzinfo is None:
-            marked_at = marked_at.replace(tzinfo=timezone.utc)
-        return marked_at
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    def _slot_status_from_intake(intake: MedicationIntake) -> str:
+        """Return public slot status from an intake record."""
+        status = intake.status.value if hasattr(intake.status, "value") else intake.status
+        status = str(status).lower()
+        return "skipped" if status in {"skipped", "skip"} else "taken"
+
+    @staticmethod
+    def _ensure_utc(value: datetime) -> datetime:
+        """Normalize a datetime to UTC."""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     def _local_day_start_utc(self, now_utc: datetime, user_timezone: str) -> datetime:
         """Return user's local midnight for now as UTC."""

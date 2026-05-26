@@ -96,14 +96,24 @@ class MedicationRepository(BaseRepository[Medication]):
         taken_at_utc: datetime,
         status: MedicationIntakeStatus = MedicationIntakeStatus.TAKEN,
         note: Optional[str] = None,
+        scheduled_slot_at_utc: Optional[datetime] = None,
+        medication_name_snapshot: Optional[str] = None,
+        dosage_snapshot: Optional[str] = None,
+        instructions_snapshot: Optional[str] = None,
+        importance_snapshot: Optional[str] = None,
     ) -> MedicationIntake:
         """Add one medication intake mark."""
         intake = MedicationIntake(
             medication_id=medication_id,
             user_id=user_id,
             taken_at_utc=taken_at_utc,
+            scheduled_slot_at_utc=scheduled_slot_at_utc,
             status=status,
             note=note,
+            medication_name_snapshot=medication_name_snapshot,
+            dosage_snapshot=dosage_snapshot,
+            instructions_snapshot=instructions_snapshot,
+            importance_snapshot=importance_snapshot,
         )
         self.db.add(intake)
         await self.db.flush()

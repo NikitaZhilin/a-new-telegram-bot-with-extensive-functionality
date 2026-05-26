@@ -194,6 +194,20 @@ class ReminderUpdateRequest(BaseModel):
     repeat_rule: Optional[str] = None
 
 
+class MedicationTodaySlotResponse(BaseModel):
+    """Current local-day medication intake slot."""
+
+    label: str
+    status: str
+    status_label: str
+    scheduled_time_local: Optional[str] = None
+    slot_at_utc: Optional[datetime] = None
+    window_start_utc: Optional[datetime] = None
+    next_window_start_utc: Optional[datetime] = None
+    marked_at_utc: Optional[datetime] = None
+    can_mark_now: bool = False
+
+
 class MedicationSummaryResponse(BaseModel):
     """Medication summary."""
 
@@ -210,6 +224,7 @@ class MedicationSummaryResponse(BaseModel):
     next_available_at_utc: Optional[datetime] = None
     marked_at_utc: Optional[datetime] = None
     updated_at: datetime
+    today_slots: List[MedicationTodaySlotResponse] = Field(default_factory=list)
 
 
 class MedicationCreateRequest(BaseModel):
@@ -683,6 +698,11 @@ async def _medication_response(
         user.id,
         user.timezone,
     )
+    today_slots = await service.get_today_slots(
+        medication.id,
+        user.id,
+        user.timezone,
+    )
     return MedicationSummaryResponse(
         id=medication.id,
         name=medication.name,
@@ -697,7 +717,32 @@ async def _medication_response(
         next_available_at_utc=action_state.next_available_at_utc,
         marked_at_utc=action_state.marked_at_utc,
         updated_at=medication.updated_at,
+        today_slots=[
+            MedicationTodaySlotResponse(
+                label=slot.label,
+                status=slot.status,
+                status_label=_medication_slot_status_label(slot.status),
+                scheduled_time_local=slot.scheduled_time_local,
+                slot_at_utc=slot.slot_at_utc,
+                window_start_utc=slot.window_start_utc,
+                next_window_start_utc=slot.next_window_start_utc,
+                marked_at_utc=slot.marked_at_utc,
+                can_mark_now=slot.status == "available",
+            )
+            for slot in today_slots
+        ],
     )
+
+
+def _medication_slot_status_label(status: str) -> str:
+    """Human-readable medication slot status."""
+    return {
+        "taken": "принято",
+        "skipped": "пропущено",
+        "available": "можно отметить",
+        "pending": "ожидает времени",
+        "missed": "без отметки",
+    }.get(status, status)
 
 
 @router.get("/me", response_model=MeResponse)

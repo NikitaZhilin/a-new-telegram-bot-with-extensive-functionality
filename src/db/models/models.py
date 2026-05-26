@@ -996,6 +996,11 @@ class MedicationIntake(Base):
         index=True,
     )
     taken_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    scheduled_slot_at_utc: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[MedicationIntakeStatus] = mapped_column(
         SQLAlchemyEnum(MedicationIntakeStatus),
         default=MedicationIntakeStatus.TAKEN,
@@ -1003,11 +1008,16 @@ class MedicationIntake(Base):
         index=True,
     )
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    medication_name_snapshot: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    dosage_snapshot: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    instructions_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    importance_snapshot: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     medication = relationship("Medication", back_populates="intakes")
 
     __table_args__ = (
         Index("ix_medication_intakes_user_taken", "user_id", "taken_at_utc"),
+        Index("ix_medication_intakes_med_slot", "medication_id", "scheduled_slot_at_utc"),
     )
 
     def __repr__(self) -> str:

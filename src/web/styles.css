@@ -547,6 +547,42 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+.mini-summary {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-2) 58%, transparent);
+}
+
+.mini-summary-title {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.mini-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+}
+
+.mini-summary-row.slot-taken {
+  color: var(--btn-done-text);
+}
+
+.mini-summary-row.slot-skipped,
+.mini-summary-row.slot-missed {
+  color: var(--btn-skip-text);
+}
+
+.mini-summary-row.slot-available {
+  color: var(--accent-2);
+}
+
 .item-actions {
   display: flex;
   gap: 8px;

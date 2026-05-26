@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from src.db.models import MedicationIntakeStatus, Reminder, ReminderStatus, RepeatRule, User
+from src.db.models import MedicationIntake, MedicationIntakeStatus, Reminder, ReminderStatus, RepeatRule, User
 from src.bot.handlers.medications import _extract_time_tokens, _normalize_hhmm, _parse_local_time_list
 from src.services.medication_service import MedicationService
 
@@ -358,3 +358,85 @@ async def test_medication_two_daily_marks_reopen_before_next_slot(db_session):
     assert stale_intake is None
     assert stale_state.can_mark is False
     assert next_slot_state.can_mark is True
+
+
+@pytest.mark.asyncio
+async def test_medication_intake_stores_snapshot_and_slot(db_session):
+    """Intake history should keep medication details as they were when marked."""
+    user = User(telegram_id=6013, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = MedicationService(db_session)
+    medication = await service.create_medication(
+        user_id=user.id,
+        name="L-thyroxine",
+        dosage="1 таблетка",
+        instructions="до еды",
+        importance="critical",
+    )
+    await service.create_reminder(
+        medication_id=medication.id,
+        user_id=user.id,
+        remind_at_utc=datetime(2026, 5, 23, 6, 0, tzinfo=timezone.utc),
+    )
+
+    intake, _ = await service.mark_taken_for_current_slot(
+        medication.id,
+        user.id,
+        "Europe/Moscow",
+        taken_at_utc=datetime(2026, 5, 23, 6, 30, tzinfo=timezone.utc),
+    )
+    await service.update_medication(
+        medication.id,
+        user.id,
+        name="Changed",
+        dosage="2 таблетки",
+        instructions="после еды",
+        importance="normal",
+    )
+
+    stored = await db_session.get(MedicationIntake, intake.id)
+    assert stored.medication_name_snapshot == "L-thyroxine"
+    assert stored.dosage_snapshot == "1 таблетка"
+    assert stored.instructions_snapshot == "до еды"
+    assert stored.importance_snapshot == "critical"
+    stored_slot = stored.scheduled_slot_at_utc
+    if stored_slot.tzinfo is None:
+        stored_slot = stored_slot.replace(tzinfo=timezone.utc)
+    assert stored_slot == datetime(2026, 5, 23, 6, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_medication_today_slots_show_daily_progress(db_session):
+    """Daily summary should show each scheduled slot and its current state."""
+    user = User(telegram_id=6014, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = MedicationService(db_session)
+    medication = await service.create_medication(user_id=user.id, name="Magnesium")
+    await service.replace_daily_reminders(
+        medication_id=medication.id,
+        user_id=user.id,
+        remind_at_utcs=[
+            datetime(2026, 5, 23, 6, 0, tzinfo=timezone.utc),
+            datetime(2026, 5, 23, 18, 0, tzinfo=timezone.utc),
+        ],
+    )
+    await service.mark_taken_for_current_slot(
+        medication.id,
+        user.id,
+        "Europe/Moscow",
+        taken_at_utc=datetime(2026, 5, 23, 6, 30, tzinfo=timezone.utc),
+    )
+
+    slots = await service.get_today_slots(
+        medication.id,
+        user.id,
+        "Europe/Moscow",
+        now_utc=datetime(2026, 5, 23, 6, 30, tzinfo=timezone.utc),
+    )
+
+    assert [slot.label for slot in slots] == ["09:00", "21:00"]
+    assert [slot.status for slot in slots] == ["taken", "pending"]

@@ -470,6 +470,32 @@ function formatMedicationMarkState(item) {
   return "Сейчас отметка недоступна.";
 }
 
+function medicationSlotIcon(status) {
+  return {
+    taken: "✅",
+    skipped: "⏭",
+    available: "🟢",
+    pending: "⏳",
+    missed: "⚪",
+  }[status] || "•";
+}
+
+function renderMedicationTodaySlots(item) {
+  const slots = item.today_slots || [];
+  if (!slots.length) return "";
+  return `
+    <div class="mini-summary medication-day-summary">
+      <div class="mini-summary-title">Сегодня</div>
+      ${slots.map((slot) => `
+        <div class="mini-summary-row slot-${slot.status}">
+          <span>${medicationSlotIcon(slot.status)} ${escapeHtml(slot.label)}</span>
+          <span>${escapeHtml(slot.status_label || slot.status)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function formatActionLabel(item) {
   return item.label || item.event_label || item.event_name || "действие";
 }
@@ -915,6 +941,7 @@ async function loadMedications() {
         <div class="item-text">${escapeHtml([item.dosage, item.instructions].filter(Boolean).join("\n"))}</div>
         <div class="item-meta">Время: ${escapeHtml(item.daily_times_local?.join(", ") || "не задано")}</div>
         <div class="item-meta">${escapeHtml(formatMedicationMarkState(item))}</div>
+        ${renderMedicationTodaySlots(item)}
         ${state.editingMedicationId === item.id ? renderMedicationEditForm(item) : `
           <div class="item-actions">
             ${item.is_active ? `
