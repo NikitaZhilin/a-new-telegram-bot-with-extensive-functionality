@@ -617,6 +617,17 @@ def get_back_home_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_settings_back_home_keyboard() -> InlineKeyboardMarkup:
+    """Back to settings and Home buttons."""
+    keyboard = [
+        [
+            InlineKeyboardButton("⬅️ Настройки", callback_data="settings_menu"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 # =============================================================================
 # Inline Keyboards - Notes
 # =============================================================================
@@ -1483,7 +1494,7 @@ def get_reminder_confirm_keyboard(
         ],
         [
             InlineKeyboardButton("🔁 Повтор", callback_data="rem_repeat_set"),
-            InlineKeyboardButton("🕒 Изменить время", callback_data="rem_time_change"),
+            InlineKeyboardButton("⬅️ К времени", callback_data="rem_time_change"),
         ],
         [
             InlineKeyboardButton("❌ Отмена", callback_data="rem_cancel_create"),

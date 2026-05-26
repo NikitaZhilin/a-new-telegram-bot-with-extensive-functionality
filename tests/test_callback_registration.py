@@ -57,6 +57,7 @@ from src.bot.keyboards import (
     get_reminder_edit_repeat_keyboard,
     get_reminder_view_keyboard,
     get_settings_keyboard,
+    get_settings_back_home_keyboard,
     get_about_keyboard,
 )
 from src.db.models import User
@@ -272,6 +273,7 @@ def test_settings_keyboards_have_registered_callbacks():
     callbacks = set()
     for keyboard in [
         get_settings_keyboard(),
+        get_settings_back_home_keyboard(),
         get_about_keyboard("https://example.com/repo", "https://example.com/changelog"),
     ]:
         callbacks.update(_collect_callback_data(keyboard))

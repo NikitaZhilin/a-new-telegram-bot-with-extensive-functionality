@@ -23,6 +23,7 @@ from src.bot.keyboards import (
     get_settings_keyboard,
     get_timezone_keyboard,
     get_back_home_inline_keyboard,
+    get_settings_back_home_keyboard,
     get_cancel_keyboard,
     get_cancel_inline_keyboard,
 )
@@ -111,7 +112,7 @@ async def settings_set_timezone(update: Update, context: ContextTypes.DEFAULT_TY
     
     await query.edit_message_text(
         f"✅ Часовой пояс установлен: {timezone_str}",
-        reply_markup=get_back_home_inline_keyboard(),
+        reply_markup=get_settings_back_home_keyboard(),
     )
     
     return ConversationHandler.END
@@ -152,7 +153,7 @@ async def settings_save_custom_timezone(update: Update, context: ContextTypes.DE
         
         await update.message.reply_text(
             f"✅ Часовой пояс установлен: {timezone_str}",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_settings_back_home_keyboard(),
         )
     except pytz.exceptions.UnknownTimeZoneError:
         await update.message.reply_text(
@@ -278,7 +279,7 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
     
     await query.edit_message_text(
         text,
-        reply_markup=get_back_home_inline_keyboard(),
+        reply_markup=get_settings_back_home_keyboard(),
     )
     
     return ConversationHandler.END
@@ -331,7 +332,7 @@ async def settings_subscription_callback(update: Update, context: ContextTypes.D
 
     await query.edit_message_text(
         text,
-        reply_markup=get_back_home_inline_keyboard(),
+        reply_markup=get_settings_back_home_keyboard(),
     )
 
     return ConversationHandler.END
@@ -430,7 +431,7 @@ async def settings_technical_status_callback(update: Update, context: ContextTyp
         if not _is_admin_user(user, telegram_id):
             await query.edit_message_text(
                 "🔒 Технический статус доступен только администратору.",
-                reply_markup=get_back_home_inline_keyboard(),
+                reply_markup=get_settings_back_home_keyboard(),
             )
             return ConversationHandler.END
         try:
@@ -515,14 +516,14 @@ async def settings_web_login_callback(update: Update, context: ContextTypes.DEFA
     if query:
         await query.edit_message_text(
             text,
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_settings_back_home_keyboard(),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
     else:
         await update.message.reply_text(
             text,
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_settings_back_home_keyboard(),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )

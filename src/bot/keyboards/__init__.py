@@ -14,6 +14,7 @@ from src.bot.keyboards.builder import (
     get_back_inline_keyboard,
     get_home_inline_keyboard,
     get_back_home_inline_keyboard,
+    get_settings_back_home_keyboard,
     # Notes
     get_notes_list_keyboard,
     get_note_view_keyboard,
@@ -94,6 +95,7 @@ __all__ = [
     "get_back_inline_keyboard",
     "get_home_inline_keyboard",
     "get_back_home_inline_keyboard",
+    "get_settings_back_home_keyboard",
     # Notes
     "get_notes_list_keyboard",
     "get_note_view_keyboard",
