@@ -898,7 +898,7 @@ def get_checklist_run_keyboard(run, source_list_id: Optional[int] = None) -> Inl
     all_checked = bool(run.items) and all(item.checked for item in run.items)
     if not all_checked:
         keyboard.append([
-            InlineKeyboardButton("✅ Отметить все", callback_data=f"checklist_check_all:{run.id}"),
+            InlineKeyboardButton("☑️ Отметить все пункты", callback_data=f"checklist_check_all:{run.id}"),
         ])
     else:
         keyboard.append([
