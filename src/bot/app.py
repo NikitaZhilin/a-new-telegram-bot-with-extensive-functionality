@@ -72,6 +72,7 @@ from src.bot.handlers.lists import (
     list_member_manage_callback,
     list_member_role_callback,
     list_member_remove_callback,
+    list_manage_items_callback,
     list_item_callback,
     list_item_toggle_callback,
     list_item_delete_callback,
@@ -81,6 +82,7 @@ from src.bot.handlers.checklists import (
     checklist_cancel_callback,
     checklist_check_all_callback,
     checklist_finish_callback,
+    checklist_start_item_callback,
     checklist_start_callback,
     checklist_toggle_callback,
 )
@@ -221,6 +223,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(list_delete_confirm_callback, pattern="^list_delete_confirm:"))
     application.add_handler(CallbackQueryHandler(list_share_callback, pattern="^list_share:"))
     application.add_handler(CallbackQueryHandler(list_members_callback, pattern="^list_members:"))
+    application.add_handler(CallbackQueryHandler(list_manage_items_callback, pattern="^list_manage_items:"))
     application.add_handler(CallbackQueryHandler(list_member_role_callback, pattern="^list_member_role:"))
     application.add_handler(CallbackQueryHandler(list_member_remove_callback, pattern="^list_member_remove:"))
     application.add_handler(CallbackQueryHandler(list_member_manage_callback, pattern="^list_member:"))
@@ -229,6 +232,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(list_item_delete_callback, pattern="^list_item_delete:"))
     application.add_handler(CallbackQueryHandler(list_item_delete_confirm_callback, pattern="^list_item_delete_confirm:"))
     application.add_handler(CallbackQueryHandler(lists_page_callback, pattern="^lists_page:"))
+    application.add_handler(CallbackQueryHandler(checklist_start_item_callback, pattern="^checklist_start_item:"))
     application.add_handler(CallbackQueryHandler(checklist_start_callback, pattern="^checklist_start:"))
     application.add_handler(CallbackQueryHandler(checklist_toggle_callback, pattern="^checklist_toggle:"))
     application.add_handler(CallbackQueryHandler(checklist_check_all_callback, pattern="^checklist_check_all:"))

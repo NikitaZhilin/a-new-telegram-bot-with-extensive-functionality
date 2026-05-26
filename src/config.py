@@ -106,6 +106,10 @@ class Settings(BaseSettings):
         default="gpt-4o-mini-transcribe",
         description="Audio transcription model"
     )
+    VOICE_TRANSCRIPTION_FALLBACK_MODELS: str = Field(
+        default="whisper-1",
+        description="Comma-separated fallback transcription models"
+    )
     VOICE_TRANSCRIPTION_LANGUAGE: str = Field(
         default="ru",
         description="Preferred ISO language code for transcription"

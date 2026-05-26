@@ -336,6 +336,13 @@ function formatMoney(value) {
   return number.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽";
 }
 
+function pluralRu(count, one, few, many) {
+  const value = Math.abs(Number(count || 0));
+  if (value % 10 === 1 && value % 100 !== 11) return one;
+  if (value % 10 >= 2 && value % 10 <= 4 && !(value % 100 >= 12 && value % 100 <= 14)) return few;
+  return many;
+}
+
 function formatExpenseCategory(value) {
   return {
     service: "ТО и ремонт",
@@ -737,13 +744,12 @@ async function loadLists() {
         <div class="item-card-header">
           <div>
             <div class="item-title">${escapeHtml(item.title)}</div>
-            <div class="item-meta">${item.items_done}/${item.items_total} выполнено · ${formatRole(item.access_role)}</div>
+            <div class="item-meta">${item.items_total} ${pluralRu(item.items_total, "пункт", "пункта", "пунктов")} · ${formatRole(item.access_role)}</div>
           </div>
         </div>
         ${state.editingListId === item.id ? renderListRenameForm(item) : `
           <div class="item-actions">
             <button class="small action-open" data-action="open-list" data-id="${item.id}">Открыть</button>
-            ${item.items_total ? `<button class="secondary small action-done" data-action="start-checklist-run" data-id="${item.id}">Пройти чек-лист</button>` : ""}
             ${canManage ? `
               <button class="secondary small action-edit" data-action="rename-list" data-id="${item.id}">Переименовать</button>
               <button class="danger small action-danger" data-action="delete-list" data-id="${item.id}">Удалить</button>
@@ -770,12 +776,7 @@ async function openList(listId) {
   $("#listDetailPanel").classList.remove("hidden");
   $("#listDetailPanel").innerHTML = `
     <h2>${escapeHtml(detail.title)}</h2>
-    <div class="item-meta">${detail.items_done}/${detail.items_total} выполнено · ${formatRole(detail.access_role)}</div>
-    ${detail.items.length ? `
-      <div class="item-actions">
-        <button class="secondary small action-done" data-action="start-checklist-run" data-id="${detail.id}">Пройти чек-лист</button>
-      </div>
-    ` : ""}
+    <div class="item-meta">${detail.items_total} ${pluralRu(detail.items_total, "пункт", "пункта", "пунктов")} · ${formatRole(detail.access_role)}</div>
     ${checklistPanel}
     ${canManage ? `
       <div class="item-actions">
@@ -790,9 +791,13 @@ async function openList(listId) {
       <button class="action-save" type="submit">Добавить</button>
     </form>` : `<div class="item-meta">У вас доступ только на просмотр.</div>`}
     <div class="item-list">
-      ${detail.items.length ? detail.items.map((item) => `
+      ${detail.items.length ? detail.items.map((item) => {
+        const activeRunItem = state.activeChecklistRun?.source_list_id === detail.id && state.activeChecklistRun.status === "active"
+          ? state.activeChecklistRun.items.find((runItem) => Number(runItem.source_item_id) === Number(item.id))
+          : null;
+        return `
         <div class="list-item-row">
-          <input type="checkbox" data-action="toggle-item" data-id="${item.id}" ${item.is_completed ? "checked" : ""} ${canEdit ? "" : "disabled"}>
+          <input type="checkbox" data-action="toggle-item" data-id="${item.id}" ${activeRunItem?.checked ? "checked" : ""}>
           <div class="list-item-content">
             ${state.editingItemId === item.id ? renderListItemEditForm(item) : `<span>${escapeHtml(item.text)}</span>`}
           </div>
@@ -805,7 +810,7 @@ async function openList(listId) {
             </div>
           `}
         </div>
-      `).join("") : `<div class="item-meta">Пунктов пока нет.</div>`}
+      `; }).join("") : `<div class="item-meta">Пунктов пока нет.</div>`}
     </div>
   `;
   $("#listItemCreateForm")?.addEventListener("submit", handleListItemCreate);
@@ -1667,10 +1672,21 @@ async function handleAction(event) {
       await loadLists();
       await loadSummary();
     } else if (action === "toggle-item") {
-      await api(`/me/lists/items/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ is_completed: target.checked }),
-      });
+      const activeRun = state.activeChecklistRun?.source_list_id === Number(state.selectedListId) && state.activeChecklistRun.status === "active"
+        ? state.activeChecklistRun
+        : null;
+      if (activeRun) {
+        const runItem = activeRun.items.find((item) => Number(item.source_item_id) === Number(id));
+        if (!runItem) {
+          throw new Error("Пункт не найден в текущем чек-листе.");
+        }
+        state.activeChecklistRun = await api(`/me/checklist-runs/${activeRun.id}/items/${runItem.id}/toggle`, { method: "POST" });
+      } else {
+        state.activeChecklistRun = await api(`/me/lists/${state.selectedListId}/checklist-runs`, {
+          method: "POST",
+          body: JSON.stringify({ initial_source_item_id: Number(id) }),
+        });
+      }
       await openList(state.selectedListId);
       await loadLists();
     } else if (action === "edit-item") {

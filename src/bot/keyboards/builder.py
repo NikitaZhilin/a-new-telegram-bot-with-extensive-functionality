@@ -361,7 +361,7 @@ def get_driver_created_list_keyboard(list_id: int) -> InlineKeyboardMarkup:
     """Keyboard shown after creating a driver checklist template."""
     keyboard = [
         [
-            InlineKeyboardButton("▶️ Пройти чек-лист", callback_data=f"checklist_start:{list_id}"),
+            InlineKeyboardButton("📋 Открыть список", callback_data=f"list_view:{list_id}"),
         ],
         [
             InlineKeyboardButton("⚡ К шаблонам", callback_data="driver_section:templates"),
@@ -695,23 +695,20 @@ def get_list_view_keyboard(
     items: Optional[List] = None,
     can_edit: bool = True,
     can_manage: bool = True,
+    manage_items: bool = False,
 ) -> InlineKeyboardMarkup:
     """Keyboard for viewing a single list with items."""
     keyboard = []
 
     for item in items or []:
-        status_icon = "✅" if item.is_completed else "⬜"
+        status_icon = "✏️" if manage_items else "⬜"
         text = truncate(item.text, 30)
+        callback_data = f"list_item:{item.id}" if manage_items else f"checklist_start_item:{list_id}:{item.id}"
         keyboard.append([
             InlineKeyboardButton(
                 f"{status_icon} {text}",
-                callback_data=f"list_item:{item.id}"
+                callback_data=callback_data,
             )
-        ])
-
-    if items:
-        keyboard.append([
-            InlineKeyboardButton("▶️ Пройти чек-лист", callback_data=f"checklist_start:{list_id}"),
         ])
 
     if can_edit:
@@ -722,6 +719,10 @@ def get_list_view_keyboard(
         keyboard.append([
             InlineKeyboardButton("📦 Пачкой", callback_data=f"list_add_bulk:{list_id}"),
         ])
+        if items and not manage_items:
+            keyboard.append([
+                InlineKeyboardButton("✏️ Редактировать пункты", callback_data=f"list_manage_items:{list_id}"),
+            ])
 
     if can_manage:
         keyboard.append([
@@ -843,14 +844,10 @@ def get_list_item_keyboard(
     can_edit: bool = True,
 ) -> InlineKeyboardMarkup:
     """Keyboard for a single list item."""
-    toggle_text = "⬜ Снять отметку" if is_completed else "✅ Отметить"
     keyboard = []
     if can_edit:
         keyboard.append([
-            InlineKeyboardButton(toggle_text, callback_data=f"list_item_toggle:{item_id}"),
             InlineKeyboardButton("✏️ Изменить", callback_data=f"list_item_edit:{item_id}"),
-        ])
-        keyboard.append([
             InlineKeyboardButton("🗑 Удалить", callback_data=f"list_item_delete:{item_id}"),
         ])
     keyboard.append([

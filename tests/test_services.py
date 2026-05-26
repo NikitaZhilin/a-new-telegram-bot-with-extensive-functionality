@@ -96,7 +96,13 @@ def test_list_keyboard_truncates_long_item_buttons():
     first_button = keyboard.inline_keyboard[0][0]
 
     assert first_button.text == "⬜ A very long list item title..."
-    assert first_button.callback_data == "list_item:1"
+    assert first_button.callback_data == "checklist_start_item:10:1"
+
+    manage_keyboard = get_list_view_keyboard(10, [Item()], manage_items=True)
+    manage_button = manage_keyboard.inline_keyboard[0][0]
+
+    assert manage_button.text == "✏️ A very long list item title..."
+    assert manage_button.callback_data == "list_item:1"
 
 
 @pytest.mark.asyncio

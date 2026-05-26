@@ -105,6 +105,39 @@ async def checklist_start_callback(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 
+async def checklist_start_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start a checklist run from a list item and mark that item in the run."""
+    query = update.callback_query
+    await query.answer()
+
+    _, list_id_str, item_id_str = query.data.split(":", 2)
+    list_id = int(list_id_str)
+    item_id = int(item_id_str)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = ChecklistService(session)
+        run = await service.create_run_from_list(
+            list_id,
+            user_id,
+            source_module=None,
+            initial_source_item_id=item_id,
+        )
+        await session.commit()
+        if run:
+            run = await service.get_run(run.id, user_id)
+            text, keyboard = await _render_run(service, run)
+        else:
+            text = (
+                "❌ Не удалось запустить чек-лист.\n\n"
+                "Проверьте, что список существует, доступен вам и в нем есть пункты."
+            )
+            keyboard = get_back_home_inline_keyboard()
+
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
 async def checklist_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Toggle a checklist run item and refresh the same message."""
     query = update.callback_query

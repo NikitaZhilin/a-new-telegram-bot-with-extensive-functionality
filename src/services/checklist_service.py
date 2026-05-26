@@ -28,6 +28,7 @@ class ChecklistService:
         list_id: int,
         user_id: int,
         source_module: Optional[str] = None,
+        initial_source_item_id: Optional[int] = None,
     ) -> Optional[ChecklistRun]:
         """Create a personal checklist run snapshot from an accessible list."""
         list_obj = await self.list_service.get_list(list_id, user_id, source_module=source_module)
@@ -36,6 +37,8 @@ class ChecklistService:
 
         items = await self.list_service.get_list_items(list_id, user_id, source_module=source_module)
         if not items:
+            return None
+        if initial_source_item_id is not None and all(item.id != initial_source_item_id for item in items):
             return None
 
         run = ChecklistRun(
@@ -55,7 +58,7 @@ class ChecklistService:
                     source_item_id=item.id,
                     text_snapshot=item.text,
                     position=item.position if item.position is not None else index,
-                    checked=False,
+                    checked=(item.id == initial_source_item_id),
                 )
             )
 

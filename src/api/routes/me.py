@@ -158,6 +158,12 @@ class ListItemUpdateRequest(BaseModel):
     is_completed: Optional[bool] = None
 
 
+class ChecklistRunCreateRequest(BaseModel):
+    """Create a checklist run, optionally checking one source item immediately."""
+
+    initial_source_item_id: Optional[int] = None
+
+
 class ListMemberRoleRequest(BaseModel):
     """Update a shared list member role."""
 
@@ -943,6 +949,7 @@ async def delete_my_list_item(
 )
 async def create_my_checklist_run(
     list_id: int,
+    payload: Optional[ChecklistRunCreateRequest] = None,
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> ChecklistRunResponse:
@@ -955,7 +962,12 @@ async def create_my_checklist_run(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="List has no items")
 
     service = ChecklistService(db)
-    run = await service.create_run_from_list(list_id, current_user.id, source_module="general")
+    run = await service.create_run_from_list(
+        list_id,
+        current_user.id,
+        source_module="general",
+        initial_source_item_id=payload.initial_source_item_id if payload else None,
+    )
     if not run:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Checklist run was not created")
     await db.commit()

@@ -37,6 +37,38 @@ async def test_checklist_run_uses_snapshot_without_mutating_source_list(db_sessi
 
 
 @pytest.mark.asyncio
+async def test_checklist_run_can_start_with_source_item_checked(db_session):
+    """Opening a list item should create a checklist run with only that snapshot item checked."""
+    user = User(telegram_id=9107, timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    list_service = ListService(db_session)
+    checklist_service = ChecklistService(db_session)
+    todo_list = await list_service.create_list(user.id, "Проверка")
+    first = await list_service.add_item(todo_list.id, user.id, "Первый пункт")
+    second = await list_service.add_item(todo_list.id, user.id, "Второй пункт")
+
+    run = await checklist_service.create_run_from_list(
+        todo_list.id,
+        user.id,
+        initial_source_item_id=first.id,
+    )
+
+    assert run is not None
+    checked_by_source = {item.source_item_id: item.checked for item in run.items}
+    assert checked_by_source == {first.id: True, second.id: False}
+
+    source_first = await list_service.get_item_by_id(first.id, user.id)
+    assert source_first.is_completed is False
+    assert await checklist_service.create_run_from_list(
+        todo_list.id,
+        user.id,
+        initial_source_item_id=999999,
+    ) is None
+
+
+@pytest.mark.asyncio
 async def test_checklist_run_finish_requires_all_items_checked(db_session):
     """A checklist run can only be completed after every snapshot item is checked."""
     user = User(telegram_id=9102, timezone="UTC")

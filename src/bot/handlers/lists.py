@@ -234,6 +234,7 @@ async def _render_lists_page(user_id: int, page: int) -> tuple[str, object]:
 async def _render_list_view(
     list_id: int,
     user_id: int,
+    manage_items: bool = False,
 ) -> tuple[str | None, object | None]:
     """Build text and keyboard for one list view."""
     async with async_session_maker() as session:
@@ -257,16 +258,18 @@ async def _render_list_view(
     if not items:
         lines.append("\nПока пусто. Добавьте первый пункт.")
     else:
+        if manage_items:
+            lines.append("\nРежим редактирования пунктов. Выберите пункт, чтобы изменить или удалить его.")
         lines.append("")
         for index, item in enumerate(items, 1):
-            status = "✅" if item.is_completed else "⬜"
-            lines.append(f"{index}. {status} {truncate(item.text, 72)}")
+            lines.append(f"{index}. {truncate(item.text, 72)}")
 
     return "\n".join(lines), get_list_view_keyboard(
         list_id,
         items,
         can_edit=can_edit,
         can_manage=can_manage,
+        manage_items=manage_items,
     )
 
 
@@ -376,6 +379,25 @@ async def list_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_id = await _get_app_user_id(update, session)
 
     text, keyboard = await _render_list_view(list_id, user_id)
+    if not text:
+        await query.edit_message_text("❌ Список не найден")
+        return ConversationHandler.END
+
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def list_manage_items_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show list item edit/delete mode without source completion toggles."""
+    query = update.callback_query
+    await query.answer()
+
+    list_id = _parse_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+
+    text, keyboard = await _render_list_view(list_id, user_id, manage_items=True)
     if not text:
         await query.edit_message_text("❌ Список не найден")
         return ConversationHandler.END
@@ -1084,9 +1106,8 @@ async def list_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("❌ Пункт не найден")
         return ConversationHandler.END
 
-    status = "✅ Выполнено" if item.is_completed else "⬜ Не выполнено"
     await query.edit_message_text(
-        f"{status}\n\n{item.text}",
+        f"✏️ Пункт списка\n\n{item.text}",
         reply_markup=get_list_item_keyboard(
             item.list_id,
             item.id,
@@ -1098,7 +1119,7 @@ async def list_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def list_item_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Toggle item completion and refresh the list view."""
+    """Handle stale source-completion callbacks without mutating the source list."""
     query = update.callback_query
     await query.answer()
 
@@ -1107,8 +1128,7 @@ async def list_item_toggle_callback(update: Update, context: ContextTypes.DEFAUL
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         list_service = ListService(session)
-        item = await list_service.toggle_item_by_id(item_id, user_id)
-        await session.commit()
+        item = await list_service.get_item_by_id(item_id, user_id)
 
     if not item:
         await query.edit_message_text("❌ Пункт не найден")
