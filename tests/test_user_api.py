@@ -217,6 +217,10 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
             f"/me/checklist-runs/{checklist_run_id}/items/{checklist_item_id}/toggle",
             headers=headers,
         )
+        active_checklist_response = await client.get(
+            f"/me/lists/{list_id}/active-checklist-run",
+            headers=headers,
+        )
         checklist_check_all_response = await client.post(
             f"/me/checklist-runs/{checklist_run_id}/check-all",
             headers=headers,
@@ -398,6 +402,8 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert checklist_response.status_code == 201
     assert checklist_response.json()["items_total"] == 2
     assert checklist_toggle_response.json()["items_checked"] == 1
+    assert active_checklist_response.status_code == 200
+    assert active_checklist_response.json()["id"] == checklist_run_id
     assert checklist_check_all_response.json()["items_checked"] == 2
     assert checklist_finish_response.json()["status"] == "completed"
     assert checklist_fetch_response.json()["status"] == "completed"

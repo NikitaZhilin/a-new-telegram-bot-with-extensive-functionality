@@ -65,6 +65,54 @@ class ChecklistService:
         await self.db.flush()
         return await self.get_run(run.id, user_id)
 
+    async def get_active_run_for_list(
+        self,
+        list_id: int,
+        user_id: int,
+    ) -> Optional[ChecklistRun]:
+        """Return the latest active checklist run for a source list."""
+        result = await self.db.execute(
+            select(ChecklistRun)
+            .options(selectinload(ChecklistRun.items), selectinload(ChecklistRun.source_list))
+            .where(
+                ChecklistRun.source_list_id == list_id,
+                ChecklistRun.user_id == user_id,
+                ChecklistRun.status == ACTIVE,
+            )
+            .order_by(ChecklistRun.created_at.desc(), ChecklistRun.id.desc())
+        )
+        return result.scalars().unique().first()
+
+    async def start_or_toggle_source_item(
+        self,
+        list_id: int,
+        user_id: int,
+        source_item_id: int,
+        source_module: Optional[str] = None,
+    ) -> Optional[ChecklistRun]:
+        """Create a checklist run or toggle a source item inside the active run."""
+        list_obj = await self.list_service.get_list(list_id, user_id, source_module=source_module)
+        if not list_obj:
+            return None
+
+        run = await self.get_active_run_for_list(list_id, user_id)
+        if not run:
+            return await self.create_run_from_list(
+                list_id,
+                user_id,
+                source_module=source_module,
+                initial_source_item_id=source_item_id,
+            )
+
+        item = next((item for item in run.items if item.source_item_id == source_item_id), None)
+        if not item:
+            return None
+
+        item.checked = item.checked is not True
+        run.updated_at = datetime.now(timezone.utc)
+        await self.db.flush()
+        return await self.get_run(run.id, user_id)
+
     async def get_run(self, run_id: int, user_id: int) -> Optional[ChecklistRun]:
         """Return a checklist run owned by the current user."""
         result = await self.db.execute(

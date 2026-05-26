@@ -104,6 +104,12 @@ def test_list_keyboard_truncates_long_item_buttons():
     assert manage_button.text == "✏️ A very long list item title..."
     assert manage_button.callback_data == "list_item:1"
 
+    checked_keyboard = get_list_view_keyboard(10, [Item()], checked_source_item_ids={1})
+    checked_button = checked_keyboard.inline_keyboard[0][0]
+
+    assert checked_button.text == "✅ A very long list item title..."
+    assert checked_button.callback_data == "checklist_start_item:10:1"
+
 
 @pytest.mark.asyncio
 async def test_reminder_service_links_only_accessible_lists(db_session):

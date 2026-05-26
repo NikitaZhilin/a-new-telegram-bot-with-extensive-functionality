@@ -768,6 +768,12 @@ async function loadLists() {
 async function openList(listId) {
   const detail = await api(`/me/lists/${listId}`);
   state.selectedListId = detail.id;
+  const activeRunFromServer = await api(`/me/lists/${listId}/active-checklist-run`);
+  if (activeRunFromServer) {
+    state.activeChecklistRun = activeRunFromServer;
+  } else if (!(state.activeChecklistRun?.source_list_id === detail.id && state.activeChecklistRun.status !== "active")) {
+    state.activeChecklistRun = null;
+  }
   const canEdit = detail.access_role === "owner" || detail.access_role === "editor";
   const canManage = detail.access_role === "owner";
   const checklistPanel = state.activeChecklistRun?.source_list_id === detail.id

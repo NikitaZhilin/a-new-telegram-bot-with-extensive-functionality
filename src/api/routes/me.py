@@ -975,6 +975,25 @@ async def create_my_checklist_run(
     return await _checklist_run_response(run, service)  # type: ignore[arg-type]
 
 
+@router.get("/me/lists/{list_id}/active-checklist-run", response_model=Optional[ChecklistRunResponse])
+async def get_my_active_checklist_run_for_list(
+    list_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[ChecklistRunResponse]:
+    """Return the active personal checklist run for a generic list, if any."""
+    list_service = ListService(db)
+    list_obj = await list_service.get_list(list_id, current_user.id, source_module="general")
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+
+    service = ChecklistService(db)
+    run = await service.get_active_run_for_list(list_id, current_user.id)
+    if not run:
+        return None
+    return await _checklist_run_response(run, service)
+
+
 @router.get("/me/checklist-runs/{run_id}", response_model=ChecklistRunResponse)
 async def get_my_checklist_run(
     run_id: int,

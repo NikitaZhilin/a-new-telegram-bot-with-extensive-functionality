@@ -696,12 +696,14 @@ def get_list_view_keyboard(
     can_edit: bool = True,
     can_manage: bool = True,
     manage_items: bool = False,
+    checked_source_item_ids: Optional[set[int]] = None,
 ) -> InlineKeyboardMarkup:
     """Keyboard for viewing a single list with items."""
     keyboard = []
+    checked_source_item_ids = checked_source_item_ids or set()
 
     for item in items or []:
-        status_icon = "✏️" if manage_items else "⬜"
+        status_icon = "✏️" if manage_items else ("✅" if item.id in checked_source_item_ids else "⬜")
         text = truncate(item.text, 30)
         callback_data = f"list_item:{item.id}" if manage_items else f"checklist_start_item:{list_id}:{item.id}"
         keyboard.append([

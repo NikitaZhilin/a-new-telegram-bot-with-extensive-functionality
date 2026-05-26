@@ -35,6 +35,7 @@ from src.config import settings
 from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.list_service import ListService
+from src.services.checklist_service import ChecklistService
 from src.services.speech_service import (
     SpeechTranscriptionError,
     SpeechTranscriptionService,
@@ -248,6 +249,7 @@ async def _render_list_view(
         role = await list_service.get_access_role(list_id, user_id)
         can_edit = role in {"owner", "editor"}
         can_manage = role == "owner"
+        active_run = await ChecklistService(session).get_active_run_for_list(list_id, user_id)
 
     lines = [f"📋 {list_obj.title}"]
     if role == "editor":
@@ -260,9 +262,21 @@ async def _render_list_view(
     else:
         if manage_items:
             lines.append("\nРежим редактирования пунктов. Выберите пункт, чтобы изменить или удалить его.")
+        elif active_run:
+            checked_count = sum(1 for item in active_run.items if item.checked)
+            total_count = len(active_run.items)
+            lines.append(f"\nАктивный чек-лист: {checked_count}/{total_count} отмечено.")
         lines.append("")
+        checked_by_source = {
+            item.source_item_id
+            for item in active_run.items
+            if active_run and item.source_item_id and item.checked
+        } if active_run else set()
         for index, item in enumerate(items, 1):
-            lines.append(f"{index}. {truncate(item.text, 72)}")
+            status = ""
+            if active_run and not manage_items:
+                status = "✅ " if item.id in checked_by_source else "⬜ "
+            lines.append(f"{index}. {status}{truncate(item.text, 72)}")
 
     return "\n".join(lines), get_list_view_keyboard(
         list_id,
@@ -270,6 +284,7 @@ async def _render_list_view(
         can_edit=can_edit,
         can_manage=can_manage,
         manage_items=manage_items,
+        checked_source_item_ids=checked_by_source if "checked_by_source" in locals() else set(),
     )
 
 

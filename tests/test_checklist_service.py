@@ -69,6 +69,35 @@ async def test_checklist_run_can_start_with_source_item_checked(db_session):
 
 
 @pytest.mark.asyncio
+async def test_checklist_source_item_toggle_reuses_active_run(db_session):
+    """Tapping list rows should continue the active checklist run, not create another run."""
+    user = User(telegram_id=9108, timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    list_service = ListService(db_session)
+    checklist_service = ChecklistService(db_session)
+    todo_list = await list_service.create_list(user.id, "Покупки")
+    first = await list_service.add_item(todo_list.id, user.id, "Молоко")
+    second = await list_service.add_item(todo_list.id, user.id, "Хлеб")
+
+    run = await checklist_service.start_or_toggle_source_item(todo_list.id, user.id, first.id)
+    same_run = await checklist_service.start_or_toggle_source_item(todo_list.id, user.id, second.id)
+    toggled_again = await checklist_service.start_or_toggle_source_item(todo_list.id, user.id, first.id)
+
+    assert run is not None
+    assert same_run.id == run.id
+    assert toggled_again.id == run.id
+    checked_by_source = {item.source_item_id: item.checked for item in toggled_again.items}
+    assert checked_by_source == {first.id: False, second.id: True}
+
+    active = await checklist_service.get_active_run_for_list(todo_list.id, user.id)
+    assert active.id == run.id
+    source_first = await list_service.get_item_by_id(first.id, user.id)
+    assert source_first.is_completed is False
+
+
+@pytest.mark.asyncio
 async def test_checklist_run_finish_requires_all_items_checked(db_session):
     """A checklist run can only be completed after every snapshot item is checked."""
     user = User(telegram_id=9102, timezone="UTC")

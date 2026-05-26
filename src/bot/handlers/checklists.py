@@ -117,11 +117,11 @@ async def checklist_start_item_callback(update: Update, context: ContextTypes.DE
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         service = ChecklistService(session)
-        run = await service.create_run_from_list(
+        run = await service.start_or_toggle_source_item(
             list_id,
             user_id,
+            item_id,
             source_module=None,
-            initial_source_item_id=item_id,
         )
         await session.commit()
         if run:
