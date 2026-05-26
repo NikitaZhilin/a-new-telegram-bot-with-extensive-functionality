@@ -680,6 +680,7 @@ def get_lists_list_keyboard(
     # Action buttons
     keyboard.append([
         InlineKeyboardButton("➕ Создать", callback_data="list_create"),
+        InlineKeyboardButton("🎙 Надиктовать", callback_data="list_voice_new"),
     ])
     
     keyboard.append([
@@ -716,6 +717,9 @@ def get_list_view_keyboard(
     if can_edit:
         keyboard.append([
             InlineKeyboardButton("➕ Добавить", callback_data=f"list_add_item:{list_id}"),
+            InlineKeyboardButton("🎙 Голосом", callback_data=f"list_voice_add:{list_id}"),
+        ])
+        keyboard.append([
             InlineKeyboardButton("📦 Пачкой", callback_data=f"list_add_bulk:{list_id}"),
         ])
 
@@ -739,6 +743,29 @@ def get_list_view_keyboard(
         InlineKeyboardButton("⬅️ Назад", callback_data="lists_list"),
         InlineKeyboardButton("🏠 В меню", callback_data="home"),
     ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_voice_list_preview_keyboard(
+    mode: str,
+    list_id: Optional[int] = None,
+) -> InlineKeyboardMarkup:
+    """Keyboard for dictated list preview."""
+    if mode == "add" and list_id:
+        confirm = InlineKeyboardButton("✅ Добавить в список", callback_data="list_voice_confirm")
+        back = InlineKeyboardButton("⬅️ К списку", callback_data=f"list_view:{list_id}")
+    else:
+        confirm = InlineKeyboardButton("✅ Создать список", callback_data="list_voice_confirm")
+        back = InlineKeyboardButton("⬅️ К спискам", callback_data="lists_list")
+
+    keyboard = [
+        [confirm],
+        [
+            InlineKeyboardButton("✏️ Исправить текст", callback_data="list_voice_edit_text"),
+            InlineKeyboardButton("❌ Отмена", callback_data="list_voice_cancel"),
+        ],
+        [back, InlineKeyboardButton("🏠 В меню", callback_data="home")],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 

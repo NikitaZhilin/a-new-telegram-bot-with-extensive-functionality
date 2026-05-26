@@ -28,6 +28,7 @@ from src.bot.handlers.lists import (
     list_add_bulk_conv,
     list_edit_item_conv,
     list_rename_conv,
+    list_voice_conv,
 )
 from src.bot.handlers.medications import (
     medication_create_conv,
@@ -60,6 +61,7 @@ __all__ = [
     "list_create_conv",
     "list_add_item_conv",
     "list_add_bulk_conv",
+    "list_voice_conv",
     "list_edit_item_conv",
     "list_rename_conv",
     "import_list_handler",

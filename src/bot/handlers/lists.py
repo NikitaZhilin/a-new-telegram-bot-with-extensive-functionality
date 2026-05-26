@@ -28,12 +28,19 @@ from src.bot.keyboards import (
     get_list_share_keyboard,
     get_list_view_keyboard,
     get_lists_list_keyboard,
+    get_voice_list_preview_keyboard,
 )
 from src.bot.states import ListStates
 from src.config import settings
 from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.list_service import ListService
+from src.services.speech_service import (
+    SpeechTranscriptionError,
+    SpeechTranscriptionService,
+    SpeechTranscriptionUnavailable,
+)
+from src.services.voice_list_parser import VoiceListParserService, VoiceListPreview
 from src.utils.text import truncate
 
 logger = logging.getLogger(__name__)
@@ -75,6 +82,32 @@ def _store_prompt_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data["list_prompt_message_id"] = query.message.message_id
 
 
+async def _edit_stored_prompt(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    reply_markup,
+) -> None:
+    """Edit the stored bot prompt without clearing it."""
+    chat_id = context.user_data.get("list_prompt_chat_id")
+    message_id = context.user_data.get("list_prompt_message_id")
+
+    if chat_id and message_id:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+        return
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+        return
+
+    await update.message.reply_text(text, reply_markup=reply_markup)
+
+
 async def _edit_prompt_or_reply(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -106,6 +139,63 @@ async def _delete_user_message(update: Update) -> None:
         await update.message.delete()
     except Exception:
         logger.debug("Could not delete user input message", exc_info=True)
+
+
+def _voice_limits_text() -> str:
+    """Return short voice input limits for prompts."""
+    return (
+        f"До {settings.VOICE_MAX_DURATION_SECONDS // 60} мин. "
+        f"и до {settings.VOICE_MAX_FILE_MB} МБ."
+    )
+
+
+def _render_voice_preview(preview: VoiceListPreview, mode: str, list_id: int | None) -> tuple[str, object]:
+    """Build dictated list preview text and keyboard."""
+    action = "добавить в текущий список" if mode == "add" else "создать новый список"
+    lines = [
+        "🎙 Распознанный список",
+        "",
+        f"Действие: {action}",
+    ]
+    if mode == "new":
+        lines.append(f"Название: {truncate(preview.title, 80)}")
+
+    lines.extend(["", "Пункты:"])
+    if preview.items:
+        for index, item in enumerate(preview.items, 1):
+            lines.append(f"{index}. {truncate(item, 90)}")
+    else:
+        lines.append("Не удалось выделить пункты.")
+
+    lines.extend([
+        "",
+        "Исходный текст:",
+        truncate(preview.transcript, 700),
+    ])
+    return "\n".join(lines), get_voice_list_preview_keyboard(mode, list_id)
+
+
+def _store_voice_preview(
+    context: ContextTypes.DEFAULT_TYPE,
+    preview: VoiceListPreview,
+    mode: str,
+    list_id: int | None,
+) -> None:
+    """Persist voice preview in PTB user_data until confirmation."""
+    context.user_data["voice_list_mode"] = mode
+    context.user_data["voice_list_id"] = list_id
+    context.user_data["voice_list_title"] = preview.title
+    context.user_data["voice_list_items"] = preview.items
+    context.user_data["voice_list_transcript"] = preview.transcript
+
+
+def _current_voice_preview(context: ContextTypes.DEFAULT_TYPE) -> VoiceListPreview:
+    """Return preview stored in user_data."""
+    return VoiceListPreview(
+        title=context.user_data.get("voice_list_title") or VoiceListParserService.DEFAULT_TITLE,
+        items=list(context.user_data.get("voice_list_items") or []),
+        transcript=context.user_data.get("voice_list_transcript") or "",
+    )
 
 
 async def _render_lists_page(user_id: int, page: int) -> tuple[str, object]:
@@ -377,6 +467,208 @@ async def list_save_bulk(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _edit_prompt_or_reply(update, context, rendered_text, keyboard)
 
     context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def list_voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start voice-to-list flow."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    mode = "add" if data.startswith("list_voice_add:") else "new"
+    list_id = int(data.split(":", 1)[1]) if mode == "add" else None
+    _store_prompt_message(update, context)
+
+    if mode == "add":
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            list_service = ListService(session)
+            if not await list_service.can_edit(list_id, user_id):
+                await query.edit_message_text(
+                    "❌ У вас нет прав редактировать этот список.",
+                    reply_markup=get_back_home_inline_keyboard(),
+                )
+                return ConversationHandler.END
+
+    context.user_data["voice_list_mode"] = mode
+    context.user_data["voice_list_id"] = list_id
+
+    if not SpeechTranscriptionService().is_configured():
+        await query.edit_message_text(
+            "🎙 Голосовое создание списков пока не настроено.\n\n"
+            "Нужно включить `VOICE_TRANSCRIPTION_ENABLED=true` и указать `OPENAI_API_KEY` в `.env`.",
+            reply_markup=get_back_home_inline_keyboard(),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        "🎙 Надиктуйте список одним голосовым сообщением.\n\n"
+        "Можно говорить через паузы, запятые или словами: первое, второе, дальше.\n"
+        f"Ограничение: {_voice_limits_text()}\n\n"
+        "После расшифровки я покажу предпросмотр перед сохранением.",
+        reply_markup=get_cancel_inline_keyboard(),
+    )
+    return ListStates.WAIT_VOICE_MESSAGE
+
+
+async def list_voice_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Transcribe incoming voice/audio and show preview."""
+    message = update.message
+    audio = message.voice or message.audio if message else None
+    mode = context.user_data.get("voice_list_mode", "new")
+    list_id = context.user_data.get("voice_list_id")
+
+    if not audio:
+        await message.reply_text("Отправьте голосовое сообщение.", reply_markup=get_cancel_inline_keyboard())
+        return ListStates.WAIT_VOICE_MESSAGE
+
+    duration = getattr(audio, "duration", None) or 0
+    file_size = getattr(audio, "file_size", None) or 0
+    if duration and duration > settings.VOICE_MAX_DURATION_SECONDS:
+        await message.reply_text(
+            f"Голосовое слишком длинное. Ограничение: {_voice_limits_text()}",
+            reply_markup=get_cancel_inline_keyboard(),
+        )
+        return ListStates.WAIT_VOICE_MESSAGE
+    if file_size and file_size > settings.VOICE_MAX_FILE_MB * 1024 * 1024:
+        await message.reply_text(
+            f"Файл слишком большой. Ограничение: {_voice_limits_text()}",
+            reply_markup=get_cancel_inline_keyboard(),
+        )
+        return ListStates.WAIT_VOICE_MESSAGE
+
+    await _edit_stored_prompt(
+        update,
+        context,
+        "🎙 Расшифровываю голосовое сообщение...\n\n"
+        "Голос будет отправлен во внешний сервис распознавания речи.",
+        reply_markup=get_cancel_inline_keyboard(),
+    )
+
+    try:
+        telegram_file = await context.bot.get_file(audio.file_id)
+        audio_bytes = bytes(await telegram_file.download_as_bytearray())
+        result = await SpeechTranscriptionService().transcribe(
+            audio_bytes,
+            filename=getattr(audio, "file_name", None) or "telegram_voice.ogg",
+            content_type=getattr(audio, "mime_type", None) or "audio/ogg",
+        )
+        preview = VoiceListParserService().parse(
+            result.text,
+            max_items=settings.VOICE_LIST_MAX_ITEMS,
+        )
+    except SpeechTranscriptionUnavailable as exc:
+        await _edit_stored_prompt(
+            update,
+            context,
+            f"❌ {exc}",
+            reply_markup=get_back_home_inline_keyboard(),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    except SpeechTranscriptionError as exc:
+        await _edit_stored_prompt(
+            update,
+            context,
+            f"❌ {exc}\n\nМожно попробовать еще раз или отменить сценарий.",
+            reply_markup=get_cancel_inline_keyboard(),
+        )
+        return ListStates.WAIT_VOICE_MESSAGE
+    finally:
+        await _delete_user_message(update)
+
+    _store_voice_preview(context, preview, mode, list_id)
+    text, keyboard = _render_voice_preview(preview, mode, list_id)
+    await _edit_stored_prompt(update, context, text, keyboard)
+    return ListStates.WAIT_VOICE_CONFIRM
+
+
+async def list_voice_edit_text_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask user to send corrected transcript text."""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "✏️ Исправление текста\n\n"
+        "Отправьте текст списком, через строки, запятые или слова “первое”, “второе”.",
+        reply_markup=get_cancel_inline_keyboard(),
+    )
+    _store_prompt_message(update, context)
+    return ListStates.WAIT_VOICE_TEXT_EDIT
+
+
+async def list_voice_save_text_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Re-parse corrected text and show preview."""
+    mode = context.user_data.get("voice_list_mode", "new")
+    list_id = context.user_data.get("voice_list_id")
+    preview = VoiceListParserService().parse(
+        update.message.text,
+        max_items=settings.VOICE_LIST_MAX_ITEMS,
+    )
+    await _delete_user_message(update)
+    _store_voice_preview(context, preview, mode, list_id)
+    text, keyboard = _render_voice_preview(preview, mode, list_id)
+    await _edit_stored_prompt(update, context, text, keyboard)
+    return ListStates.WAIT_VOICE_CONFIRM
+
+
+async def list_voice_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Create a list or append items from the stored voice preview."""
+    query = update.callback_query
+    await query.answer()
+
+    preview = _current_voice_preview(context)
+    mode = context.user_data.get("voice_list_mode", "new")
+    list_id = context.user_data.get("voice_list_id")
+    if not preview.items:
+        await query.answer("Сначала исправьте текст: пункты не найдены.", show_alert=True)
+        return ListStates.WAIT_VOICE_CONFIRM
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        list_service = ListService(session)
+
+        if mode == "add" and list_id:
+            list_obj = await list_service.get_list(list_id, user_id)
+            if not list_obj or not await list_service.can_edit(list_id, user_id):
+                await query.edit_message_text(
+                    "❌ Список не найден или недоступен для редактирования.",
+                    reply_markup=get_back_home_inline_keyboard(),
+                )
+                context.user_data.clear()
+                return ConversationHandler.END
+            await list_service.add_items_bulk(list_id, user_id, preview.items)
+            await session.commit()
+            rendered_text, keyboard = await _render_list_view(list_id, user_id)
+        else:
+            list_obj = await list_service.create_list(user_id, preview.title)
+            await list_service.add_items_bulk(list_obj.id, user_id, preview.items)
+            await session.commit()
+            rendered_text, keyboard = await _render_list_view(list_obj.id, user_id)
+
+    await query.edit_message_text(rendered_text, reply_markup=keyboard)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def list_voice_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel voice-to-list flow."""
+    query = update.callback_query
+    await query.answer("Отменено")
+    mode = context.user_data.get("voice_list_mode", "new")
+    list_id = context.user_data.get("voice_list_id")
+    context.user_data.clear()
+    if mode == "add" and list_id:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+        text, keyboard = await _render_list_view(list_id, user_id)
+        await query.edit_message_text(text or "Список не найден", reply_markup=keyboard or get_back_home_inline_keyboard())
+    else:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+        text, keyboard = await _render_lists_page(user_id, page=0)
+        await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 
 
@@ -938,6 +1230,30 @@ list_add_bulk_conv = ConversationHandler(
     fallbacks=[
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+    ],
+)
+
+list_voice_conv = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(list_voice_start, pattern="^list_voice_(new|add:)"),
+    ],
+    states={
+        ListStates.WAIT_VOICE_MESSAGE: [
+            MessageHandler((filters.VOICE | filters.AUDIO) & ~filters.COMMAND, list_voice_receive),
+        ],
+        ListStates.WAIT_VOICE_CONFIRM: [
+            CallbackQueryHandler(list_voice_confirm, pattern="^list_voice_confirm$"),
+            CallbackQueryHandler(list_voice_edit_text_start, pattern="^list_voice_edit_text$"),
+            CallbackQueryHandler(list_voice_cancel, pattern="^list_voice_cancel$"),
+        ],
+        ListStates.WAIT_VOICE_TEXT_EDIT: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, list_voice_save_text_edit),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel_handler),
+        CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        CallbackQueryHandler(list_voice_cancel, pattern="^list_voice_cancel$"),
     ],
 )
 

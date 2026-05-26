@@ -88,6 +88,44 @@ class Settings(BaseSettings):
         default="⚠️ Бот находится в тестировании. Данные могут быть изменены или утеряны.",
         description="Short user-facing testing notice"
     )
+
+    # Voice transcription
+    OPENAI_API_KEY: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key used for voice transcription"
+    )
+    VOICE_TRANSCRIPTION_ENABLED: bool = Field(
+        default=False,
+        description="Enable Telegram voice-to-list transcription"
+    )
+    VOICE_TRANSCRIPTION_BASE_URL: str = Field(
+        default="https://api.openai.com/v1",
+        description="OpenAI-compatible API base URL for audio transcriptions"
+    )
+    VOICE_TRANSCRIPTION_MODEL: str = Field(
+        default="gpt-4o-mini-transcribe",
+        description="Audio transcription model"
+    )
+    VOICE_TRANSCRIPTION_LANGUAGE: str = Field(
+        default="ru",
+        description="Preferred ISO language code for transcription"
+    )
+    VOICE_TRANSCRIPTION_PROMPT: str = Field(
+        default="Пользователь диктует список дел или покупок на русском языке. Верни точный текст.",
+        description="Prompt passed to the transcription model"
+    )
+    VOICE_MAX_DURATION_SECONDS: int = Field(
+        default=180,
+        description="Maximum Telegram voice/audio duration accepted for transcription"
+    )
+    VOICE_MAX_FILE_MB: int = Field(
+        default=20,
+        description="Maximum Telegram voice/audio file size accepted for transcription"
+    )
+    VOICE_LIST_MAX_ITEMS: int = Field(
+        default=40,
+        description="Maximum list items parsed from one voice message"
+    )
     
     # Webhook (optional)
     WEBHOOK_URL: Optional[str] = Field(default=None, description="Webhook URL for production")

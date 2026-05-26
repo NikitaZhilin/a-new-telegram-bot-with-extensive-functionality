@@ -24,7 +24,7 @@ README намеренно не содержит токенов, адресов �
 
 ### Что Умеет Бот
 
-- Списки: личные и общие списки, пункты, bulk add, интерактивное прохождение чек-листа, роли `owner/editor/viewer`, токены копии и приглашения.
+- Списки: личные и общие списки, пункты, bulk add, голосовое создание/пополнение списка, интерактивное прохождение чек-листа, роли `owner/editor/viewer`, токены копии и приглашения.
 - Напоминания: быстрые даты/время, ручные фразы, повторы, редактирование, выполнение, отмена.
 - Лекарства: карточки препаратов, дозировка, инструкция, важность, напоминания 1-3 раза в день, отметки приема.
 - Водитель: авто, presets, пробег, ТО, заправки, расходы, документы, напоминания по документам, статистика.
@@ -81,6 +81,13 @@ WEB_PUBLIC_URL=http://127.0.0.1:8000
 ```
 
 `5432` - стандартный локальный порт PostgreSQL. Если он уже занят, используйте `POSTGRES_PORT=5433` и такой же порт в `DATABASE_URL`.
+
+Голосовое создание списков опционально. Для него включите:
+
+```env
+VOICE_TRANSCRIPTION_ENABLED=true
+OPENAI_API_KEY=...
+```
 
 3. Запустить локально:
 
@@ -175,7 +182,7 @@ Old stage reports and provider-specific notes are kept in `docs/archive` and are
 
 ### Features
 
-- Lists: personal and shared lists, items, bulk add, interactive checklist runs, `owner/editor/viewer` roles, copy and collaboration tokens.
+- Lists: personal and shared lists, items, bulk add, voice-to-list creation/appending, interactive checklist runs, `owner/editor/viewer` roles, copy and collaboration tokens.
 - Reminders: quick date/time presets, natural phrases, repeats, editing, done/cancel/delete actions.
 - Medications: medication cards, dosage, instructions, importance, 1-3 daily reminders, intake tracking.
 - Driver: vehicles, presets, mileage, service plan, fuel, expenses, documents, document reminders, statistics.
@@ -232,6 +239,13 @@ WEB_PUBLIC_URL=http://127.0.0.1:8000
 ```
 
 `5432` is the default local PostgreSQL port. If it is already occupied, use `POSTGRES_PORT=5433` and the same port in `DATABASE_URL`.
+
+Voice-to-list transcription is optional. Enable it with:
+
+```env
+VOICE_TRANSCRIPTION_ENABLED=true
+OPENAI_API_KEY=...
+```
 
 3. Start locally:
 

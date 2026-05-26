@@ -521,6 +521,23 @@ async def dry_run_all() -> None:
     )
 
 
+def _format_admin_startup_notice_text(info: dict, technical_changes: str) -> str:
+    """Build admin-only startup/deploy notice text."""
+    return (
+        "🔧 Служебное уведомление\n\n"
+        "Это техническое сообщение отправлено только администраторам бота. "
+        "Обычные пользователи его не получают.\n\n"
+        f"Бот перезапущен.\n"
+        f"Версия: {settings.APP_VERSION}\n"
+        f"Запуск: {info['started_at_display']} ({info['started_timezone']})\n"
+        f"Пользовательские релизные сообщения: {info['startup_announce_mode']}\n"
+        f"Служебные admin-уведомления: {info['startup_admin_announce_mode']}\n\n"
+        "Технические изменения:\n"
+        f"{technical_changes}\n\n"
+        "Подробности: Настройки → О боте → Технический статус."
+    )
+
+
 async def _send_admin_startup_notices(bot_app, reply_markup) -> None:
     """Send a compact startup/deploy notice to configured admins only."""
     logger = structlog.get_logger(__name__)
@@ -551,17 +568,7 @@ async def _send_admin_startup_notices(bot_app, reply_markup) -> None:
 
             await bot_app.bot.send_message(
                 chat_id=telegram_id,
-                text=(
-                    "🔧 Служебное уведомление\n\n"
-                    f"Бот перезапущен.\n"
-                    f"Версия: {settings.APP_VERSION}\n"
-                    f"Запуск: {info['started_at_display']} ({info['started_timezone']})\n"
-                    f"Пользовательские релизные сообщения: {info['startup_announce_mode']}\n"
-                    f"Admin-уведомления: {info['startup_admin_announce_mode']}\n\n"
-                    "Технические изменения:\n"
-                    f"{technical_changes}\n\n"
-                    "Подробности: Настройки → О боте → Технический статус."
-                ),
+                text=_format_admin_startup_notice_text(info, technical_changes),
                 reply_markup=reply_markup,
             )
             await _record_startup_event_sent(

@@ -84,6 +84,24 @@ def test_admin_startup_notice_policy_is_separate_from_user_broadcasts():
     ) is True
 
 
+def test_admin_startup_notice_text_is_explicitly_admin_only():
+    """Admin startup notice should not look like a user broadcast."""
+    text = main._format_admin_startup_notice_text(
+        {
+            "started_at_display": "26.05.2026 18:02",
+            "started_timezone": "Europe/Moscow",
+            "startup_announce_mode": "off",
+            "startup_admin_announce_mode": "once_per_version",
+        },
+        "- Техническая правка",
+    )
+
+    assert "только администраторам бота" in text
+    assert "Обычные пользователи его не получают" in text
+    assert "Пользовательские релизные сообщения: off" in text
+    assert "- Техническая правка" in text
+
+
 def test_optional_technical_changes_are_empty_when_not_configured():
     assert optional_release_change_lines("", None) == []
     assert optional_release_change_lines("????????? ???????????", None) == []

@@ -28,6 +28,7 @@ from src.bot.handlers import (
     list_add_bulk_conv,
     list_edit_item_conv,
     list_rename_conv,
+    list_voice_conv,
     medication_create_conv,
     medication_edit_conv,
     medication_reminder_conv,
@@ -181,6 +182,7 @@ def create_application() -> Application:
     application.add_handler(list_create_conv)
     application.add_handler(list_add_item_conv)
     application.add_handler(list_add_bulk_conv)
+    application.add_handler(list_voice_conv)
     application.add_handler(list_edit_item_conv)
     application.add_handler(list_rename_conv)
 

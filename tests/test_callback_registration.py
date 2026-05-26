@@ -43,6 +43,7 @@ from src.bot.keyboards import (
     get_list_members_keyboard,
     get_list_share_keyboard,
     get_list_view_keyboard,
+    get_voice_list_preview_keyboard,
     get_lists_list_keyboard,
     get_checklist_finished_keyboard,
     get_checklist_run_keyboard,
@@ -124,6 +125,10 @@ def test_important_callback_patterns_are_registered():
         "^list_member_role:",
         "^list_member_remove:",
         "^list_remind:",
+        "^list_voice_(new|add:)",
+        "^list_voice_confirm$",
+        "^list_voice_edit_text$",
+        "^list_voice_cancel$",
         "^med_create$",
         "^med_dosage:",
         "^med_instr:",
@@ -267,6 +272,8 @@ def test_list_keyboards_have_registered_callbacks():
         get_list_item_delete_confirm_keyboard(10, 20),
         get_checklist_run_keyboard(run, 10),
         get_checklist_finished_keyboard(10),
+        get_voice_list_preview_keyboard("new"),
+        get_voice_list_preview_keyboard("add", 10),
     ]:
         callbacks.update(_collect_callback_data(keyboard))
 

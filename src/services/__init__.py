@@ -5,8 +5,10 @@ from src.services.checklist_service import ChecklistService
 from src.services.medication_service import MedicationService
 from src.services.reminder_service import ReminderService
 from src.services.settings_service import SettingsService
+from src.services.speech_service import SpeechTranscriptionService
 from src.services.subscription_service import SubscriptionService
 from src.services.driver_service import DriverService
+from src.services.voice_list_parser import VoiceListParserService
 from src.services.web_auth_service import WebAuthService
 
 __all__ = [
@@ -15,7 +17,9 @@ __all__ = [
     "MedicationService",
     "ReminderService",
     "SettingsService",
+    "SpeechTranscriptionService",
     "SubscriptionService",
     "DriverService",
+    "VoiceListParserService",
     "WebAuthService",
 ]
