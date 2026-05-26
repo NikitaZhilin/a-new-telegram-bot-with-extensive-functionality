@@ -580,6 +580,23 @@ h3 {
   font-weight: 700;
 }
 
+.checklist-panel {
+  border-color: color-mix(in srgb, var(--btn-done-text) 24%, var(--line));
+}
+
+button.checklist-row {
+  width: 100%;
+  min-height: 42px;
+  color: var(--text);
+  text-align: left;
+  font-weight: 700;
+}
+
+button.checklist-row:hover {
+  filter: none;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
 .checkbox-row {
   display: flex;
   gap: 8px;

@@ -1,3 +1,4 @@
+> ARCHIVE NOTICE: This file is historical context only. It is not a current setup, launch, deployment, or security instruction. Use ../README.md, ../USER_GUIDE.md, ../TECHNICAL.md, and ../DEPLOYMENT.md instead.
 # 🚀 Развёртывание на Render
 
 **Дата:** 2026-02-19  
@@ -85,7 +86,7 @@ postgresql+asyncpg://user:pass@host:port/db
 ### Environment Variables
 
 ```bash
-BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+BOT_TOKEN=replace-with-bot-token
 DATABASE_URL=postgresql+asyncpg://postgres:pass@dpg-xxx.db.render.com:5432/rememberme
 ADMIN_TOKEN=your-super-secret-token
 API_HOST=0.0.0.0
@@ -128,7 +129,7 @@ WORKER_INTERVAL=60
 ### Environment Variables
 
 ```bash
-BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+BOT_TOKEN=replace-with-bot-token
 DATABASE_URL=postgresql+asyncpg://postgres:pass@dpg-xxx.db.render.com:5432/rememberme
 ADMIN_TOKEN=your-super-secret-token
 API_HOST=0.0.0.0
@@ -176,7 +177,7 @@ Worker использует `SELECT ... FOR UPDATE SKIP LOCKED`, но для г�
 ### Environment Variables
 
 ```bash
-BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+BOT_TOKEN=replace-with-bot-token
 DATABASE_URL=postgresql+asyncpg://postgres:pass@dpg-xxx.db.render.com:5432/rememberme
 ADMIN_TOKEN=your-super-secret-token
 LOG_LEVEL=INFO

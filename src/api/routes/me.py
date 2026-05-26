@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from src.api.user_auth import get_current_web_user
 from src.config import settings
 from src.db.models import (
+    ChecklistRun,
     DriverDocument,
     DriverExpense,
     DriverVehicle,
@@ -23,6 +24,7 @@ from src.db.models import (
     User,
 )
 from src.db.session import get_db
+from src.services.checklist_service import ChecklistService
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
 from src.services.medication_service import MedicationService
@@ -78,6 +80,31 @@ class ListItemResponse(BaseModel):
     is_completed: bool
     position: Optional[int]
     created_at: datetime
+
+
+class ChecklistRunItemResponse(BaseModel):
+    """Snapshot item in a checklist run."""
+
+    id: int
+    source_item_id: Optional[int]
+    text_snapshot: str
+    position: int
+    checked: bool
+
+
+class ChecklistRunResponse(BaseModel):
+    """Personal interactive checklist run."""
+
+    id: int
+    source_list_id: Optional[int]
+    title_snapshot: str
+    status: str
+    items_total: int
+    items_checked: int
+    source_changed: bool
+    created_at: datetime
+    completed_at: Optional[datetime]
+    items: List[ChecklistRunItemResponse]
 
 
 class ListDetailResponse(ListSummaryResponse):
@@ -492,6 +519,35 @@ async def _list_response(list_obj: TodoList, user_id: int, service: ListService)
     )
 
 
+async def _checklist_run_response(
+    run: ChecklistRun,
+    service: ChecklistService,
+) -> ChecklistRunResponse:
+    """Serialize a personal checklist run."""
+    checked, total = service.progress(run)
+    return ChecklistRunResponse(
+        id=run.id,
+        source_list_id=run.source_list_id,
+        title_snapshot=run.title_snapshot,
+        status=run.status,
+        items_total=total,
+        items_checked=checked,
+        source_changed=await service.source_changed(run),
+        created_at=run.created_at,
+        completed_at=run.completed_at,
+        items=[
+            ChecklistRunItemResponse(
+                id=item.id,
+                source_item_id=item.source_item_id,
+                text_snapshot=item.text_snapshot,
+                position=item.position,
+                checked=item.checked,
+            )
+            for item in run.items
+        ],
+    )
+
+
 async def _fresh_list(db: AsyncSession, list_id: int) -> Optional[TodoList]:
     """Load a list with fresh item relationship state."""
     result = await db.execute(
@@ -833,6 +889,114 @@ async def delete_my_list_item(
     list_obj = await _fresh_list(db, list_id)
     await db.commit()
     return await _list_response(list_obj, current_user.id, service)  # type: ignore[arg-type]
+
+
+@router.post(
+    "/me/lists/{list_id}/checklist-runs",
+    response_model=ChecklistRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_my_checklist_run(
+    list_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChecklistRunResponse:
+    """Start a personal checklist run from a generic list."""
+    list_service = ListService(db)
+    list_obj = await list_service.get_list(list_id, current_user.id, source_module="general")
+    if not list_obj or list_obj.source_module != "general":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    if not list_obj.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="List has no items")
+
+    service = ChecklistService(db)
+    run = await service.create_run_from_list(list_id, current_user.id, source_module="general")
+    if not run:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Checklist run was not created")
+    await db.commit()
+    run = await service.get_run(run.id, current_user.id)
+    return await _checklist_run_response(run, service)  # type: ignore[arg-type]
+
+
+@router.get("/me/checklist-runs/{run_id}", response_model=ChecklistRunResponse)
+async def get_my_checklist_run(
+    run_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChecklistRunResponse:
+    """Return one personal checklist run."""
+    service = ChecklistService(db)
+    run = await service.get_run(run_id, current_user.id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checklist run not found")
+    return await _checklist_run_response(run, service)
+
+
+@router.post("/me/checklist-runs/{run_id}/items/{item_id}/toggle", response_model=ChecklistRunResponse)
+async def toggle_my_checklist_item(
+    run_id: int,
+    item_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChecklistRunResponse:
+    """Toggle one snapshot item in an active checklist run."""
+    service = ChecklistService(db)
+    run = await service.toggle_item(run_id, item_id, current_user.id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active checklist run not found")
+    await db.commit()
+    return await _checklist_run_response(run, service)
+
+
+@router.post("/me/checklist-runs/{run_id}/check-all", response_model=ChecklistRunResponse)
+async def check_all_my_checklist_items(
+    run_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChecklistRunResponse:
+    """Mark all snapshot items in an active checklist run."""
+    service = ChecklistService(db)
+    run = await service.check_all(run_id, current_user.id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active checklist run not found")
+    await db.commit()
+    return await _checklist_run_response(run, service)
+
+
+@router.post("/me/checklist-runs/{run_id}/finish", response_model=ChecklistRunResponse)
+async def finish_my_checklist_run(
+    run_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChecklistRunResponse:
+    """Finish a checklist run after every item is checked."""
+    service = ChecklistService(db)
+    run = await service.get_run(run_id, current_user.id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checklist run not found")
+    if run.status != "active":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Checklist run is not active")
+    if not service.all_checked(run):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Check all items first")
+
+    finished = await service.finish_run(run_id, current_user.id)
+    await db.commit()
+    return await _checklist_run_response(finished, service)  # type: ignore[arg-type]
+
+
+@router.post("/me/checklist-runs/{run_id}/cancel", response_model=ChecklistRunResponse)
+async def cancel_my_checklist_run(
+    run_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChecklistRunResponse:
+    """Cancel an active checklist run."""
+    service = ChecklistService(db)
+    run = await service.cancel_run(run_id, current_user.id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active checklist run not found")
+    await db.commit()
+    return await _checklist_run_response(run, service)
 
 
 @router.post("/me/lists/{list_id}/share", response_model=ListShareLinksResponse)

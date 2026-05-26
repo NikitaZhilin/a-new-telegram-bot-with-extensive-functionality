@@ -206,6 +206,29 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
             json={"text": "first\nsecond"},
         )
         item_id = item_response.json()["items"][0]["id"]
+        second_item_id = item_response.json()["items"][1]["id"]
+        checklist_response = await client.post(
+            f"/me/lists/{list_id}/checklist-runs",
+            headers=headers,
+        )
+        checklist_run_id = checklist_response.json()["id"]
+        checklist_item_id = checklist_response.json()["items"][0]["id"]
+        checklist_toggle_response = await client.post(
+            f"/me/checklist-runs/{checklist_run_id}/items/{checklist_item_id}/toggle",
+            headers=headers,
+        )
+        checklist_check_all_response = await client.post(
+            f"/me/checklist-runs/{checklist_run_id}/check-all",
+            headers=headers,
+        )
+        checklist_finish_response = await client.post(
+            f"/me/checklist-runs/{checklist_run_id}/finish",
+            headers=headers,
+        )
+        checklist_fetch_response = await client.get(
+            f"/me/checklist-runs/{checklist_run_id}",
+            headers=headers,
+        )
         toggled_response = await client.patch(
             f"/me/lists/items/{item_id}",
             headers=headers,
@@ -362,6 +385,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
         )
 
         lists_response = await client.get("/me/lists", headers=headers)
+        list_detail_response = await client.get(f"/me/lists/{list_id}", headers=headers)
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
         medications_response = await client.get("/me/medications", headers=headers)
         driver_response = await client.get("/me/driver", headers=headers)
@@ -371,6 +395,12 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert summary_response.status_code == 200
     assert list_response.status_code == 201
     assert item_response.status_code == 201
+    assert checklist_response.status_code == 201
+    assert checklist_response.json()["items_total"] == 2
+    assert checklist_toggle_response.json()["items_checked"] == 1
+    assert checklist_check_all_response.json()["items_checked"] == 2
+    assert checklist_finish_response.json()["status"] == "completed"
+    assert checklist_fetch_response.json()["status"] == "completed"
     assert toggled_response.json()["items"][0]["is_completed"] is True
     assert share_response.status_code == 200
     assert share_response.json()["import_command"].startswith("/import_list ")
@@ -399,6 +429,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert updated_document_response.json()["title"] == "OSAGO updated"
     assert updated_document_response.json()["remind_before_days"] == 7
     assert lists_response.json()[0]["title"] == "Web CRUD"
+    assert next(item for item in list_detail_response.json()["items"] if item["id"] == second_item_id)["is_completed"] is False
     assert reminders_response.json()[0]["status"] == "canceled"
     assert medications_response.json()[0]["name"] == "Web med updated"
     assert driver_response.json()["overview"]["vehicles_count"] == 1

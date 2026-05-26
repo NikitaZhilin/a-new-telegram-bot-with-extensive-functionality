@@ -357,6 +357,20 @@ def get_driver_templates_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_driver_created_list_keyboard(list_id: int) -> InlineKeyboardMarkup:
+    """Keyboard shown after creating a driver checklist template."""
+    keyboard = [
+        [
+            InlineKeyboardButton("▶️ Пройти чек-лист", callback_data=f"checklist_start:{list_id}"),
+        ],
+        [
+            InlineKeyboardButton("⚡ К шаблонам", callback_data="driver_section:templates"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_driver_vehicles_keyboard(vehicles: List) -> InlineKeyboardMarkup:
     """Vehicle list keyboard."""
     keyboard = []
@@ -629,117 +643,6 @@ def get_settings_back_home_keyboard() -> InlineKeyboardMarkup:
 
 
 # =============================================================================
-# Inline Keyboards - Notes
-# =============================================================================
-
-def get_notes_list_keyboard(
-    notes: List,
-    page: int = 0,
-    has_next: bool = False,
-) -> InlineKeyboardMarkup:
-    """
-    Keyboard for notes list with pagination.
-    
-    Args:
-        notes: List of Note objects
-        page: Current page number
-        has_next: Whether there are more pages
-    """
-    keyboard = []
-    
-    # Notes buttons
-    for note in notes:
-        status_icon = "📦" if note.is_archived else "📝"
-        title = note.title or "Без названия"
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{status_icon} {title}",
-                callback_data=f"note_view:{note.id}"
-            )
-        ])
-    
-    # Pagination
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f"notes_page:{page-1}"))
-    if has_next:
-        nav_row.append(InlineKeyboardButton("➡️", callback_data=f"notes_page:{page+1}"))
-    if nav_row:
-        keyboard.append(nav_row)
-    
-    # Action buttons
-    keyboard.append([
-        InlineKeyboardButton("➕ Создать", callback_data="note_create"),
-    ])
-    
-    keyboard.append([
-        InlineKeyboardButton("🏠 В меню", callback_data="home"),
-    ])
-    
-    return InlineKeyboardMarkup(keyboard)
-
-
-def get_note_view_keyboard(note_id: int, is_archived: bool = False) -> InlineKeyboardMarkup:
-    """Keyboard for viewing a single note."""
-    keyboard = []
-    
-    if not is_archived:
-        keyboard.append([
-            InlineKeyboardButton("✏️ Редактировать", callback_data=f"note_edit:{note_id}"),
-        ])
-        keyboard.append([
-            InlineKeyboardButton("🗑 Удалить", callback_data=f"note_delete:{note_id}"),
-            InlineKeyboardButton("📦 Архивировать", callback_data=f"note_archive:{note_id}"),
-        ])
-    else:
-        keyboard.append([
-            InlineKeyboardButton("📤 Восстановить", callback_data=f"note_restore:{note_id}"),
-            InlineKeyboardButton("🗑 Удалить", callback_data=f"note_delete:{note_id}"),
-        ])
-    
-    keyboard.append([
-        InlineKeyboardButton("⬅️ Назад", callback_data="notes_list"),
-        InlineKeyboardButton("🏠 В меню", callback_data="home"),
-    ])
-    
-    return InlineKeyboardMarkup(keyboard)
-
-
-def get_note_edit_keyboard(note_id: int) -> InlineKeyboardMarkup:
-    """Keyboard for editing a note."""
-    keyboard = [
-        [
-            InlineKeyboardButton("✏️ Заголовок", callback_data=f"note_edit_title:{note_id}"),
-            InlineKeyboardButton("📝 Текст", callback_data=f"note_edit_body:{note_id}"),
-        ],
-        [
-            InlineKeyboardButton("⬅️ Назад", callback_data=f"note_view:{note_id}"),
-        ],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-
-def get_notes_archive_keyboard(page: int = 0, has_next: bool = False) -> InlineKeyboardMarkup:
-    """Keyboard for archived notes."""
-    keyboard = []
-    
-    # Pagination
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f"notes_archive_page:{page-1}"))
-    if has_next:
-        nav_row.append(InlineKeyboardButton("➡️", callback_data=f"notes_archive_page:{page+1}"))
-    if nav_row:
-        keyboard.append(nav_row)
-    
-    keyboard.append([
-        InlineKeyboardButton("⬅️ Назад", callback_data="notes_list"),
-    ])
-    
-    return InlineKeyboardMarkup(keyboard)
-
-
-# =============================================================================
 # Inline Keyboards - Lists
 # =============================================================================
 
@@ -803,6 +706,11 @@ def get_list_view_keyboard(
                 f"{status_icon} {text}",
                 callback_data=f"list_item:{item.id}"
             )
+        ])
+
+    if items:
+        keyboard.append([
+            InlineKeyboardButton("▶️ Пройти чек-лист", callback_data=f"checklist_start:{list_id}"),
         ])
 
     if can_edit:
@@ -948,6 +856,67 @@ def get_list_item_delete_confirm_keyboard(list_id: int, item_id: int) -> InlineK
             InlineKeyboardButton("📋 К списку", callback_data=f"list_view:{list_id}"),
         ],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_checklist_run_keyboard(run, source_list_id: Optional[int] = None) -> InlineKeyboardMarkup:
+    """Keyboard for an active personal checklist run."""
+    keyboard = []
+    for item in run.items:
+        status_icon = "✅" if item.checked else "⬜"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{status_icon} {truncate(item.text_snapshot, 34)}",
+                callback_data=f"checklist_toggle:{run.id}:{item.id}",
+            )
+        ])
+
+    all_checked = bool(run.items) and all(item.checked for item in run.items)
+    if not all_checked:
+        keyboard.append([
+            InlineKeyboardButton("✅ Отметить все", callback_data=f"checklist_check_all:{run.id}"),
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton("✅ Завершить чек-лист", callback_data=f"checklist_finish:{run.id}"),
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("❌ Отменить", callback_data=f"checklist_cancel:{run.id}"),
+    ])
+    if source_list_id:
+        keyboard.append([
+            InlineKeyboardButton("⬅️ К списку", callback_data=f"list_view:{source_list_id}"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton("📋 К спискам", callback_data="lists_list"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_checklist_finished_keyboard(source_list_id: Optional[int] = None) -> InlineKeyboardMarkup:
+    """Keyboard for finished or canceled checklist run screen."""
+    if source_list_id:
+        keyboard = [
+            [
+                InlineKeyboardButton("⬅️ К списку", callback_data=f"list_view:{source_list_id}"),
+                InlineKeyboardButton("📋 К спискам", callback_data="lists_list"),
+            ],
+            [
+                InlineKeyboardButton("🏠 В меню", callback_data="home"),
+            ],
+        ]
+    else:
+        keyboard = [
+            [
+                InlineKeyboardButton("📋 К спискам", callback_data="lists_list"),
+                InlineKeyboardButton("🏠 В меню", callback_data="home"),
+            ],
+        ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -1373,7 +1342,11 @@ def get_reminders_list_keyboard(
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_reminder_view_keyboard(reminder_id: int, status: str = "active") -> InlineKeyboardMarkup:
+def get_reminder_view_keyboard(
+    reminder_id: int,
+    status: str = "active",
+    list_id: Optional[int] = None,
+) -> InlineKeyboardMarkup:
     """Keyboard for viewing a single reminder."""
     keyboard = []
 
@@ -1386,6 +1359,12 @@ def get_reminder_view_keyboard(reminder_id: int, status: str = "active") -> Inli
             InlineKeyboardButton("✏️ Текст", callback_data=f"reminder_edit_text:{reminder_id}"),
             InlineKeyboardButton("🕒 Время", callback_data=f"reminder_edit_time:{reminder_id}"),
             InlineKeyboardButton("🔁 Повтор", callback_data=f"reminder_edit_repeat:{reminder_id}"),
+        ])
+
+    if list_id:
+        keyboard.append([
+            InlineKeyboardButton("📋 Открыть список", callback_data=f"list_view:{list_id}"),
+            InlineKeyboardButton("▶️ Чек-лист", callback_data=f"checklist_start:{list_id}"),
         ])
 
     keyboard.append([

@@ -18,6 +18,7 @@ const state = {
   fuelEntries: [],
   driverExpenses: [],
   driverDocuments: [],
+  activeChecklistRun: null,
   selectedListId: null,
   selectedVehicleId: null,
   editingListId: null,
@@ -198,6 +199,7 @@ function renderMetrics() {
   const stats = state.summary?.stats || {};
   const cards = [
     ["Списки", stats.lists?.owned ?? 0, `общих списков с вашим доступом: ${stats.lists?.shared ?? 0}`],
+    ["Чек-листы", stats.checklists?.completed ?? 0, `активных: ${stats.checklists?.active ?? 0}; отменено: ${stats.checklists?.canceled ?? 0}`],
     ["Активные напоминания", stats.reminders?.active ?? 0, `выполнено: ${stats.reminders?.done ?? 0}; отменено: ${stats.reminders?.canceled ?? 0}`],
     ["Лекарства", stats.medications?.active ?? 0, `в архиве: ${stats.medications?.archived ?? 0}`],
     ["Автомобили", stats.driver?.vehicles_count ?? 0, `заправок: ${stats.driver?.fuel_entries_count ?? 0}; документов: ${stats.driver?.documents_active_count ?? 0}`],
@@ -280,6 +282,8 @@ function renderDashboardDetails(stats) {
       lines: [
         `Личные списки: ${stats.lists?.owned ?? 0}`,
         `Общие списки: ${stats.lists?.shared ?? 0}`,
+        `Завершенные чек-листы: ${stats.checklists?.completed ?? 0}`,
+        `Активные чек-листы: ${stats.checklists?.active ?? 0}`,
         `Активные лекарства: ${stats.medications?.active ?? 0}`,
         `Автомобили: ${stats.driver?.vehicles_count ?? 0}`,
       ],
@@ -713,6 +717,7 @@ async function loadLists() {
         ${state.editingListId === item.id ? renderListRenameForm(item) : `
           <div class="item-actions">
             <button class="small action-open" data-action="open-list" data-id="${item.id}">Открыть</button>
+            ${item.items_total ? `<button class="secondary small action-done" data-action="start-checklist-run" data-id="${item.id}">Пройти чек-лист</button>` : ""}
             ${canManage ? `
               <button class="secondary small action-edit" data-action="rename-list" data-id="${item.id}">Переименовать</button>
               <button class="danger small action-danger" data-action="delete-list" data-id="${item.id}">Удалить</button>
@@ -733,10 +738,19 @@ async function openList(listId) {
   state.selectedListId = detail.id;
   const canEdit = detail.access_role === "owner" || detail.access_role === "editor";
   const canManage = detail.access_role === "owner";
+  const checklistPanel = state.activeChecklistRun?.source_list_id === detail.id
+    ? renderChecklistRunPanel(state.activeChecklistRun)
+    : "";
   $("#listDetailPanel").classList.remove("hidden");
   $("#listDetailPanel").innerHTML = `
     <h2>${escapeHtml(detail.title)}</h2>
     <div class="item-meta">${detail.items_done}/${detail.items_total} выполнено · ${formatRole(detail.access_role)}</div>
+    ${detail.items.length ? `
+      <div class="item-actions">
+        <button class="secondary small action-done" data-action="start-checklist-run" data-id="${detail.id}">Пройти чек-лист</button>
+      </div>
+    ` : ""}
+    ${checklistPanel}
     ${canManage ? `
       <div class="item-actions">
         <button class="secondary small action-share" data-action="share-list" data-id="${detail.id}">Ссылки доступа</button>
@@ -772,6 +786,34 @@ async function openList(listId) {
   $$(".list-item-edit-form").forEach((form) => {
     form.addEventListener("submit", (event) => handleListItemUpdate(event).catch((error) => showMessage(error.message, true)));
   });
+}
+
+function renderChecklistRunPanel(run) {
+  const isActive = run.status === "active";
+  const isDone = run.status === "completed";
+  return `
+    <div class="subpanel checklist-panel">
+      <h3>${isDone ? "Чек-лист завершен" : run.status === "canceled" ? "Чек-лист отменен" : "Прохождение чек-листа"}</h3>
+      <div class="item-meta">${escapeHtml(run.title_snapshot)} · отмечено ${run.items_checked}/${run.items_total}</div>
+      ${run.source_changed ? `<div class="notice-pill">Исходный список изменился. Прохождение идет по сохраненной копии.</div>` : ""}
+      ${isActive ? `
+        <div class="item-list">
+          ${run.items.map((item) => `
+            <button class="compact-row checklist-row" data-action="checklist-toggle" data-run-id="${run.id}" data-id="${item.id}">
+              <span>${item.checked ? "✅" : "⬜"} ${escapeHtml(item.text_snapshot)}</span>
+            </button>
+          `).join("")}
+        </div>
+        <div class="item-actions">
+          ${run.items_checked < run.items_total ? `<button class="secondary small action-done" data-action="checklist-check-all" data-id="${run.id}">Отметить все</button>` : ""}
+          <button class="small action-save" data-action="checklist-finish" data-id="${run.id}" ${run.items_checked === run.items_total ? "" : "disabled"}>Завершить</button>
+          <button class="secondary small action-cancel" data-action="checklist-cancel" data-id="${run.id}">Отменить</button>
+        </div>
+      ` : `
+        <div class="item-meta">Исходный список не изменен.</div>
+      `}
+    </div>
+  `;
 }
 
 function renderListSharePanel(data) {
@@ -1581,6 +1623,11 @@ async function handleAction(event) {
   try {
     if (action === "open-list") {
       await openList(id);
+    } else if (action === "start-checklist-run") {
+      state.activeChecklistRun = await api(`/me/lists/${id}/checklist-runs`, { method: "POST" });
+      await openList(id);
+      await loadSummary();
+      showMessage("Чек-лист запущен.");
     } else if (action === "rename-list") {
       state.editingListId = Number(id);
       await loadLists();
@@ -1628,6 +1675,22 @@ async function handleAction(event) {
       renderListMembersPanel(members);
     } else if (action === "copy-share-text") {
       await copyText(target.dataset.text);
+    } else if (action === "checklist-toggle") {
+      state.activeChecklistRun = await api(`/me/checklist-runs/${target.dataset.runId}/items/${id}/toggle`, { method: "POST" });
+      await openList(state.selectedListId);
+    } else if (action === "checklist-check-all") {
+      state.activeChecklistRun = await api(`/me/checklist-runs/${id}/check-all`, { method: "POST" });
+      await openList(state.selectedListId);
+    } else if (action === "checklist-finish") {
+      state.activeChecklistRun = await api(`/me/checklist-runs/${id}/finish`, { method: "POST" });
+      await openList(state.selectedListId);
+      await loadSummary();
+      showMessage("Чек-лист завершен.");
+    } else if (action === "checklist-cancel") {
+      state.activeChecklistRun = await api(`/me/checklist-runs/${id}/cancel`, { method: "POST" });
+      await openList(state.selectedListId);
+      await loadSummary();
+      showMessage("Чек-лист отменен.");
     } else if (action === "done-reminder") {
       await api(`/me/reminders/${id}/done`, { method: "POST" });
       await loadReminders();

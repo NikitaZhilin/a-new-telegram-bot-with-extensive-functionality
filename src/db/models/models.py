@@ -153,6 +153,13 @@ class User(Base):
         lazy="selectin",
         order_by="WebLoginToken.created_at.desc()",
     )
+    checklist_runs = relationship(
+        "ChecklistRun",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ChecklistRun.created_at.desc()",
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id})>"
@@ -345,6 +352,11 @@ class TodoList(Base):
         back_populates="todo_list",
         lazy="selectin"
     )
+    checklist_runs = relationship(
+        "ChecklistRun",
+        back_populates="source_list",
+        lazy="selectin",
+    )
 
     def __repr__(self) -> str:
         return f"<TodoList(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
@@ -456,6 +468,98 @@ class ListMember(Base):
 
     def __repr__(self) -> str:
         return f"<ListMember(list_id={self.list_id}, user_id={self.user_id}, role='{self.role}')>"
+
+
+class ChecklistRun(Base):
+    """A personal interactive checklist execution snapshot."""
+
+    __tablename__ = "checklist_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_list_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("lists.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    title_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+    user = relationship("User", back_populates="checklist_runs")
+    source_list = relationship("TodoList", back_populates="checklist_runs")
+    items = relationship(
+        "ChecklistRunItem",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ChecklistRunItem.position",
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'completed', 'canceled')", name="ck_checklist_runs_status"),
+        Index("ix_checklist_runs_user_status", "user_id", "status"),
+        Index("ix_checklist_runs_list_created", "source_list_id", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChecklistRun(id={self.id}, user_id={self.user_id}, status='{self.status}')>"
+
+
+class ChecklistRunItem(Base):
+    """A snapshot item inside a personal checklist run."""
+
+    __tablename__ = "checklist_run_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("checklist_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_item_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("list_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    text_snapshot: Mapped[str] = mapped_column(String(500), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    run = relationship("ChecklistRun", back_populates="items")
+    source_item = relationship("ListItem")
+
+    __table_args__ = (
+        Index("ix_checklist_run_items_run_position", "run_id", "position"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChecklistRunItem(id={self.id}, run_id={self.run_id}, checked={self.checked})>"
 
 
 class DriverVehicle(Base):

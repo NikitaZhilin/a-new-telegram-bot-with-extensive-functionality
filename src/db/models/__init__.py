@@ -7,6 +7,8 @@ All models are defined in models.py and re-exported here.
 from src.db.models.models import (
     Base,
     BotActivityEvent,
+    ChecklistRun,
+    ChecklistRunItem,
     User,
     UserSubscription,
     WebLoginToken,
@@ -30,6 +32,8 @@ from src.db.models.models import (
 __all__ = [
     "Base",
     "BotActivityEvent",
+    "ChecklistRun",
+    "ChecklistRunItem",
     "User",
     "UserSubscription",
     "WebLoginToken",

@@ -440,6 +440,10 @@ class ReminderWorkerService:
                     "📋 Открыть список",
                     callback_data=f"list_view:{list_id}",
                 ),
+                InlineKeyboardButton(
+                    "▶️ Чек-лист",
+                    callback_data=f"checklist_start:{list_id}",
+                ),
             ],
         ])
 

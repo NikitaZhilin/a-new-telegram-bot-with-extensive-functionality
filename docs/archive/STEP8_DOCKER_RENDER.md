@@ -1,3 +1,4 @@
+> ARCHIVE NOTICE: This file is historical context only. It is not a current setup, launch, deployment, or security instruction. Use ../README.md, ../USER_GUIDE.md, ../TECHNICAL.md, and ../DEPLOYMENT.md instead.
 # 📋 Этап 8: Docker + Render Deployment
 
 **Дата:** 2026-02-19  
@@ -92,7 +93,7 @@ docker-compose up -d --scale worker=1  # ⚠️ НЕ МЕНЬШЕ И НЕ БОЛ
 
 ```bash
 # Telegram Bot
-BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+BOT_TOKEN=replace-with-bot-token
 
 # PostgreSQL
 POSTGRES_USER=postgres
@@ -118,7 +119,7 @@ WORKER_INTERVAL=60
 
 ```bash
 # Для всех 3 сервисов
-BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+BOT_TOKEN=replace-with-bot-token
 DATABASE_URL=postgresql+asyncpg://postgres:pass@dpg-xxx.db.render.com:5432/rememberme
 ADMIN_TOKEN=your-super-secret-token
 

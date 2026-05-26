@@ -174,8 +174,11 @@ async def test_worker_sends_open_list_button_for_linked_reminder():
     assert result == WorkerCycleResult(total=1, processed=1, failed=0)
     assert "📋 Список: Groceries" in bot.messages[0]["text"]
     button = bot.messages[0]["reply_markup"].inline_keyboard[0][0]
+    checklist_button = bot.messages[0]["reply_markup"].inline_keyboard[0][1]
     assert button.text == "📋 Открыть список"
     assert button.callback_data == "list_view:99"
+    assert checklist_button.text == "▶️ Чек-лист"
+    assert checklist_button.callback_data == "checklist_start:99"
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ from src.bot.keyboards import (
     get_driver_fuel_history_keyboard,
     get_driver_fuel_keyboard,
     get_driver_full_tank_keyboard,
+    get_driver_created_list_keyboard,
     get_driver_menu_keyboard,
     get_driver_document_delete_confirm_keyboard,
     get_driver_document_remind_keyboard,
@@ -974,7 +975,7 @@ async def driver_list_template_callback(update: Update, context: ContextTypes.DE
 
     await query.edit_message_text(
         f"✅ Список создан\n\n📋 {title}\nПунктов: {len(items)}",
-        reply_markup=get_back_home_inline_keyboard(),
+        reply_markup=get_driver_created_list_keyboard(list_obj.id),
     )
     return ConversationHandler.END
 

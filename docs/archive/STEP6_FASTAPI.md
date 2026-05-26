@@ -1,3 +1,4 @@
+> ARCHIVE NOTICE: This file is historical context only. It is not a current setup, launch, deployment, or security instruction. Use ../README.md, ../USER_GUIDE.md, ../TECHNICAL.md, and ../DEPLOYMENT.md instead.
 # 📋 Этап 6: FastAPI REST API
 
 **Дата:** 2026-02-19  

@@ -67,6 +67,7 @@ class SettingsService:
         """
         from sqlalchemy import func
         from src.db.models import (
+            ChecklistRun,
             DriverDocument,
             DriverExpense,
             DriverFuelEntry,
@@ -138,6 +139,24 @@ class SettingsService:
                 Medication.is_active.is_(False),
             )
         )
+        checklist_active = await count(
+            select(func.count(ChecklistRun.id)).where(
+                ChecklistRun.user_id == user_id,
+                ChecklistRun.status == "active",
+            )
+        )
+        checklist_completed = await count(
+            select(func.count(ChecklistRun.id)).where(
+                ChecklistRun.user_id == user_id,
+                ChecklistRun.status == "completed",
+            )
+        )
+        checklist_canceled = await count(
+            select(func.count(ChecklistRun.id)).where(
+                ChecklistRun.user_id == user_id,
+                ChecklistRun.status == "canceled",
+            )
+        )
         driver_overview = await DriverService(self.db).get_user_overview(user_id)
         
         return {
@@ -155,12 +174,18 @@ class SettingsService:
                 "active": medications_active,
                 "archived": medications_archived,
             },
+            "checklists": {
+                "active": checklist_active,
+                "completed": checklist_completed,
+                "canceled": checklist_canceled,
+            },
             "driver": driver_overview,
         }
 
     async def get_admin_activity_stats(self, current_user_id: int) -> dict:
         """Return aggregate activity for admins without exposing private content."""
         from src.db.models import (
+            ChecklistRun,
             DriverDocument,
             DriverExpense,
             DriverFuelEntry,
@@ -206,6 +231,12 @@ class SettingsService:
                 Reminder.user_id != current_user_id,
             )
         )
+        checklist_runs_total = await count(select(func.count(ChecklistRun.id)))
+        checklist_runs_users = await count(
+            select(func.count(distinct(ChecklistRun.user_id))).where(
+                ChecklistRun.user_id != current_user_id,
+            )
+        )
 
         medications_total = await count(select(func.count(Medication.id)))
         medications_users = await count(
@@ -249,6 +280,10 @@ class SettingsService:
             "reminders": {
                 "records": reminders_total,
                 "other_users": reminders_users,
+            },
+            "checklists": {
+                "records": checklist_runs_total,
+                "other_users": checklist_runs_users,
             },
             "medications": {
                 "records": medications_total,

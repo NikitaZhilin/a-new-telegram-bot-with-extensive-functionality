@@ -76,6 +76,13 @@ from src.bot.handlers.lists import (
     list_item_delete_callback,
     list_item_delete_confirm_callback,
 )
+from src.bot.handlers.checklists import (
+    checklist_cancel_callback,
+    checklist_check_all_callback,
+    checklist_finish_callback,
+    checklist_start_callback,
+    checklist_toggle_callback,
+)
 from src.bot.handlers.medications import (
     medications_list_callback,
     medications_page_callback,
@@ -220,6 +227,11 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(list_item_delete_callback, pattern="^list_item_delete:"))
     application.add_handler(CallbackQueryHandler(list_item_delete_confirm_callback, pattern="^list_item_delete_confirm:"))
     application.add_handler(CallbackQueryHandler(lists_page_callback, pattern="^lists_page:"))
+    application.add_handler(CallbackQueryHandler(checklist_start_callback, pattern="^checklist_start:"))
+    application.add_handler(CallbackQueryHandler(checklist_toggle_callback, pattern="^checklist_toggle:"))
+    application.add_handler(CallbackQueryHandler(checklist_check_all_callback, pattern="^checklist_check_all:"))
+    application.add_handler(CallbackQueryHandler(checklist_finish_callback, pattern="^checklist_finish:"))
+    application.add_handler(CallbackQueryHandler(checklist_cancel_callback, pattern="^checklist_cancel:"))
 
     # Medications callbacks
     application.add_handler(CallbackQueryHandler(medications_list_callback, pattern="^medications_list$"))

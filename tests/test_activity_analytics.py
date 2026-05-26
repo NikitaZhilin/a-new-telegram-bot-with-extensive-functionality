@@ -21,8 +21,10 @@ def test_activity_normalizes_callback_data_without_row_ids_or_tokens():
     assert normalize_callback_data("startup_update_sent:0.8.1-beta") == "startup_update_sent:{version}"
     assert infer_domain("driver_fuel_view:{id}") == "driver"
     assert infer_domain("list_share:{id}") == "sharing"
+    assert infer_domain("checklist_finish:{id}") == "checklists"
     assert infer_domain("startup_update_sent:0.8.1-beta") == "system"
     assert format_event_label("startup_update_sent:0.8.1-beta") == "отправлено сообщение об обновлении"
+    assert format_event_label("checklist_start:{id}") == "запуск чек-листа"
 
 
 def test_activity_normalizes_menu_text():

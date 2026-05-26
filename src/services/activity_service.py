@@ -369,6 +369,8 @@ def infer_domain(event_name: str) -> str:
         return "navigation"
     if event_name.startswith(("list_share", "list_members", "list_member", "/join_list", "menu:share_bot", "share_bot")):
         return "sharing"
+    if event_name.startswith(("checklist_",)):
+        return "checklists"
     if event_name.startswith(("list_", "lists_", "menu:lists", "/import_list")):
         return "lists"
     if event_name.startswith(("med_", "medication", "menu:medications")):
@@ -414,6 +416,11 @@ def format_event_label(event_name: str) -> str:
         "list_add_bulk:{id}": "пакетное добавление пунктов",
         "list_share:{id}": "открытие доступа к списку",
         "list_view:{id}": "просмотр списка",
+        "checklist_start:{id}": "запуск чек-листа",
+        "checklist_toggle:{id}:{id}": "отметка пункта чек-листа",
+        "checklist_check_all:{id}": "отметка всех пунктов чек-листа",
+        "checklist_finish:{id}": "завершение чек-листа",
+        "checklist_cancel:{id}": "отмена чек-листа",
         "medications_list": "открытие лекарств",
         "med_create": "добавление лекарства",
         "med_taken:{id}": "отметка приема лекарства",
@@ -443,6 +450,7 @@ def format_event_label(event_name: str) -> str:
         return known[event_name]
 
     prefix_labels = {
+        "checklist_": "прохождение чек-листа",
         "list_": "действие со списком",
         "lists_": "раздел списков",
         "med_": "действие с лекарством",

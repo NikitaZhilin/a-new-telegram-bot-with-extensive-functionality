@@ -21,6 +21,7 @@ from src.bot.keyboards import (
     get_driver_fuel_delete_confirm_keyboard,
     get_driver_fuel_entry_keyboard,
     get_driver_fuel_history_keyboard,
+    get_driver_created_list_keyboard,
     get_driver_menu_keyboard,
     get_driver_section_keyboard,
     get_driver_service_keyboard,
@@ -43,6 +44,8 @@ from src.bot.keyboards import (
     get_list_share_keyboard,
     get_list_view_keyboard,
     get_lists_list_keyboard,
+    get_checklist_finished_keyboard,
+    get_checklist_run_keyboard,
     get_medication_delete_confirm_keyboard,
     get_medication_dosage_keyboard,
     get_medication_edit_dosage_keyboard,
@@ -145,6 +148,11 @@ def test_important_callback_patterns_are_registered():
         "^med_rem_skip:",
         "^list_delete_confirm:",
         "^list_item_delete_confirm:",
+        "^checklist_start:",
+        "^checklist_toggle:",
+        "^checklist_check_all:",
+        "^checklist_finish:",
+        "^checklist_cancel:",
         "^reminders_page:",
         "^reminder_edit_text:",
         "^reminder_edit_time:",
@@ -241,6 +249,8 @@ def test_list_keyboards_have_registered_callbacks():
     callbacks = set()
     item = SimpleNamespace(id=20, text="Пункт списка", is_completed=False)
     list_obj = SimpleNamespace(id=10, title="Дела", items=[item], _access_role="owner")
+    run_item = SimpleNamespace(id=40, text_snapshot="Пункт чек-листа", checked=False)
+    run = SimpleNamespace(id=50, items=[run_item])
     members = [
         {"member_id": None, "role": "owner", "display_name": "Владелец"},
         {"member_id": 30, "role": "viewer", "display_name": "Участник"},
@@ -255,6 +265,8 @@ def test_list_keyboards_have_registered_callbacks():
         get_list_item_keyboard(10, 20),
         get_list_delete_confirm_keyboard(10),
         get_list_item_delete_confirm_keyboard(10, 20),
+        get_checklist_run_keyboard(run, 10),
+        get_checklist_finished_keyboard(10),
     ]:
         callbacks.update(_collect_callback_data(keyboard))
 
@@ -356,6 +368,7 @@ def test_driver_keyboards_have_registered_callbacks():
         get_driver_menu_keyboard(),
         get_driver_section_keyboard(),
         get_driver_templates_keyboard(),
+        get_driver_created_list_keyboard(10),
         get_driver_vehicles_keyboard([]),
         get_driver_vehicle_preset_keyboard(list_vehicle_presets()),
         get_driver_vehicle_preset_confirm_keyboard(),

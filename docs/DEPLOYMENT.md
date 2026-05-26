@@ -164,11 +164,12 @@ The real `.env.prod` is ignored by Git and must not be committed.
 
 ## First automatic deploy
 
-From the project directory:
+From the project directory, commit the workflow/deployment changes and push to
+`main`:
 
 ```powershell
 git status
-git add -A .github/workflows .env.prod.example .dockerignore .gitignore docker-compose.yml docs/DEPLOYMENT.md scripts/deploy-vps.ps1
+git add -A .github/workflows .env.prod.example .dockerignore .gitignore docker-compose.yml docs scripts/deploy-vps.ps1
 git commit -m "Add VPS deployment workflow"
 git push origin main
 ```
@@ -187,9 +188,9 @@ Expected deploy stages:
 8. `bot`, `api`, and `worker` are restarted.
 9. Service status and recent logs are printed.
 
-On the currently connected VPS `72.56.116.237`, Docker is installed but
-`docker compose` is not. The workflow therefore uses the fallback path unless
-you install `docker-compose-plugin`.
+If a target VPS has Docker but no `docker compose` plugin, the workflow uses
+the fallback path. Installing `docker-compose-plugin` is still recommended for
+clearer operations and easier manual checks.
 
 ## Manual deploy
 

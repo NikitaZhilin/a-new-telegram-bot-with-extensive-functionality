@@ -15,11 +15,6 @@ from src.bot.keyboards.builder import (
     get_home_inline_keyboard,
     get_back_home_inline_keyboard,
     get_settings_back_home_keyboard,
-    # Notes
-    get_notes_list_keyboard,
-    get_note_view_keyboard,
-    get_note_edit_keyboard,
-    get_notes_archive_keyboard,
     # Lists
     get_lists_list_keyboard,
     get_list_delete_confirm_keyboard,
@@ -30,6 +25,8 @@ from src.bot.keyboards.builder import (
     get_list_view_keyboard,
     get_list_item_keyboard,
     get_list_items_keyboard,
+    get_checklist_finished_keyboard,
+    get_checklist_run_keyboard,
     # Medications
     get_medications_list_keyboard,
     get_medication_view_keyboard,
@@ -55,6 +52,7 @@ from src.bot.keyboards.builder import (
     get_driver_menu_keyboard,
     get_driver_section_keyboard,
     get_driver_templates_keyboard,
+    get_driver_created_list_keyboard,
     get_driver_vehicles_keyboard,
     get_driver_vehicle_preset_keyboard,
     get_driver_vehicle_preset_confirm_keyboard,
@@ -96,11 +94,6 @@ __all__ = [
     "get_home_inline_keyboard",
     "get_back_home_inline_keyboard",
     "get_settings_back_home_keyboard",
-    # Notes
-    "get_notes_list_keyboard",
-    "get_note_view_keyboard",
-    "get_note_edit_keyboard",
-    "get_notes_archive_keyboard",
     # Lists
     "get_lists_list_keyboard",
     "get_list_delete_confirm_keyboard",
@@ -111,6 +104,8 @@ __all__ = [
     "get_list_view_keyboard",
     "get_list_item_keyboard",
     "get_list_items_keyboard",
+    "get_checklist_finished_keyboard",
+    "get_checklist_run_keyboard",
     # Medications
     "get_medications_list_keyboard",
     "get_medication_view_keyboard",
@@ -136,6 +131,7 @@ __all__ = [
     "get_driver_menu_keyboard",
     "get_driver_section_keyboard",
     "get_driver_templates_keyboard",
+    "get_driver_created_list_keyboard",
     "get_driver_vehicles_keyboard",
     "get_driver_vehicle_preset_keyboard",
     "get_driver_vehicle_preset_confirm_keyboard",

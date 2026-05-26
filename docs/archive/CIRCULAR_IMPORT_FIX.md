@@ -1,3 +1,4 @@
+> ARCHIVE NOTICE: This file is historical context only. It is not a current setup, launch, deployment, or security instruction. Use ../README.md, ../USER_GUIDE.md, ../TECHNICAL.md, and ../DEPLOYMENT.md instead.
 # 🔧 Circular Import Fix Report
 
 **Дата:** 2026-02-19  
@@ -163,7 +164,7 @@ src/
 ### ✅ Запуск бота
 
 ```bash
-cd D:\проекты qwen\tg_bot\new_architecture
+cd path\to\new_architecture
 
 # Запуск бота
 python -m src.main bot

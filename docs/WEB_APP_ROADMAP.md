@@ -1,92 +1,97 @@
-# Web / App roadmap
+# Web / App Roadmap
 
-Current web status:
+Документ описывает текущее состояние web-версии и реалистичный путь развития в PWA/отдельное приложение.
 
-- `/web` is implemented as a lightweight server-served web site.
-- `/me/...` includes read and write endpoints for core lists, reminders, medications, and driver journal flows.
-- Browser auth supports Telegram WebApp `initData`; private testing can use `ADMIN_TOKEN` + Telegram ID when `WEB_TEST_LOGIN_ENABLED=true`.
-- The next web improvements are UX polish, inline editing, exports, HTTPS/domain setup, and a dedicated PWA shell.
+## Current Status
 
-Документ описывает практичный путь развития бота в web-кабинет и отдельное приложение без переписывания текущей архитектуры.
+Implemented:
 
-## Текущая база
+- server-served web page at `/web`;
+- app info endpoint `/app/info`;
+- web assets served from `/web/assets/...`;
+- user API `/me/...` with read/write operations for lists, reminders, medications, driver vehicles, fuel, expenses, and documents;
+- shared-list management endpoints;
+- browser auth through Telegram WebApp `initData`;
+- personal web key issued in Telegram through `Настройки -> Web-версия`;
+- private test login with `ADMIN_TOKEN` + Telegram ID when `WEB_TEST_LOGIN_ENABLED=true`;
+- admin UI at `/admin/ui`;
+- light/dark theme;
+- mobile burger menu;
+- testing notice;
+- version/changelog information in web summary;
+- no known browser-native `prompt/alert/confirm` flows in current web assets.
 
-- `bot` уже является клиентом к общей бизнес-логике.
-- `services` и `repositories` можно переиспользовать из API.
-- `api` уже существует, но сейчас он в основном административный.
-- `db` хранит доменные сущности отдельно: списки, напоминания, лекарства, автомобильный журнал, подписки, активность.
+The web version is functional, but it is still a lightweight integrated client, not a separate frontend application.
 
-## Рекомендуемая последовательность
+## Current Constraints
 
-1. User API
+- Web UI is served by FastAPI as static assets, so frontend complexity should stay moderate.
+- Telegram remains the primary notification channel.
+- Public use needs HTTPS, domain, strict CORS, and a proxy/firewall model.
+- User API auth must remain scoped to one user. Admin endpoints must not be used by the user-facing web UI.
+- Medical screens must keep conservative wording: the bot tracks and reminds, it does not prescribe treatment.
 
-   Базовые read-only endpoints уже добавлены:
+## Recommended Next Steps
 
-   - `GET /me`
-   - `GET /me/summary`
-   - `GET /me/lists`
-   - `GET /me/reminders`
-   - `GET /me/medications`
-   - `GET /me/driver`
+1. Stabilize current web UI
 
-   Текущая реализация покрывает `GET /me`, `GET /me/summary`, `GET /me/lists`,
-   `GET /me/reminders`, `GET /me/medications`, `GET /me/driver`.
-   Следующий шаг - добавить write endpoints после стабилизации web UI.
+   - replace remaining browser-native prompts with inline forms;
+   - add richer validation messages;
+   - improve mobile layout for long lists and action-heavy cards;
+   - keep visual parity with Telegram flows.
 
-   Важно: не давать frontend прямой доступ к admin endpoints.
+2. Add export and reporting
 
-2. Авторизация
+   - CSV/PDF export for lists;
+   - medication intake history export;
+   - driver fuel/expense export;
+   - admin activity export.
 
-   MVP-авторизация уже заложена через Telegram WebApp `initData`.
-   Для внешней PWA вне Telegram нужно добавить отдельный login-flow:
+3. Add PWA shell
 
-   - Telegram Login Widget для web;
-   - deep-link из бота с одноразовым login token;
-   - короткоживущий web session/JWT;
-   - все запросы scoped by `user_id`.
+   - manifest;
+   - installable mobile shortcut;
+   - offline-friendly static shell;
+   - resilient reload/auth state handling.
 
-3. PWA-кабинет
+4. Consider a separate frontend
 
-   Первый web-интерфейс лучше делать как PWA:
+   Candidate stack:
 
-   - быстрее, чем нативное приложение;
-   - можно закрепить на экран телефона;
-   - единая кодовая база;
-   - Telegram остается каналом уведомлений.
+   - React or Next.js;
+   - TypeScript;
+   - TanStack Query;
+   - a small component library;
+   - same `/me/...` API.
 
-   Стек-кандидат: Next.js + TypeScript + TanStack Query + простая компонентная библиотека.
+   Keep business logic in Python services. Do not duplicate domain rules in frontend except form validation.
 
-4. Монетизация
+5. Native application later
 
-   Ограничения стоит держать не в кнопках, а в `SubscriptionService`.
+   A native app is reasonable only after web/PWA and monetization are stable.
 
-   Возможные платные функции:
+   Candidates:
 
-   - больше общих списков;
-   - семейный доступ;
-   - расширенная история лекарств;
-   - экспорт PDF/CSV;
-   - автомобильная статистика за периоды;
-   - web-кабинет;
-   - напоминания нескольким участникам.
+   - Flutter for one consistent UI across iOS/Android;
+   - React Native if the web stack is React and shared UI/data patterns are important.
 
-5. Нативное приложение
+## Monetization Direction
 
-   Имеет смысл после PWA и платежной модели.
+Keep limits in `SubscriptionService`, not in button visibility only.
 
-   Кандидаты:
+Possible paid features:
 
-   - Flutter, если нужен один качественный UI для iOS/Android;
-   - React Native, если web будет на React и хочется шарить часть логики.
+- more shared lists;
+- family access;
+- extended medication history;
+- exports;
+- advanced driver statistics;
+- long-term activity history;
+- multi-user reminder delivery.
 
-## Узкие места
+## Risks
 
-- Нужна аккуратная auth-модель, иначе web откроет чужие данные.
-- Нужно решить, где будут push-уведомления: Telegram-only или отдельные mobile push.
-- Нужно ввести audit/activity retention, чтобы таблица событий не росла бесконечно.
-- Для семейных/общих данных нужно заранее определить роли: owner/editor/viewer.
-- Для медицинских данных нужна осторожная формулировка: бот напоминает и фиксирует, но не дает медицинских назначений.
-
-## Ближайший технический шаг
-
-Сделать слой `src/api/routes/me.py` и использовать существующие сервисы. Это даст основу для PWA без копирования бизнес-логики из bot handlers.
+- Auth mistakes can expose user data.
+- Running multiple workers can duplicate notifications.
+- Raw activity analytics can become sensitive if message text is stored. Current approach should stay metadata-only.
+- Medical and driver data are personal. Treat export, sharing, and admin access carefully.

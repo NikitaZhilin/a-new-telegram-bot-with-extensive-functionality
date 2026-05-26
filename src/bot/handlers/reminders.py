@@ -821,7 +821,7 @@ async def _render_reminder_screen(
         f"⏰ Статус: {reminder_status_label(status_value)}"
     )
 
-    return text, get_reminder_view_keyboard(reminder.id, status_value)
+    return text, get_reminder_view_keyboard(reminder.id, status_value, reminder.list_id)
 
 
 async def _refresh_reminder_screen(

@@ -368,6 +368,7 @@ async def test_settings_stats_cover_visible_domains(db_session):
     assert stats["lists"] == {"owned": 1, "shared": 1}
     assert "notes" not in stats
     assert stats["medications"] == {"active": 1, "archived": 1}
+    assert stats["checklists"] == {"active": 0, "completed": 0, "canceled": 0}
     assert stats["reminders"]["active"] == 1
     assert stats["reminders"]["done"] == 1
     assert stats["driver"]["vehicles_count"] == 1
