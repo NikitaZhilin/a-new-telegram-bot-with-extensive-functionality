@@ -72,6 +72,14 @@ class Settings(BaseSettings):
         default=None,
         description="Optional UTF-8/base64 encoded startup changelog for ASCII-safe deploys"
     )
+    STARTUP_TECHNICAL_MESSAGE: str = Field(
+        default="",
+        description="Admin-facing technical changelog for the current release"
+    )
+    STARTUP_TECHNICAL_MESSAGE_B64: Optional[str] = Field(
+        default=None,
+        description="Optional UTF-8/base64 encoded technical changelog"
+    )
     TESTING_NOTICE_ENABLED: bool = Field(
         default=True,
         description="Show a user-facing notice that the bot is in testing"
@@ -106,6 +114,10 @@ class Settings(BaseSettings):
     STARTUP_ANNOUNCE_IMPORTANCE: str = Field(
         default="minor",
         description="Current release importance: minor, major, or critical"
+    )
+    STARTUP_ADMIN_ANNOUNCE_MODE: str = Field(
+        default="once_per_version",
+        description="Admin-only startup notice mode: off, once_per_version, or always"
     )
     DEFAULT_SUBSCRIPTION_PLAN: str = Field(
         default="free",

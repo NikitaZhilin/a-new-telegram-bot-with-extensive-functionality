@@ -27,9 +27,12 @@ from src.db.session import engine, async_session_maker
 from src.services.activity_service import ActivityService
 from src.services.release_info import (
     STARTUP_UPDATE_FALLBACK_MESSAGE,
+    app_info,
     looks_like_broken_encoding,
+    normalize_admin_announce_mode,
     release_change_lines,
     resolve_startup_update_message,
+    should_send_admin_startup_notice,
     should_send_startup_announcement,
 )
 
@@ -62,6 +65,7 @@ def setup_logging(level: str = "INFO") -> None:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STARTUP_UPDATE_EVENT_PREFIX = "startup_update_sent"
+STARTUP_ADMIN_NOTICE_EVENT_PREFIX = "startup_admin_notice_sent"
 
 
 def _resolve_startup_update_message(
@@ -80,6 +84,11 @@ def _looks_like_broken_encoding(value: str) -> bool:
 def _should_send_startup_announcement(config=settings) -> bool:
     """Return whether startup should broadcast release notes."""
     return should_send_startup_announcement(config)
+
+
+def _should_send_admin_startup_notice(config=settings) -> bool:
+    """Return whether startup should send admin-only technical notice."""
+    return should_send_admin_startup_notice(config)
 
 
 def _make_alembic_config() -> Config:
@@ -102,10 +111,24 @@ async def _startup_update_sent(
     app_version: str,
 ) -> bool:
     """Return whether this user already received startup update for this version."""
+    return await _startup_event_sent(
+        event_prefix=STARTUP_UPDATE_EVENT_PREFIX,
+        telegram_id=telegram_id,
+        app_version=app_version,
+    )
+
+
+async def _startup_event_sent(
+    *,
+    event_prefix: str,
+    telegram_id: int,
+    app_version: str,
+) -> bool:
+    """Return whether this startup event was already sent for user/version."""
     if not await _database_has_table("bot_activity_events"):
         return False
 
-    event_name = f"{STARTUP_UPDATE_EVENT_PREFIX}:{app_version}"[:120]
+    event_name = f"{event_prefix}:{app_version}"[:120]
     query = text(
         """
         SELECT EXISTS (
@@ -132,7 +155,23 @@ async def _record_startup_update_sent(
     app_version: str,
 ) -> None:
     """Persist a marker after successful startup update delivery."""
-    event_name = f"{STARTUP_UPDATE_EVENT_PREFIX}:{app_version}"[:120]
+    await _record_startup_event_sent(
+        event_prefix=STARTUP_UPDATE_EVENT_PREFIX,
+        telegram_id=telegram_id,
+        user_id=user_id,
+        app_version=app_version,
+    )
+
+
+async def _record_startup_event_sent(
+    *,
+    event_prefix: str,
+    telegram_id: int,
+    user_id: int | None,
+    app_version: str,
+) -> None:
+    """Persist a marker after successful startup event delivery."""
+    event_name = f"{event_prefix}:{app_version}"[:120]
     async with async_session_maker() as session:
         await ActivityService(session).record_event(
             event_type="system",
@@ -141,7 +180,7 @@ async def _record_startup_update_sent(
             user_id=user_id,
             telegram_id=telegram_id,
             source="system",
-            metadata={"app_version": app_version},
+            metadata={"app_version": app_version, "event_prefix": event_prefix},
         )
         await session.commit()
 
@@ -475,6 +514,63 @@ async def dry_run_all() -> None:
     )
 
 
+async def _send_admin_startup_notices(bot_app, reply_markup) -> None:
+    """Send a compact startup/deploy notice to configured admins only."""
+    logger = structlog.get_logger(__name__)
+    if not settings.admin_telegram_id_set or not _should_send_admin_startup_notice(settings):
+        return
+
+    from src.repositories.user_repo import UserRepository
+
+    mode = normalize_admin_announce_mode(settings.STARTUP_ADMIN_ANNOUNCE_MODE)
+    info = app_info(settings)
+    technical_changes = "\n".join(
+        f"- {line}" for line in info.get("technical_changes", [])
+    ) or "- Технические изменения для этой версии не указаны."
+
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        users = await user_repo.get_all_with_telegram_id()
+    user_ids_by_telegram = {user.telegram_id: user.id for user in users}
+
+    for telegram_id in settings.admin_telegram_id_set:
+        try:
+            if mode == "once_per_version" and await _startup_event_sent(
+                event_prefix=STARTUP_ADMIN_NOTICE_EVENT_PREFIX,
+                telegram_id=telegram_id,
+                app_version=settings.APP_VERSION,
+            ):
+                continue
+
+            await bot_app.bot.send_message(
+                chat_id=telegram_id,
+                text=(
+                    "🔧 Служебное уведомление\n\n"
+                    f"Бот перезапущен.\n"
+                    f"Версия: {settings.APP_VERSION}\n"
+                    f"Запуск: {info['started_at_display']} ({info['started_timezone']})\n"
+                    f"Пользовательские релизные сообщения: {info['startup_announce_mode']}\n"
+                    f"Admin-уведомления: {info['startup_admin_announce_mode']}\n\n"
+                    "Технические изменения:\n"
+                    f"{technical_changes}\n\n"
+                    "Подробности: Настройки → О боте → Технический статус."
+                ),
+                reply_markup=reply_markup,
+            )
+            await _record_startup_event_sent(
+                event_prefix=STARTUP_ADMIN_NOTICE_EVENT_PREFIX,
+                telegram_id=telegram_id,
+                user_id=user_ids_by_telegram.get(telegram_id),
+                app_version=settings.APP_VERSION,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to send admin startup notice",
+                telegram_id=telegram_id,
+                exc_info=True,
+            )
+
+
 async def run_bot() -> None:
     """Run Telegram bot."""
     from src.bot.app import create_application
@@ -565,6 +661,8 @@ async def run_bot() -> None:
                     telegram_id=telegram_id,
                     exc_info=True,
                 )
+
+    await _send_admin_startup_notices(bot_app, get_main_menu_keyboard())
     
     try:
         await bot_app.updater.start_polling()

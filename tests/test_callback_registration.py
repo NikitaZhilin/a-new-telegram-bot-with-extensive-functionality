@@ -156,6 +156,8 @@ def test_important_callback_patterns_are_registered():
         "^rem_confirm_back$",
         "^settings_timezone$",
         "^settings_about$",
+        "^settings_release_history$",
+        "^settings_technical_status$",
         "^settings_subscription$",
         "^settings_web_login$",
         "^tz_custom$",

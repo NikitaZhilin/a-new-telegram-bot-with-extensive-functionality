@@ -1555,7 +1555,11 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_about_keyboard(github_url: str = "", changelog_url: str = "") -> InlineKeyboardMarkup:
+def get_about_keyboard(
+    github_url: str = "",
+    changelog_url: str = "",
+    is_admin: bool = False,
+) -> InlineKeyboardMarkup:
     """Keyboard for app version/about screen."""
     keyboard = []
     links = []
@@ -1565,6 +1569,13 @@ def get_about_keyboard(github_url: str = "", changelog_url: str = "") -> InlineK
         links.append(InlineKeyboardButton("📝 История изменений", url=changelog_url))
     if links:
         keyboard.append(links)
+    keyboard.append([
+        InlineKeyboardButton("📜 История версий", callback_data="settings_release_history"),
+    ])
+    if is_admin:
+        keyboard.append([
+            InlineKeyboardButton("🔧 Технический статус", callback_data="settings_technical_status"),
+        ])
     keyboard.append([
         InlineKeyboardButton("⬅️ Настройки", callback_data="settings_menu"),
         InlineKeyboardButton("🏠 В меню", callback_data="home"),

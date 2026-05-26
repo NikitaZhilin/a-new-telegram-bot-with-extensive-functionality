@@ -15,6 +15,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from sqlalchemy import text
 
 from src.config import settings
 from src.bot.keyboards import (
@@ -34,6 +35,11 @@ from src.services.release_info import app_info
 from src.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
+
+
+def _is_admin_user(user, telegram_id: int) -> bool:
+    """Return whether Telegram user can see admin-only settings screens."""
+    return bool(user and user.is_admin) or telegram_id in settings.admin_telegram_id_set
 
 
 async def settings_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -336,8 +342,13 @@ async def settings_about_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
+    telegram_id = update.effective_user.id
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(telegram_id)
+
     info = app_info(settings)
-    changes = "\n".join(f"• {item}" for item in info["changes"]) or "• Изменений не указано."
+    changes = "\n".join(f"• {item}" for item in info["user_changes"]) or "• Изменений не указано."
     testing_notice = (
         f"\n\n{info['testing_notice_text']}"
         if info["testing_notice_enabled"] and info["testing_notice_text"]
@@ -349,7 +360,8 @@ async def settings_about_callback(update: Update, context: ContextTypes.DEFAULT_
         "ℹ️ О боте\n\n"
         f"Версия: {info['version']}\n"
         f"Канал: {info['release_channel']}\n"
-        f"Статус: {'тестирование' if info['testing_notice_enabled'] else 'стабильный режим'}\n\n"
+        f"Статус: {'тестирование' if info['testing_notice_enabled'] else 'стабильный режим'}\n"
+        f"Последний запуск: {info['started_at_display']} ({info['started_timezone']})\n\n"
         "Проект:\n"
         f"GitHub: {github_line}\n"
         f"История изменений: {changelog_line}\n\n"
@@ -360,7 +372,102 @@ async def settings_about_callback(update: Update, context: ContextTypes.DEFAULT_
 
     await query.edit_message_text(
         text,
-        reply_markup=get_about_keyboard(info["github_url"], info["changelog_url"]),
+        reply_markup=get_about_keyboard(
+            info["github_url"],
+            info["changelog_url"],
+            is_admin=_is_admin_user(user, telegram_id),
+        ),
+        disable_web_page_preview=True,
+    )
+    return ConversationHandler.END
+
+
+async def settings_release_history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show recent release history from bundled changelog."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = update.effective_user.id
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(telegram_id)
+
+    info = app_info(settings)
+    entries = info.get("release_history", [])
+    if entries:
+        blocks = []
+        for entry in entries[:5]:
+            items = entry.get("items", [])[:5]
+            items_text = "\n".join(f"• {item}" for item in items) or "• Изменения не указаны."
+            blocks.append(f"{entry.get('version', 'версия')}\n{items_text}")
+        history_text = "\n\n".join(blocks)
+    else:
+        history_text = "История версий пока не найдена в CHANGELOG.md."
+
+    await query.edit_message_text(
+        "📜 История версий\n\n"
+        f"{history_text}",
+        reply_markup=get_about_keyboard(
+            info["github_url"],
+            info["changelog_url"],
+            is_admin=_is_admin_user(user, telegram_id),
+        ),
+        disable_web_page_preview=True,
+    )
+    return ConversationHandler.END
+
+
+async def settings_technical_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show admin-only technical release and runtime status."""
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = update.effective_user.id
+    db_status = "недоступна"
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(telegram_id)
+        if not _is_admin_user(user, telegram_id):
+            await query.edit_message_text(
+                "🔒 Технический статус доступен только администратору.",
+                reply_markup=get_back_home_inline_keyboard(),
+            )
+            return ConversationHandler.END
+        try:
+            await session.execute(text("SELECT 1"))
+            db_status = "доступна"
+        except Exception:
+            logger.exception("Technical status DB check failed")
+
+    info = app_info(settings)
+    technical_changes = "\n".join(
+        f"• {item}" for item in info.get("technical_changes", [])
+    ) or "• Технические изменения для этой версии не указаны."
+    api_url = settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "не настроен"
+    text_body = (
+        "🔧 Технический статус\n\n"
+        f"Bot-процесс: работает\n"
+        f"База данных: {db_status}\n"
+        f"Версия: {info['version']}\n"
+        f"Канал: {info['release_channel']}\n"
+        f"Важность релиза: {info['release_importance']}\n"
+        f"Запуск bot-процесса: {info['started_at_display']} ({info['started_timezone']})\n"
+        f"Worker interval: {settings.WORKER_INTERVAL} сек.\n"
+        f"Публичный web/API URL: {api_url}\n\n"
+        "Режимы уведомлений:\n"
+        f"• пользователям: {info['startup_announce_mode']}\n"
+        f"• админам: {info['startup_admin_announce_mode']}\n\n"
+        "Технические изменения:\n"
+        f"{technical_changes}"
+    )
+
+    await query.edit_message_text(
+        text_body,
+        reply_markup=get_about_keyboard(
+            info["github_url"],
+            info["changelog_url"],
+            is_admin=True,
+        ),
         disable_web_page_preview=True,
     )
     return ConversationHandler.END

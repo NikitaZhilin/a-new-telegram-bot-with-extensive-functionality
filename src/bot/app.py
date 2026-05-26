@@ -109,8 +109,10 @@ from src.bot.handlers.reminders import (
 from src.bot.handlers.settings import (
     settings_about_callback,
     settings_menu_callback,
+    settings_release_history_callback,
     settings_stats_callback,
     settings_subscription_callback,
+    settings_technical_status_callback,
     settings_web_login_callback,
 )
 from src.bot.handlers.driver import (
@@ -252,6 +254,8 @@ def create_application() -> Application:
     # Settings callbacks
     application.add_handler(CallbackQueryHandler(settings_menu_callback, pattern="^settings_menu$"))
     application.add_handler(CallbackQueryHandler(settings_about_callback, pattern="^settings_about$"))
+    application.add_handler(CallbackQueryHandler(settings_release_history_callback, pattern="^settings_release_history$"))
+    application.add_handler(CallbackQueryHandler(settings_technical_status_callback, pattern="^settings_technical_status$"))
     application.add_handler(CallbackQueryHandler(settings_stats_callback, pattern="^settings_stats$"))
     application.add_handler(CallbackQueryHandler(settings_subscription_callback, pattern="^settings_subscription$"))
     application.add_handler(CallbackQueryHandler(settings_web_login_callback, pattern="^settings_web_login$"))

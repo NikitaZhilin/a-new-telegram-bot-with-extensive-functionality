@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir --no-compile -r requirements-prod.txt
 
 # Copy source code
 COPY src ./src
+COPY CHANGELOG.md ./CHANGELOG.md
 
 # Change ownership
 RUN chown -R appuser:appgroup /app

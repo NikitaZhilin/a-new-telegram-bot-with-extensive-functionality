@@ -112,7 +112,16 @@ async def test_public_app_info_endpoint_exposes_release_metadata(db_session):
     payload = response.json()
     assert payload["version"] == settings.APP_VERSION
     assert payload["release_channel"]
+    assert datetime.fromisoformat(payload["started_at_utc"])
+    assert datetime.fromisoformat(payload["started_at_local"])
+    assert payload["started_timezone"] == settings.TIMEZONE_DEFAULT
+    assert payload["started_at_display"]
+    assert payload["startup_announce_mode"] == settings.STARTUP_ANNOUNCE_MODE
+    assert payload["startup_admin_announce_mode"] == settings.STARTUP_ADMIN_ANNOUNCE_MODE
     assert "changes" in payload
+    assert payload["user_changes"] == payload["changes"]
+    assert "technical_changes" in payload
+    assert isinstance(payload["release_history"], list)
 
 
 @pytest.mark.asyncio

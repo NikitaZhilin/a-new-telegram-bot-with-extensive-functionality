@@ -226,23 +226,47 @@ function renderReleaseInfo() {
     `;
     return;
   }
-  const changes = (info.changes || []).length
-    ? info.changes.map((item) => `<div class="item-meta">• ${escapeHtml(item)}</div>`).join("")
+  const userChanges = info.user_changes || info.changes || [];
+  const changes = userChanges.length
+    ? userChanges.map((item) => `<div class="item-meta">• ${escapeHtml(item)}</div>`).join("")
     : `<div class="item-meta">Изменения для текущей версии не указаны.</div>`;
+  const technicalChanges = (info.technical_changes || []).length
+    ? info.technical_changes.map((item) => `<div class="item-meta">• ${escapeHtml(item)}</div>`).join("")
+    : `<div class="item-meta">Технические изменения для текущей версии не указаны.</div>`;
+  const history = (info.release_history || []).length
+    ? info.release_history.slice(0, 5).map((entry) => `
+      <div class="item-card compact">
+        <strong>${escapeHtml(entry.version || "версия")}</strong>
+        ${(entry.items || []).slice(0, 4).map((item) => `<div class="item-meta">• ${escapeHtml(item)}</div>`).join("")}
+      </div>
+    `).join("")
+    : `<div class="item-meta">История версий пока не найдена.</div>`;
   const links = [
     info.github_url ? `<a href="${escapeHtml(info.github_url)}" target="_blank" rel="noopener">GitHub</a>` : "",
     info.changelog_url ? `<a href="${escapeHtml(info.changelog_url)}" target="_blank" rel="noopener">История изменений</a>` : "",
   ].filter(Boolean).join(" · ");
+  const startedLine = info.started_at_display
+    ? `<div class="item-meta">Последний запуск: ${escapeHtml(info.started_at_display)} (${escapeHtml(info.started_timezone || "UTC")})</div>`
+    : "";
   node.innerHTML = `
     <h2>О боте</h2>
     <div class="item-list">
       <div class="item-meta">Версия: ${escapeHtml(info.version)} · канал: ${escapeHtml(info.release_channel)}</div>
       <div class="item-meta">Статус: ${info.testing_notice_enabled ? "тестирование" : "стабильный режим"}</div>
+      ${startedLine}
       ${links ? `<div class="item-meta">${links}</div>` : ""}
       <div>
-        <h3>Что нового</h3>
+        <h3>Что нового для пользователя</h3>
         ${changes}
       </div>
+      <details>
+        <summary>Технические изменения</summary>
+        ${technicalChanges}
+      </details>
+      <details>
+        <summary>История версий</summary>
+        <div class="item-list">${history}</div>
+      </details>
       ${info.testing_notice_enabled && info.testing_notice_text ? `<div class="notice-pill">${escapeHtml(info.testing_notice_text)}</div>` : ""}
     </div>
   `;

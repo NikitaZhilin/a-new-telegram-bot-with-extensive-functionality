@@ -30,3 +30,7 @@ def test_web_dashboard_has_release_info_block():
     assert 'id="releaseInfo"' in html
     assert '"/app/info"' in script
     assert "renderReleaseInfo" in script
+    assert "started_at_display" in script
+    assert "user_changes" in script
+    assert "technical_changes" in script
+    assert "release_history" in script

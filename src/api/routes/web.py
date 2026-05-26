@@ -1,5 +1,6 @@
 """Static web client routes."""
 
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -19,11 +20,20 @@ class AppInfoResponse(BaseModel):
     version: str
     release_channel: str
     release_importance: str
+    startup_announce_mode: str
+    startup_admin_announce_mode: str
+    started_at_utc: datetime
+    started_at_local: datetime
+    started_timezone: str
+    started_at_display: str
     github_url: str
     changelog_url: str
     testing_notice_enabled: bool
     testing_notice_text: str
     changes: list[str]
+    user_changes: list[str]
+    technical_changes: list[str]
+    release_history: list[dict]
 
 
 @router.get("/", include_in_schema=False)

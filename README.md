@@ -150,11 +150,14 @@ STARTUP_UPDATE_MESSAGE=Обновлена стабильность сервис�
 # Для SSH/CI с риском проблем кодировки используйте base64-вариант.
 # Если заполнен, он имеет приоритет над STARTUP_UPDATE_MESSAGE.
 STARTUP_UPDATE_MESSAGE_B64=
+STARTUP_TECHNICAL_MESSAGE=
+STARTUP_TECHNICAL_MESSAGE_B64=
 STARTUP_ANNOUNCE_MODE=off
 STARTUP_ANNOUNCE_IMPORTANCE=minor
+STARTUP_ADMIN_ANNOUNCE_MODE=once_per_version
 ```
 
-По умолчанию бот не рассылает сообщение об обновлении после каждого рестарта. Версия и история изменений доступны в Telegram: `Настройки -> О боте`, а также в web-сводке. Для крупного релиза включите `STARTUP_ANNOUNCE_MODE=major` и `STARTUP_ANNOUNCE_IMPORTANCE=major` или `critical`.
+По умолчанию бот не рассылает сообщение об обновлении после каждого рестарта. Версия, последний запуск, история версий и пользовательский changelog доступны в Telegram: `Настройки -> О боте`, а также в web-сводке. Технические изменения отделены от пользовательских и показываются в admin-only статусе. Для крупного релиза включите `STARTUP_ANNOUNCE_MODE=major` и `STARTUP_ANNOUNCE_IMPORTANCE=major` или `critical`. Для служебного уведомления только администраторам используйте `STARTUP_ADMIN_ANNOUNCE_MODE=once_per_version` или `always`.
 
 ### Запуск
 
@@ -435,11 +438,14 @@ STARTUP_UPDATE_MESSAGE=Обновлена стабильность сервис�
 # Use this ASCII-safe base64 variant for SSH/CI if Cyrillic text is corrupted.
 # When set, it overrides STARTUP_UPDATE_MESSAGE.
 STARTUP_UPDATE_MESSAGE_B64=
+STARTUP_TECHNICAL_MESSAGE=
+STARTUP_TECHNICAL_MESSAGE_B64=
 STARTUP_ANNOUNCE_MODE=off
 STARTUP_ANNOUNCE_IMPORTANCE=minor
+STARTUP_ADMIN_ANNOUNCE_MODE=once_per_version
 ```
 
-By default, the bot does not broadcast an update message after every restart. Version and changelog information is available in Telegram under `Settings -> About bot` and in the web dashboard. For a major release, set `STARTUP_ANNOUNCE_MODE=major` and `STARTUP_ANNOUNCE_IMPORTANCE=major` or `critical`.
+By default, the bot does not broadcast an update message after every restart. Version, last startup time, release history, and user-facing changelog are available in Telegram under `Settings -> About bot` and in the web dashboard. Technical changes are separated from user-facing notes and shown in the admin-only status screen. For a major release, set `STARTUP_ANNOUNCE_MODE=major` and `STARTUP_ANNOUNCE_IMPORTANCE=major` or `critical`. For admin-only deployment notices, use `STARTUP_ADMIN_ANNOUNCE_MODE=once_per_version` or `always`.
 
 ### Running
 

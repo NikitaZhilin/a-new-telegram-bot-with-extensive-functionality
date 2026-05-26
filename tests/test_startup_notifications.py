@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from src import main
 from src.db.base import Base
+from src.services.release_info import optional_release_change_lines, release_history
 
 
 @pytest.mark.asyncio
@@ -66,3 +67,43 @@ def test_startup_announcement_policy_is_quiet_by_default():
     assert main._should_send_startup_announcement(_startup_config("major", "critical")) is True
     assert main._should_send_startup_announcement(_startup_config("always", "minor")) is True
     assert main._should_send_startup_announcement(_startup_config("always", "critical", False)) is False
+
+
+def test_admin_startup_notice_policy_is_separate_from_user_broadcasts():
+    assert main._should_send_admin_startup_notice(
+        SimpleNamespace(STARTUP_ADMIN_ANNOUNCE_MODE="off")
+    ) is False
+    assert main._should_send_admin_startup_notice(
+        SimpleNamespace(STARTUP_ADMIN_ANNOUNCE_MODE="once_per_version")
+    ) is True
+    assert main._should_send_admin_startup_notice(
+        SimpleNamespace(STARTUP_ADMIN_ANNOUNCE_MODE="always")
+    ) is True
+    assert main._should_send_admin_startup_notice(
+        SimpleNamespace(STARTUP_ADMIN_ANNOUNCE_MODE="bad-value")
+    ) is True
+
+
+def test_optional_technical_changes_are_empty_when_not_configured():
+    assert optional_release_change_lines("", None) == []
+    assert optional_release_change_lines("????????? ???????????", None) == []
+
+
+def test_release_history_reads_recent_changelog_entries(tmp_path):
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "# Changelog\n\n"
+        "## 0.2.0-beta\n\n"
+        "- Пользовательское изменение\n"
+        "- Техническое изменение\n\n"
+        "## 0.1.0-beta\n\n"
+        "- Первый релиз\n",
+        encoding="utf-8",
+    )
+
+    assert release_history(limit=1, changelog_path=changelog) == [
+        {
+            "version": "0.2.0-beta",
+            "items": ["Пользовательское изменение", "Техническое изменение"],
+        }
+    ]

@@ -18,6 +18,7 @@ COPY requirements-prod.txt ./
 RUN pip install --no-cache-dir --no-compile -r requirements-prod.txt
 
 COPY src ./src
+COPY CHANGELOG.md ./CHANGELOG.md
 COPY alembic.ini ./
 COPY alembic ./alembic
 
