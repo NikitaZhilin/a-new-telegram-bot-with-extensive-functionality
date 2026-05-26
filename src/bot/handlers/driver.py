@@ -49,6 +49,7 @@ from src.bot.states import DriverStates
 from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.driver_service import DriverService
+from src.services.checklist_service import ChecklistService
 from src.services.list_service import ListService
 from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_presets
 
@@ -949,7 +950,50 @@ async def driver_section_callback(update: Update, context: ContextTypes.DEFAULT_
 
     await query.edit_message_text(
         _format_section_text(section_key),
-        reply_markup=get_driver_section_keyboard(),
+        reply_markup=get_driver_section_keyboard(section_key),
+    )
+    return ConversationHandler.END
+
+
+async def driver_list_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show a driver-owned checklist without mixing it into general lists."""
+    query = update.callback_query
+    await query.answer()
+
+    list_id = _parse_callback_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        list_service = ListService(session)
+        list_obj = await list_service.get_list(list_id, user_id, source_module="driver")
+        if not list_obj:
+            await query.edit_message_text(
+                "❌ Авто-список не найден",
+                reply_markup=get_driver_templates_keyboard(),
+            )
+            return ConversationHandler.END
+        items = await list_service.get_list_items(list_id, user_id, source_module="driver")
+        active_run = await ChecklistService(session).get_active_run_for_list(list_id, user_id)
+
+    lines = [
+        "🚗 Авто-список",
+        "",
+        f"📋 {list_obj.title}",
+        f"Пунктов: {len(items)}",
+    ]
+    if active_run:
+        checked_count = sum(1 for item in active_run.items if item.checked)
+        lines.append(f"Активный чек-лист: {checked_count}/{len(active_run.items)} отмечено.")
+    if items:
+        lines.append("")
+        for index, item in enumerate(items, 1):
+            lines.append(f"{index}. {item.text[:80]}")
+    else:
+        lines.append("")
+        lines.append("Пунктов пока нет.")
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=get_driver_created_list_keyboard(list_id),
     )
     return ConversationHandler.END
 

@@ -9,7 +9,11 @@ from src.bot.handlers.reminders import (
     _build_confirmation_text,
     _parse_time_on_date,
 )
-from src.bot.keyboards.builder import get_lists_list_keyboard
+from src.bot.keyboards.builder import (
+    get_lists_list_keyboard,
+    get_reminder_edit_keyboard,
+    get_reminder_view_keyboard,
+)
 from src.db.models import RepeatRule, User
 from src.repositories.user_repo import UserRepository
 from src.utils.labels import repeat_rule_label
@@ -136,3 +140,43 @@ async def test_user_repo_uses_configured_default_timezone(db_session):
 
     assert user.timezone == "Europe/Moscow"
     assert normalized.timezone == "Europe/Moscow"
+
+
+def test_reminder_view_keyboard_uses_compact_edit_and_next_action():
+    """Active reminder view should not show duplicate cancel/delete actions."""
+    keyboard = get_reminder_view_keyboard(10, status="active")
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    texts = [button.text for row in keyboard.inline_keyboard for button in row]
+
+    assert "reminder_edit_menu:10" in callbacks
+    assert "reminder_create" in callbacks
+    assert "reminder_cancel:10" not in callbacks
+    assert "reminder_edit_text:10" not in callbacks
+    assert "✏️ Изменить" in texts
+    assert "➕ Следующее напоминание" in texts
+
+
+def test_reminder_edit_keyboard_exposes_edit_choices():
+    """Compact edit button should open all reminder edit choices."""
+    keyboard = get_reminder_edit_keyboard(10)
+    callbacks = {
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+    }
+
+    assert callbacks == {
+        "reminder_edit_text:10",
+        "reminder_edit_time:10",
+        "reminder_edit_repeat:10",
+        "reminder_view:10",
+    }
+
+
+def test_driver_reminder_view_does_not_start_general_next_reminder():
+    """Driver reminders should not lead into the general reminder flow."""
+    keyboard = get_reminder_view_keyboard(10, status="active", source_module="driver")
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert "reminder_create" not in callbacks
+    assert "reminder_edit_menu:10" in callbacks

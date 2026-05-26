@@ -27,6 +27,7 @@ from src.bot.keyboards import (
     get_reminder_time_keyboard,
     get_reminder_confirm_keyboard,
     get_reminder_repeat_keyboard,
+    get_reminder_edit_keyboard,
     get_reminder_edit_repeat_keyboard,
     get_back_home_inline_keyboard,
     get_cancel_keyboard,
@@ -397,11 +398,13 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
             "⏰ Создание напоминания\n\nВведите текст напоминания:",
             reply_markup=get_cancel_inline_keyboard(),
         )
+        _remember_reminder_message(context, query.message.chat_id, query.message.message_id)
     else:
-        await update.message.reply_text(
+        message = await update.message.reply_text(
             "⏰ Создание напоминания\n\nВведите текст напоминания:",
             reply_markup=get_cancel_keyboard(),
         )
+        _remember_reminder_message(context, message.chat_id, message.message_id)
     
     return ReminderStates.WAIT_TEXT
 
@@ -410,13 +413,16 @@ async def reminder_save_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Save reminder text and show date selection."""
     text = update.message.text.strip()
     context.user_data["reminder_text"] = text
-    
-    await update.message.reply_text(
+    await _delete_user_message(update)
+
+    await _show_reminder_message(
+        update,
+        context,
         f"Текст: {text[:100]}{'...' if len(text) > 100 else ''}\n\n"
-        f"Когда напомнить?",
-        reply_markup=get_reminder_date_keyboard(),
+        "Когда напомнить?",
+        get_reminder_date_keyboard(),
     )
-    
+
     return ReminderStates.WAIT_DATE
 
 
@@ -510,20 +516,21 @@ async def reminder_save_custom_date(update: Update, context: ContextTypes.DEFAUL
         if _looks_like_full_datetime(date_str):
             remind_at = _parse_flexible_datetime(date_str, context)
             context.user_data["remind_at_utc"] = remind_at.isoformat()
-            await update.message.reply_text(
-                _build_confirmation_text(context, remind_at),
-                reply_markup=get_reminder_confirm_keyboard(remind_at),
-            )
-            return ReminderStates.WAIT_CONFIRM
+            await _delete_user_message(update)
+            return await _create_reminder_from_context(update, context)
 
         selected_date = _parse_date_only(date_str, context)
         context.user_data["selected_date"] = selected_date.isoformat()
-        
-        await update.message.reply_text(
-            f"📅 Выбрано: {selected_date.strftime('%d.%m.%Y')}\n\nТеперь выберите время:",
-            reply_markup=get_reminder_time_keyboard(),
+        await _delete_user_message(update)
+
+        await _show_reminder_message(
+            update,
+            context,
+            f"📅 Выбрано: {selected_date.strftime('%d.%m.%Y')}\n\n"
+            "Теперь выберите время:",
+            get_reminder_time_keyboard(),
         )
-        
+
         return ReminderStates.WAIT_TIME
     except (ValueError, IndexError):
         await update.message.reply_text(
@@ -561,10 +568,8 @@ async def reminder_time_preset(update: Update, context: ContextTypes.DEFAULT_TYP
         remind_at = now + timedelta(hours=1)
     
     context.user_data["remind_at_utc"] = remind_at.isoformat()
-    
-    await show_confirmation(query, context, remind_at)
-    
-    return ReminderStates.WAIT_CONFIRM
+
+    return await _create_reminder_from_context(update, context)
 
 
 async def reminder_time_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -605,13 +610,8 @@ async def reminder_save_custom_time(update: Update, context: ContextTypes.DEFAUL
     try:
         remind_at = _parse_flexible_datetime(time_str, context)
         context.user_data["remind_at_utc"] = remind_at.isoformat()
-        
-        await update.message.reply_text(
-            _build_confirmation_text(context, remind_at, prefix=f"🕒 Выбрано: {time_str}\n\n"),
-            reply_markup=get_reminder_confirm_keyboard(remind_at),
-        )
-        
-        return ReminderStates.WAIT_CONFIRM
+        await _delete_user_message(update)
+        return await _create_reminder_from_context(update, context)
     except (ValueError, IndexError):
         await update.message.reply_text(
             "❌ Не понял время. Попробуйте так: 10, 10:30, завтра 10, через 2 часа",
@@ -645,6 +645,72 @@ async def show_confirmation(query, context: ContextTypes.DEFAULT_TYPE, remind_at
         text,
         reply_markup=get_reminder_confirm_keyboard(remind_at),
     )
+
+
+async def _create_reminder_from_context(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Create reminder from the current creation context and render its card."""
+    user_id = update.effective_user.id
+    text = context.user_data.get("reminder_text", "")
+    remind_at_str = context.user_data.get("remind_at_utc")
+    repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
+    linked_list_id = context.user_data.get("linked_list_id")
+    source_module = context.user_data.get("reminder_source_module")
+
+    if not remind_at_str:
+        await _show_reminder_message(
+            update,
+            context,
+            "❌ Не указано время напоминания.",
+            get_back_home_inline_keyboard(),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    remind_at_utc = datetime.fromisoformat(remind_at_str)
+
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(user_id)
+
+        reminder_service = ReminderService(session)
+        reminder = await reminder_service.create_reminder(
+            user_id=user.id if user else user_id,
+            text=text,
+            remind_at_utc=remind_at_utc,
+            repeat_rule=repeat_rule,
+            list_id=linked_list_id,
+            source_module=source_module,
+        )
+        if reminder is None:
+            await session.rollback()
+            await _show_reminder_message(
+                update,
+                context,
+                "❌ Не удалось создать напоминание: список не найден.",
+                get_back_home_inline_keyboard(),
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+        await session.commit()
+
+    await _show_reminder_message(
+        update,
+        context,
+        f"✅ Напоминание создано!\n\n"
+        f"📝 {text[:100]}{'...' if len(text) > 100 else ''}\n\n"
+        f"⏰ {_format_remind_at(context, remind_at_utc)}",
+        get_reminder_view_keyboard(
+            reminder.id,
+            list_id=linked_list_id,
+            source_module=source_module,
+        ),
+    )
+
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -821,7 +887,12 @@ async def _render_reminder_screen(
         f"⏰ Статус: {reminder_status_label(status_value)}"
     )
 
-    return text, get_reminder_view_keyboard(reminder.id, status_value, reminder.list_id)
+    return text, get_reminder_view_keyboard(
+        reminder.id,
+        status_value,
+        reminder.list_id,
+        reminder.source_module,
+    )
 
 
 async def _refresh_reminder_screen(
@@ -843,6 +914,31 @@ async def _refresh_reminder_screen(
     await _show_reminder_message(update, context, text, keyboard)
     if clear_context:
         context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def reminder_edit_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show reminder edit choices from a compact edit button."""
+    query = update.callback_query
+    await query.answer()
+
+    reminder_id = int(query.data.split(":")[1])
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        reminder_service = ReminderService(session)
+        reminder = await reminder_service.get_reminder(reminder_id, user_id)
+
+    if not reminder:
+        await query.edit_message_text(
+            "❌ Напоминание не найдено",
+            reply_markup=get_back_home_inline_keyboard(),
+        )
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        "✏️ Что изменить в напоминании?",
+        reply_markup=get_reminder_edit_keyboard(reminder_id),
+    )
     return ConversationHandler.END
 
 

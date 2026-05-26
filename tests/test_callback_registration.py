@@ -58,6 +58,7 @@ from src.bot.keyboards import (
     get_medication_instructions_keyboard,
     get_medication_reminder_keyboard,
     get_medication_view_keyboard,
+    get_reminder_edit_keyboard,
     get_reminder_edit_repeat_keyboard,
     get_reminder_view_keyboard,
     get_settings_keyboard,
@@ -161,6 +162,7 @@ def test_important_callback_patterns_are_registered():
         "^checklist_finish:",
         "^checklist_cancel:",
         "^reminders_page:",
+        "^reminder_edit_menu:",
         "^reminder_edit_text:",
         "^reminder_edit_time:",
         "^reminder_edit_repeat:",
@@ -179,6 +181,7 @@ def test_important_callback_patterns_are_registered():
         "^tz_custom$",
         "^driver_menu$",
         "^driver_section:",
+        "^driver_list_view:",
         "^driver_list_template:",
         "^driver_reminder_template:",
         "^driver_vehicle_create$",
@@ -237,6 +240,7 @@ def test_medication_keyboards_have_registered_callbacks():
         get_medication_edit_importance_keyboard(10),
         get_medication_delete_confirm_keyboard(10),
         get_reminder_view_keyboard(10),
+        get_reminder_edit_keyboard(10),
         get_reminder_edit_repeat_keyboard(10),
     ]:
         callbacks.update(_collect_callback_data(keyboard))
@@ -248,6 +252,21 @@ def test_medication_keyboards_have_registered_callbacks():
     }
 
     assert unregistered == set()
+
+
+def test_driver_section_keyboard_does_not_start_general_flows():
+    """Driver sections must not create general lists or reminders."""
+    for section in ["maintenance", "fluids", "parts", "wash", "tires"]:
+        callbacks = _collect_callback_data(get_driver_section_keyboard(section))
+        assert "list_create" not in callbacks
+        assert "reminder_create" not in callbacks
+
+    run_item = SimpleNamespace(id=40, text_snapshot="Driver item", checked=False)
+    run = SimpleNamespace(id=50, items=[run_item])
+    callbacks = _collect_callback_data(get_checklist_run_keyboard(run, 10, source_module="driver"))
+    callbacks |= _collect_callback_data(get_checklist_finished_keyboard(10, source_module="driver"))
+    assert "driver_list_view:10" in callbacks
+    assert "list_view:10" not in callbacks
 
 
 def test_list_keyboards_have_registered_callbacks():

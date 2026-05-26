@@ -37,6 +37,12 @@ def _source_list_id(run) -> int | None:
     return run.source_list_id if getattr(run, "source_list_id", None) else None
 
 
+def _source_module(run) -> str | None:
+    """Return source module for source-aware navigation."""
+    source_list = getattr(run, "source_list", None)
+    return getattr(source_list, "source_module", None)
+
+
 async def _render_run(service: ChecklistService, run) -> tuple[str, object]:
     """Build active checklist text and keyboard."""
     checked, total = service.progress(run)
@@ -62,7 +68,11 @@ async def _render_run(service: ChecklistService, run) -> tuple[str, object]:
         status = "✅" if item.checked else "⬜"
         lines.append(f"{status} {truncate(item.text_snapshot, 90)}")
 
-    return "\n".join(lines), get_checklist_run_keyboard(run, _source_list_id(run))
+    return "\n".join(lines), get_checklist_run_keyboard(
+        run,
+        _source_list_id(run),
+        _source_module(run),
+    )
 
 
 def _stale_text() -> str:
@@ -215,7 +225,7 @@ async def checklist_finish_callback(update: Update, context: ContextTypes.DEFAUL
     )
     await query.edit_message_text(
         text,
-        reply_markup=get_checklist_finished_keyboard(_source_list_id(run)),
+        reply_markup=get_checklist_finished_keyboard(_source_list_id(run), _source_module(run)),
     )
     return ConversationHandler.END
 

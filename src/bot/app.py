@@ -112,6 +112,7 @@ from src.bot.handlers.reminders import (
     reminder_done_callback,
     reminder_cancel_callback,
     reminder_delete_callback,
+    reminder_edit_menu_callback,
     reminder_edit_repeat_start,
     reminder_edit_repeat_value_callback,
     reminders_filter_callback,
@@ -136,6 +137,7 @@ from src.bot.handlers.driver import (
     driver_fuel_delete_confirm_callback,
     driver_fuel_history_callback,
     driver_fuel_view_callback,
+    driver_list_view_callback,
     driver_list_template_callback,
     driver_menu_callback,
     driver_section_callback,
@@ -264,6 +266,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(reminder_done_callback, pattern="^reminder_done:"))
     application.add_handler(CallbackQueryHandler(reminder_cancel_callback, pattern="^reminder_cancel:"))
     application.add_handler(CallbackQueryHandler(reminder_delete_callback, pattern="^reminder_delete:"))
+    application.add_handler(CallbackQueryHandler(reminder_edit_menu_callback, pattern="^reminder_edit_menu:"))
     application.add_handler(CallbackQueryHandler(reminder_edit_repeat_value_callback, pattern="^reminder_edit_repeat_value:"))
     application.add_handler(CallbackQueryHandler(reminder_edit_repeat_start, pattern="^reminder_edit_repeat:"))
     application.add_handler(CallbackQueryHandler(reminders_filter_callback, pattern="^reminders_filter_"))
@@ -281,6 +284,7 @@ def create_application() -> Application:
     # Driver callbacks
     application.add_handler(CallbackQueryHandler(driver_menu_callback, pattern="^driver_menu$"))
     application.add_handler(CallbackQueryHandler(driver_section_callback, pattern="^driver_section:"))
+    application.add_handler(CallbackQueryHandler(driver_list_view_callback, pattern="^driver_list_view:"))
     application.add_handler(CallbackQueryHandler(driver_list_template_callback, pattern="^driver_list_template:"))
     application.add_handler(CallbackQueryHandler(driver_vehicle_view_callback, pattern="^driver_vehicle_view:"))
     application.add_handler(CallbackQueryHandler(driver_vehicle_delete_confirm_callback, pattern="^driver_vehicle_delete_confirm:"))

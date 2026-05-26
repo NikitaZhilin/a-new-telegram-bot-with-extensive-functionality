@@ -48,6 +48,7 @@ from src.bot.keyboards.builder import (
     get_reminder_time_keyboard,
     get_reminder_confirm_keyboard,
     get_reminder_repeat_keyboard,
+    get_reminder_edit_keyboard,
     get_reminder_edit_repeat_keyboard,
     # Driver
     get_driver_menu_keyboard,
@@ -128,6 +129,7 @@ __all__ = [
     "get_reminder_time_keyboard",
     "get_reminder_confirm_keyboard",
     "get_reminder_repeat_keyboard",
+    "get_reminder_edit_keyboard",
     "get_reminder_edit_repeat_keyboard",
     # Driver
     "get_driver_menu_keyboard",

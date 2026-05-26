@@ -117,12 +117,43 @@ def get_driver_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_driver_section_keyboard() -> InlineKeyboardMarkup:
+def get_driver_section_keyboard(section_key: Optional[str] = None) -> InlineKeyboardMarkup:
     """Driver section navigation keyboard."""
-    keyboard = [
+    keyboard = []
+
+    if section_key == "maintenance":
+        keyboard.append([
+            InlineKeyboardButton("🔧 Напомнить про масло", callback_data="driver_reminder_template:oil"),
+        ])
+    elif section_key == "fluids":
+        keyboard.append([
+            InlineKeyboardButton("💧 Чек-лист жидкостей", callback_data="driver_list_template:fluids_check"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton("⏰ Напомнить проверить", callback_data="driver_reminder_template:fluids"),
+        ])
+    elif section_key == "parts":
+        keyboard.append([
+            InlineKeyboardButton("🛒 Список запчастей", callback_data="driver_list_template:parts"),
+        ])
+    elif section_key == "wash":
+        keyboard.append([
+            InlineKeyboardButton("⏰ Напомнить про мойку", callback_data="driver_reminder_template:wash"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton("💰 Записать расход", callback_data="driver_expense_add"),
+        ])
+    elif section_key == "tires":
+        keyboard.append([
+            InlineKeyboardButton("⏰ Напомнить про давление", callback_data="driver_reminder_template:tire_pressure"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton("✅ Проверка перед поездкой", callback_data="driver_list_template:trip_check"),
+        ])
+
+    keyboard.extend([
         [
-            InlineKeyboardButton("➕ Список", callback_data="list_create"),
-            InlineKeyboardButton("⏰ Напоминание", callback_data="reminder_create"),
+            InlineKeyboardButton("⚡ Шаблоны водителя", callback_data="driver_section:templates"),
         ],
         [
             InlineKeyboardButton("🌐 Открыть web-версию", callback_data="settings_web_login"),
@@ -131,7 +162,7 @@ def get_driver_section_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ],
-    ]
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -361,7 +392,10 @@ def get_driver_created_list_keyboard(list_id: int) -> InlineKeyboardMarkup:
     """Keyboard shown after creating a driver checklist template."""
     keyboard = [
         [
-            InlineKeyboardButton("📋 Открыть список", callback_data=f"list_view:{list_id}"),
+            InlineKeyboardButton("📋 Открыть авто-список", callback_data=f"driver_list_view:{list_id}"),
+        ],
+        [
+            InlineKeyboardButton("▶️ Пройти чек-лист", callback_data=f"checklist_start:{list_id}"),
         ],
         [
             InlineKeyboardButton("⚡ К шаблонам", callback_data="driver_section:templates"),
@@ -883,7 +917,25 @@ def get_list_item_delete_confirm_keyboard(list_id: int, item_id: int) -> InlineK
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_checklist_run_keyboard(run, source_list_id: Optional[int] = None) -> InlineKeyboardMarkup:
+def _list_callback_for_source(list_id: int, source_module: Optional[str] = None) -> str:
+    """Return the correct list view callback for a domain-owned list."""
+    if source_module == "driver":
+        return f"driver_list_view:{list_id}"
+    return f"list_view:{list_id}"
+
+
+def _lists_hub_callback_for_source(source_module: Optional[str] = None) -> str:
+    """Return the correct list hub callback for a domain-owned list."""
+    if source_module == "driver":
+        return "driver_menu"
+    return "lists_list"
+
+
+def get_checklist_run_keyboard(
+    run,
+    source_list_id: Optional[int] = None,
+    source_module: Optional[str] = None,
+) -> InlineKeyboardMarkup:
     """Keyboard for an active personal checklist run."""
     keyboard = []
     for item in run.items:
@@ -910,7 +962,7 @@ def get_checklist_run_keyboard(run, source_list_id: Optional[int] = None) -> Inl
     ])
     if source_list_id:
         keyboard.append([
-            InlineKeyboardButton("⬅️ К списку", callback_data=f"list_view:{source_list_id}"),
+            InlineKeyboardButton("⬅️ К списку", callback_data=_list_callback_for_source(source_list_id, source_module)),
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ])
     else:
@@ -922,13 +974,16 @@ def get_checklist_run_keyboard(run, source_list_id: Optional[int] = None) -> Inl
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_checklist_finished_keyboard(source_list_id: Optional[int] = None) -> InlineKeyboardMarkup:
+def get_checklist_finished_keyboard(
+    source_list_id: Optional[int] = None,
+    source_module: Optional[str] = None,
+) -> InlineKeyboardMarkup:
     """Keyboard for finished or canceled checklist run screen."""
     if source_list_id:
         keyboard = [
             [
-                InlineKeyboardButton("⬅️ К списку", callback_data=f"list_view:{source_list_id}"),
-                InlineKeyboardButton("📋 К спискам", callback_data="lists_list"),
+                InlineKeyboardButton("⬅️ К списку", callback_data=_list_callback_for_source(source_list_id, source_module)),
+                InlineKeyboardButton("📋 К разделу", callback_data=_lists_hub_callback_for_source(source_module)),
             ],
             [
                 InlineKeyboardButton("🏠 В меню", callback_data="home"),
@@ -1370,6 +1425,7 @@ def get_reminder_view_keyboard(
     reminder_id: int,
     status: str = "active",
     list_id: Optional[int] = None,
+    source_module: Optional[str] = "general",
 ) -> InlineKeyboardMarkup:
     """Keyboard for viewing a single reminder."""
     keyboard = []
@@ -1377,13 +1433,12 @@ def get_reminder_view_keyboard(
     if status == "active":
         keyboard.append([
             InlineKeyboardButton("✅ Выполнено", callback_data=f"reminder_done:{reminder_id}"),
-            InlineKeyboardButton("🚫 Отменить", callback_data=f"reminder_cancel:{reminder_id}"),
+            InlineKeyboardButton("✏️ Изменить", callback_data=f"reminder_edit_menu:{reminder_id}"),
         ])
-        keyboard.append([
-            InlineKeyboardButton("✏️ Текст", callback_data=f"reminder_edit_text:{reminder_id}"),
-            InlineKeyboardButton("🕒 Время", callback_data=f"reminder_edit_time:{reminder_id}"),
-            InlineKeyboardButton("🔁 Повтор", callback_data=f"reminder_edit_repeat:{reminder_id}"),
-        ])
+        if source_module in (None, "general"):
+            keyboard.append([
+                InlineKeyboardButton("➕ Следующее напоминание", callback_data="reminder_create"),
+            ])
 
     if list_id:
         keyboard.append([
@@ -1399,6 +1454,21 @@ def get_reminder_view_keyboard(
         InlineKeyboardButton("🏠 В меню", callback_data="home"),
     ])
 
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_reminder_edit_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
+    """Keyboard with reminder edit choices."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Текст", callback_data=f"reminder_edit_text:{reminder_id}"),
+            InlineKeyboardButton("🕒 Время", callback_data=f"reminder_edit_time:{reminder_id}"),
+            InlineKeyboardButton("🔁 Повтор", callback_data=f"reminder_edit_repeat:{reminder_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К напоминанию", callback_data=f"reminder_view:{reminder_id}"),
+        ],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -1497,7 +1567,7 @@ def get_reminder_confirm_keyboard(
         ],
         [
             InlineKeyboardButton("🔁 Повтор", callback_data="rem_repeat_set"),
-            InlineKeyboardButton("⬅️ К времени", callback_data="rem_time_change"),
+            InlineKeyboardButton("🕒 Изменить время", callback_data="rem_time_change"),
         ],
         [
             InlineKeyboardButton("❌ Отмена", callback_data="rem_cancel_create"),
