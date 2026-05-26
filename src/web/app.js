@@ -9,6 +9,7 @@ const state = {
   },
   user: null,
   summary: null,
+  appInfo: null,
   lists: [],
   reminders: [],
   medications: [],
@@ -115,6 +116,14 @@ async function adminApi(path) {
   return response.json();
 }
 
+async function publicApi(path) {
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
 function saveAuth() {
   localStorage.setItem("rememberme.webLoginToken", state.auth.webLoginToken);
   localStorage.setItem("rememberme.adminToken", state.auth.adminToken);
@@ -203,6 +212,40 @@ function renderMetrics() {
     </article>
   `).join("");
   renderDashboardDetails(stats);
+  renderReleaseInfo();
+}
+
+function renderReleaseInfo() {
+  const node = $("#releaseInfo");
+  if (!node) return;
+  const info = state.appInfo;
+  if (!info) {
+    node.innerHTML = `
+      <h2>О боте</h2>
+      <div class="item-meta">Информация о версии загружается.</div>
+    `;
+    return;
+  }
+  const changes = (info.changes || []).length
+    ? info.changes.map((item) => `<div class="item-meta">• ${escapeHtml(item)}</div>`).join("")
+    : `<div class="item-meta">Изменения для текущей версии не указаны.</div>`;
+  const links = [
+    info.github_url ? `<a href="${escapeHtml(info.github_url)}" target="_blank" rel="noopener">GitHub</a>` : "",
+    info.changelog_url ? `<a href="${escapeHtml(info.changelog_url)}" target="_blank" rel="noopener">История изменений</a>` : "",
+  ].filter(Boolean).join(" · ");
+  node.innerHTML = `
+    <h2>О боте</h2>
+    <div class="item-list">
+      <div class="item-meta">Версия: ${escapeHtml(info.version)} · канал: ${escapeHtml(info.release_channel)}</div>
+      <div class="item-meta">Статус: ${info.testing_notice_enabled ? "тестирование" : "стабильный режим"}</div>
+      ${links ? `<div class="item-meta">${links}</div>` : ""}
+      <div>
+        <h3>Что нового</h3>
+        ${changes}
+      </div>
+      ${info.testing_notice_enabled && info.testing_notice_text ? `<div class="notice-pill">${escapeHtml(info.testing_notice_text)}</div>` : ""}
+    </div>
+  `;
 }
 
 function renderDashboardDetails(stats) {
@@ -620,8 +663,14 @@ function renderDocumentEditForm(item) {
 async function loadSummary() {
   state.summary = await api("/me/summary");
   state.user = state.summary.user;
+  state.appInfo = state.summary.app_info || state.appInfo;
   updateAuthUi();
   renderMetrics();
+}
+
+async function loadAppInfo() {
+  state.appInfo = await publicApi("/app/info");
+  renderReleaseInfo();
 }
 
 async function loadLists() {
@@ -1701,6 +1750,7 @@ async function boot() {
   }
   bindEvents();
   updateAuthUi();
+  await loadAppInfo().catch(() => renderReleaseInfo());
   if (state.auth.initData || state.auth.webLoginToken || (state.auth.adminToken && state.auth.telegramId)) {
     try {
       await loadSummary();

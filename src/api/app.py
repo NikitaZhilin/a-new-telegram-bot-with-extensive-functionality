@@ -38,7 +38,7 @@ def create_application() -> FastAPI:
     app = FastAPI(
         title="RememberMe API",
         description="Web, user, and admin API for RememberMe bot",
-        version="2.0.0",
+        version=settings.APP_VERSION,
         lifespan=lifespan,
         docs_url=docs_url,
         redoc_url=redoc_url,

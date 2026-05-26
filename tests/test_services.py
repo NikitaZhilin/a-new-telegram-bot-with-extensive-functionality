@@ -100,17 +100,21 @@ def test_list_keyboard_truncates_long_item_buttons():
 
 
 @pytest.mark.asyncio
-async def test_reminder_service_links_only_owned_lists(db_session):
-    """Linked list reminders should keep ownership boundaries."""
+async def test_reminder_service_links_only_accessible_lists(db_session):
+    """Linked list reminders should allow shared lists but keep access boundaries."""
     user = User(telegram_id=4001, timezone="UTC")
     other_user = User(telegram_id=4002, timezone="UTC")
-    db_session.add_all([user, other_user])
+    shared_owner = User(telegram_id=4003, timezone="UTC")
+    db_session.add_all([user, other_user, shared_owner])
     await db_session.flush()
 
     list_service = ListService(db_session)
     reminder_service = ReminderService(db_session)
     own_list = await list_service.create_list(user.id, "Groceries")
     other_list = await list_service.create_list(other_user.id, "Hidden")
+    shared_list = await list_service.create_list(shared_owner.id, "Shared errands")
+    db_session.add(ListMember(list_id=shared_list.id, user_id=user.id, role="viewer"))
+    await db_session.flush()
     remind_at = datetime(2026, 5, 23, 10, 0, tzinfo=timezone.utc)
 
     reminder = await reminder_service.create_reminder(
@@ -126,9 +130,17 @@ async def test_reminder_service_links_only_owned_lists(db_session):
         remind_at_utc=remind_at,
         list_id=other_list.id,
     )
+    shared = await reminder_service.create_reminder(
+        user_id=user.id,
+        text="Напомнить про общий список",
+        remind_at_utc=remind_at,
+        list_id=shared_list.id,
+    )
 
     assert reminder is not None
     assert reminder.list_id == own_list.id
+    assert shared is not None
+    assert shared.list_id == shared_list.id
     assert blocked is None
 
 

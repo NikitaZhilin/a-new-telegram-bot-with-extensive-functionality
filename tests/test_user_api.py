@@ -93,10 +93,26 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
 
     assert me_response.json()["telegram_id"] == user.telegram_id
     assert summary_response.json()["stats"]["lists"]["owned"] == 1
+    assert summary_response.json()["app_info"]["version"] == settings.APP_VERSION
     assert [item["title"] for item in lists_response.json()] == ["Web list"]
     assert [item["text"] for item in reminders_response.json()] == ["Web reminder"]
     assert medications_response.json()[0]["name"] == "Web medication"
     assert driver_response.json()["vehicles"][0]["title"] == "Web car"
+
+
+@pytest.mark.asyncio
+async def test_public_app_info_endpoint_exposes_release_metadata(db_session):
+    """Web UI should be able to load version/changelog metadata before login."""
+    app = create_application()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/app/info")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == settings.APP_VERSION
+    assert payload["release_channel"]
+    assert "changes" in payload
 
 
 @pytest.mark.asyncio

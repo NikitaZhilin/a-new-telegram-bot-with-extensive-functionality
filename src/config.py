@@ -55,9 +55,22 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
     TIMEZONE_DEFAULT: str = Field(default="Europe/Moscow", description="Default timezone")
     APP_VERSION: str = Field(default="0.1.0-beta", description="Human-readable application version")
+    APP_RELEASE_CHANNEL: str = Field(default="beta", description="Release channel shown in UI")
+    APP_GITHUB_URL: str = Field(
+        default="https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality",
+        description="Public GitHub repository URL shown in UI",
+    )
+    APP_CHANGELOG_URL: str = Field(
+        default="https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality/releases",
+        description="Public changelog or releases URL shown in UI",
+    )
     STARTUP_UPDATE_MESSAGE: str = Field(
         default="Можно продолжать пользоваться.",
         description="Short changelog sent with startup menu"
+    )
+    STARTUP_UPDATE_MESSAGE_B64: Optional[str] = Field(
+        default=None,
+        description="Optional UTF-8/base64 encoded startup changelog for ASCII-safe deploys"
     )
     TESTING_NOTICE_ENABLED: bool = Field(
         default=True,
@@ -84,7 +97,15 @@ class Settings(BaseSettings):
     WORKER_INTERVAL: int = Field(default=60, description="Worker check interval in seconds")
     SEND_STARTUP_MENU_ON_BOOT: bool = Field(
         default=True,
-        description="Send a fresh main menu to known users when bot polling starts"
+        description="Legacy switch for startup announcements; STARTUP_ANNOUNCE_MODE still gates delivery"
+    )
+    STARTUP_ANNOUNCE_MODE: str = Field(
+        default="off",
+        description="Startup announcement mode: off, major, or always"
+    )
+    STARTUP_ANNOUNCE_IMPORTANCE: str = Field(
+        default="minor",
+        description="Current release importance: minor, major, or critical"
     )
     DEFAULT_SUBSCRIPTION_PLAN: str = Field(
         default="free",

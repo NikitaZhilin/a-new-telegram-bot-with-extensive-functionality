@@ -43,16 +43,18 @@ def get_cancel_inline_keyboard() -> InlineKeyboardMarkup:
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Main menu reply keyboard."""
     keyboard = [
-        ["📋 Списки", "💊 Лекарства", "⏰ Напоминания", "🚗 Для водителя"],
+        ["📋 Списки", "💊 Лекарства"],
+        ["⏰ Напоминания", "🚗 Водитель"],
         ["⚙️ Настройки", "🌐 Web-версия"],
         ["👥 Поделиться ботом"],
+        ["⌨️ Скрыть меню"],
         ["❓ Помощь"],
     ]
     return ReplyKeyboardMarkup(
         keyboard,
         resize_keyboard=True,
         one_time_keyboard=False,
-        is_persistent=True,
+        is_persistent=False,
     )
 
 
@@ -62,8 +64,10 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("📋 Списки", callback_data="lists_list"),
             InlineKeyboardButton("💊 Лекарства", callback_data="medications_list"),
+        ],
+        [
             InlineKeyboardButton("⏰ Напоминания", callback_data="reminders_list"),
-            InlineKeyboardButton("🚗 Для водителя", callback_data="driver_menu"),
+            InlineKeyboardButton("🚗 Водитель", callback_data="driver_menu"),
         ],
         [
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
@@ -1539,12 +1543,32 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💳 Подписка", callback_data="settings_subscription"),
         ],
         [
+            InlineKeyboardButton("ℹ️ О боте", callback_data="settings_about"),
+        ],
+        [
             InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login"),
         ],
         [
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_about_keyboard(github_url: str = "", changelog_url: str = "") -> InlineKeyboardMarkup:
+    """Keyboard for app version/about screen."""
+    keyboard = []
+    links = []
+    if github_url:
+        links.append(InlineKeyboardButton("📦 GitHub", url=github_url))
+    if changelog_url:
+        links.append(InlineKeyboardButton("📝 История изменений", url=changelog_url))
+    if links:
+        keyboard.append(links)
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Настройки", callback_data="settings_menu"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 

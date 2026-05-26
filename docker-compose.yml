@@ -68,11 +68,17 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TIMEZONE_DEFAULT: ${TIMEZONE_DEFAULT:-Europe/Moscow}
       APP_VERSION: ${APP_VERSION:-0.1.0-beta}
+      APP_RELEASE_CHANNEL: ${APP_RELEASE_CHANNEL:-beta}
+      APP_GITHUB_URL: ${APP_GITHUB_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality}
+      APP_CHANGELOG_URL: ${APP_CHANGELOG_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality/releases}
       STARTUP_UPDATE_MESSAGE: ${STARTUP_UPDATE_MESSAGE:-Обновлена стабильность сервиса и web-версии.}
+      STARTUP_UPDATE_MESSAGE_B64: ${STARTUP_UPDATE_MESSAGE_B64:-}
       TESTING_NOTICE_ENABLED: ${TESTING_NOTICE_ENABLED:-true}
       TESTING_NOTICE_TEXT: ${TESTING_NOTICE_TEXT:-}
       WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
       SEND_STARTUP_MENU_ON_BOOT: ${SEND_STARTUP_MENU_ON_BOOT:-true}
+      STARTUP_ANNOUNCE_MODE: ${STARTUP_ANNOUNCE_MODE:-off}
+      STARTUP_ANNOUNCE_IMPORTANCE: ${STARTUP_ANNOUNCE_IMPORTANCE:-minor}
       DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
     command: ["python", "-m", "src.main", "init-db"]
     networks:
@@ -109,11 +115,17 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TIMEZONE_DEFAULT: ${TIMEZONE_DEFAULT:-Europe/Moscow}
       APP_VERSION: ${APP_VERSION:-0.1.0-beta}
+      APP_RELEASE_CHANNEL: ${APP_RELEASE_CHANNEL:-beta}
+      APP_GITHUB_URL: ${APP_GITHUB_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality}
+      APP_CHANGELOG_URL: ${APP_CHANGELOG_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality/releases}
       STARTUP_UPDATE_MESSAGE: ${STARTUP_UPDATE_MESSAGE:-Обновлена стабильность сервиса и web-версии.}
+      STARTUP_UPDATE_MESSAGE_B64: ${STARTUP_UPDATE_MESSAGE_B64:-}
       TESTING_NOTICE_ENABLED: ${TESTING_NOTICE_ENABLED:-true}
       TESTING_NOTICE_TEXT: ${TESTING_NOTICE_TEXT:-}
       WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
       SEND_STARTUP_MENU_ON_BOOT: ${SEND_STARTUP_MENU_ON_BOOT:-true}
+      STARTUP_ANNOUNCE_MODE: ${STARTUP_ANNOUNCE_MODE:-off}
+      STARTUP_ANNOUNCE_IMPORTANCE: ${STARTUP_ANNOUNCE_IMPORTANCE:-minor}
       DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
     command: ["python", "-m", "src.main", "bot"]
     healthcheck:
@@ -161,11 +173,17 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TIMEZONE_DEFAULT: ${TIMEZONE_DEFAULT:-Europe/Moscow}
       APP_VERSION: ${APP_VERSION:-0.1.0-beta}
+      APP_RELEASE_CHANNEL: ${APP_RELEASE_CHANNEL:-beta}
+      APP_GITHUB_URL: ${APP_GITHUB_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality}
+      APP_CHANGELOG_URL: ${APP_CHANGELOG_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality/releases}
       STARTUP_UPDATE_MESSAGE: ${STARTUP_UPDATE_MESSAGE:-Обновлена стабильность сервиса и web-версии.}
+      STARTUP_UPDATE_MESSAGE_B64: ${STARTUP_UPDATE_MESSAGE_B64:-}
       TESTING_NOTICE_ENABLED: ${TESTING_NOTICE_ENABLED:-true}
       TESTING_NOTICE_TEXT: ${TESTING_NOTICE_TEXT:-}
       WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
       SEND_STARTUP_MENU_ON_BOOT: ${SEND_STARTUP_MENU_ON_BOOT:-true}
+      STARTUP_ANNOUNCE_MODE: ${STARTUP_ANNOUNCE_MODE:-off}
+      STARTUP_ANNOUNCE_IMPORTANCE: ${STARTUP_ANNOUNCE_IMPORTANCE:-minor}
       DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
     command: ["python", "-m", "src.main", "api"]
     ports:
@@ -214,11 +232,17 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TIMEZONE_DEFAULT: ${TIMEZONE_DEFAULT:-Europe/Moscow}
       APP_VERSION: ${APP_VERSION:-0.1.0-beta}
+      APP_RELEASE_CHANNEL: ${APP_RELEASE_CHANNEL:-beta}
+      APP_GITHUB_URL: ${APP_GITHUB_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality}
+      APP_CHANGELOG_URL: ${APP_CHANGELOG_URL:-https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality/releases}
       STARTUP_UPDATE_MESSAGE: ${STARTUP_UPDATE_MESSAGE:-Обновлена стабильность сервиса и web-версии.}
+      STARTUP_UPDATE_MESSAGE_B64: ${STARTUP_UPDATE_MESSAGE_B64:-}
       TESTING_NOTICE_ENABLED: ${TESTING_NOTICE_ENABLED:-true}
       TESTING_NOTICE_TEXT: ${TESTING_NOTICE_TEXT:-}
       WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
       SEND_STARTUP_MENU_ON_BOOT: ${SEND_STARTUP_MENU_ON_BOOT:-true}
+      STARTUP_ANNOUNCE_MODE: ${STARTUP_ANNOUNCE_MODE:-off}
+      STARTUP_ANNOUNCE_IMPORTANCE: ${STARTUP_ANNOUNCE_IMPORTANCE:-minor}
       DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
     command: ["python", "-m", "src.main", "worker"]
     healthcheck:

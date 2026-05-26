@@ -77,6 +77,7 @@ from src.bot.keyboards.builder import (
     get_driver_document_type_keyboard,
     get_driver_document_remind_keyboard,
     # Settings
+    get_about_keyboard,
     get_settings_keyboard,
     get_timezone_keyboard,
     # Helpers
@@ -156,6 +157,7 @@ __all__ = [
     "get_driver_document_type_keyboard",
     "get_driver_document_remind_keyboard",
     # Settings
+    "get_about_keyboard",
     "get_settings_keyboard",
     "get_timezone_keyboard",
     # Helpers

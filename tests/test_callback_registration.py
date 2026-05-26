@@ -35,6 +35,14 @@ from src.bot.keyboards import (
     get_driver_full_tank_keyboard,
     get_main_menu_inline_keyboard,
     get_main_menu_keyboard,
+    get_list_delete_confirm_keyboard,
+    get_list_item_delete_confirm_keyboard,
+    get_list_item_keyboard,
+    get_list_member_manage_keyboard,
+    get_list_members_keyboard,
+    get_list_share_keyboard,
+    get_list_view_keyboard,
+    get_lists_list_keyboard,
     get_medication_delete_confirm_keyboard,
     get_medication_dosage_keyboard,
     get_medication_edit_dosage_keyboard,
@@ -48,6 +56,8 @@ from src.bot.keyboards import (
     get_medication_view_keyboard,
     get_reminder_edit_repeat_keyboard,
     get_reminder_view_keyboard,
+    get_settings_keyboard,
+    get_about_keyboard,
 )
 from src.db.models import User
 from src.services.vehicle_presets import list_vehicle_presets
@@ -145,6 +155,7 @@ def test_important_callback_patterns_are_registered():
         "^rem_time_custom$",
         "^rem_confirm_back$",
         "^settings_timezone$",
+        "^settings_about$",
         "^settings_subscription$",
         "^settings_web_login$",
         "^tz_custom$",
@@ -221,6 +232,57 @@ def test_medication_keyboards_have_registered_callbacks():
     assert unregistered == set()
 
 
+def test_list_keyboards_have_registered_callbacks():
+    """List buttons should not point to dead callback_data."""
+    patterns = _collect_application_callback_patterns()
+    callbacks = set()
+    item = SimpleNamespace(id=20, text="Пункт списка", is_completed=False)
+    list_obj = SimpleNamespace(id=10, title="Дела", items=[item], _access_role="owner")
+    members = [
+        {"member_id": None, "role": "owner", "display_name": "Владелец"},
+        {"member_id": 30, "role": "viewer", "display_name": "Участник"},
+    ]
+
+    for keyboard in [
+        get_lists_list_keyboard([list_obj], page=1, has_next=True),
+        get_list_view_keyboard(10, [item]),
+        get_list_share_keyboard(10),
+        get_list_members_keyboard(10, members),
+        get_list_member_manage_keyboard(10, 30, "viewer"),
+        get_list_item_keyboard(10, 20),
+        get_list_delete_confirm_keyboard(10),
+        get_list_item_delete_confirm_keyboard(10, 20),
+    ]:
+        callbacks.update(_collect_callback_data(keyboard))
+
+    unregistered = {
+        callback_data
+        for callback_data in callbacks
+        if not _is_registered(callback_data, patterns)
+    }
+
+    assert unregistered == set()
+
+
+def test_settings_keyboards_have_registered_callbacks():
+    """Settings buttons should route to registered handlers or URL links."""
+    patterns = _collect_application_callback_patterns()
+    callbacks = set()
+    for keyboard in [
+        get_settings_keyboard(),
+        get_about_keyboard("https://example.com/repo", "https://example.com/changelog"),
+    ]:
+        callbacks.update(_collect_callback_data(keyboard))
+
+    unregistered = {
+        callback_data
+        for callback_data in callbacks
+        if not _is_registered(callback_data, patterns)
+    }
+
+    assert unregistered == set()
+
+
 @pytest.mark.asyncio
 async def test_medication_user_lookup_creates_user_before_domain_writes(db_session):
     """Medication flows must not use Telegram ID as an internal FK fallback."""
@@ -254,12 +316,14 @@ def test_main_menus_expose_active_sections_only():
         "📋 Списки",
         "💊 Лекарства",
         "⏰ Напоминания",
-        "🚗 Для водителя",
+        "🚗 Водитель",
         "⚙️ Настройки",
         "🌐 Web-версия",
         "👥 Поделиться ботом",
+        "⌨️ Скрыть меню",
         "❓ Помощь",
     }
+    assert all(len(row) <= 2 for row in reply_markup["keyboard"])
 
     inline_markup = get_main_menu_inline_keyboard().to_dict()
     inline_texts = {
@@ -272,7 +336,7 @@ def test_main_menus_expose_active_sections_only():
         "📋 Списки",
         "💊 Лекарства",
         "⏰ Напоминания",
-        "🚗 Для водителя",
+        "🚗 Водитель",
         "⚙️ Настройки",
         "🌐 Web-версия",
         "👥 Поделиться ботом",

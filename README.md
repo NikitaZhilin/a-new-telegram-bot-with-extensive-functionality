@@ -143,8 +143,18 @@ DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@localhost:5433/DB
 
 ```env
 APP_VERSION=0.8.0-beta
+APP_RELEASE_CHANNEL=beta
+APP_GITHUB_URL=https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality
+APP_CHANGELOG_URL=https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality/releases
 STARTUP_UPDATE_MESSAGE=Обновлена стабильность сервиса и web-версии.
+# Для SSH/CI с риском проблем кодировки используйте base64-вариант.
+# Если заполнен, он имеет приоритет над STARTUP_UPDATE_MESSAGE.
+STARTUP_UPDATE_MESSAGE_B64=
+STARTUP_ANNOUNCE_MODE=off
+STARTUP_ANNOUNCE_IMPORTANCE=minor
 ```
+
+По умолчанию бот не рассылает сообщение об обновлении после каждого рестарта. Версия и история изменений доступны в Telegram: `Настройки -> О боте`, а также в web-сводке. Для крупного релиза включите `STARTUP_ANNOUNCE_MODE=major` и `STARTUP_ANNOUNCE_IMPORTANCE=major` или `critical`.
 
 ### Запуск
 
@@ -418,8 +428,18 @@ DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@localhost:5433/DB
 
 ```env
 APP_VERSION=0.8.0-beta
+APP_RELEASE_CHANNEL=beta
+APP_GITHUB_URL=https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality
+APP_CHANGELOG_URL=https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality/releases
 STARTUP_UPDATE_MESSAGE=Обновлена стабильность сервиса и web-версии.
+# Use this ASCII-safe base64 variant for SSH/CI if Cyrillic text is corrupted.
+# When set, it overrides STARTUP_UPDATE_MESSAGE.
+STARTUP_UPDATE_MESSAGE_B64=
+STARTUP_ANNOUNCE_MODE=off
+STARTUP_ANNOUNCE_IMPORTANCE=minor
 ```
+
+By default, the bot does not broadcast an update message after every restart. Version and changelog information is available in Telegram under `Settings -> About bot` and in the web dashboard. For a major release, set `STARTUP_ANNOUNCE_MODE=major` and `STARTUP_ANNOUNCE_IMPORTANCE=major` or `critical`.
 
 ### Running
 

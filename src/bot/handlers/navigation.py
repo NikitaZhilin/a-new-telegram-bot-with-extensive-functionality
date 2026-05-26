@@ -5,7 +5,7 @@ Handles /start, /help, and main menu button clicks.
 """
 
 import logging
-from telegram import Update
+from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import (
     CommandHandler,
     MessageHandler,
@@ -131,8 +131,19 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if text == "⏰ Напоминания":
         await show_reminders_menu(update, context)
         return
-    if text == "🚗 Для водителя":
+    if text in {"🚗 Для водителя", "🚗 Водитель"}:
         await show_driver_menu(update, context)
+        return
+    if text in {"⌨️ Скрыть меню", "⌨️ Скрыть"}:
+        await update.message.reply_text(
+            "Нижнее меню скрыто.\n\n"
+            "Чтобы открыть его снова, отправьте /start или используйте кнопки ниже.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await update.message.reply_text(
+            "Главное меню:",
+            reply_markup=get_main_menu_inline_keyboard(),
+        )
         return
     if text == "⚙️ Настройки":
         await show_settings_menu(update, context)

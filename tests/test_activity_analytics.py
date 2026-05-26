@@ -29,6 +29,7 @@ def test_activity_normalizes_menu_text():
     """Reply menu clicks should be grouped by stable action names."""
     assert normalize_menu_text("📋 Списки") == "menu:lists"
     assert normalize_menu_text("💊 Лекарства") == "menu:medications"
+    assert normalize_menu_text("🚗 Водитель") == "menu:driver"
     assert normalize_menu_text("🚗 Для водителя") == "menu:driver"
 
 

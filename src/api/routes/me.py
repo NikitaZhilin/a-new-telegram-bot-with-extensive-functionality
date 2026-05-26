@@ -27,6 +27,7 @@ from src.services.driver_service import DriverService
 from src.services.list_service import ListService
 from src.services.medication_service import MedicationService
 from src.services.reminder_service import ReminderService
+from src.services.release_info import app_info
 from src.services.settings_service import SettingsService
 from src.services.subscription_service import SubscriptionService
 from src.services.vehicle_presets import list_vehicle_presets
@@ -54,6 +55,7 @@ class MeSummaryResponse(BaseModel):
     user: MeResponse
     stats: dict
     access: dict
+    app_info: dict
 
 
 class ListSummaryResponse(BaseModel):
@@ -660,6 +662,7 @@ async def get_me_summary(
         user=_user_response(current_user),
         stats=stats,
         access=access,
+        app_info=app_info(settings),
     )
 
 

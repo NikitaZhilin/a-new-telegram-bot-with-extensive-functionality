@@ -27,10 +27,6 @@
         <button class="nav-button" data-section="admin">Админ</button>
       </nav>
 
-      <div class="sidebar-footer">
-        <button id="themeToggle" class="utility-button" type="button" title="Переключить тему">◐ Тема</button>
-        <button id="reloadButton" class="utility-button" type="button" title="Обновить текущий раздел">↻ Обновить</button>
-      </div>
     </aside>
 
     <main class="content">
@@ -43,6 +39,8 @@
         <div class="status-row">
           <span class="notice-pill">Тестовый режим: данные могут быть изменены или утеряны.</span>
           <span id="authStatus" class="pill muted">не подключено</span>
+          <button id="themeToggle" class="utility-button small" type="button" title="Переключить тему">◐ Тема</button>
+          <button id="reloadButton" class="utility-button small" type="button" title="Обновить текущий раздел">↻ Обновить</button>
           <button id="logoutButton" class="secondary small action-cancel" type="button">Выйти</button>
         </div>
       </header>
@@ -81,6 +79,7 @@
       <section id="message" class="message hidden"></section>
 
       <section id="dashboard" class="section active">
+        <div id="releaseInfo" class="panel release-info"></div>
         <div id="dashboardCards" class="metric-grid"></div>
         <div id="dashboardDetails" class="dashboard-details"></div>
       </section>

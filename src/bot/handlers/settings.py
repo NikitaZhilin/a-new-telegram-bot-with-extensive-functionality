@@ -18,6 +18,7 @@ from telegram.ext import (
 
 from src.config import settings
 from src.bot.keyboards import (
+    get_about_keyboard,
     get_settings_keyboard,
     get_timezone_keyboard,
     get_back_home_inline_keyboard,
@@ -29,6 +30,7 @@ from src.db.session import async_session_maker
 from src.services.settings_service import SettingsService
 from src.services.subscription_service import SubscriptionService
 from src.services.web_auth_service import WebAuthService
+from src.services.release_info import app_info
 from src.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -326,6 +328,41 @@ async def settings_subscription_callback(update: Update, context: ContextTypes.D
         reply_markup=get_back_home_inline_keyboard(),
     )
 
+    return ConversationHandler.END
+
+
+async def settings_about_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show app version, release links, and current changelog."""
+    query = update.callback_query
+    await query.answer()
+
+    info = app_info(settings)
+    changes = "\n".join(f"• {item}" for item in info["changes"]) or "• Изменений не указано."
+    testing_notice = (
+        f"\n\n{info['testing_notice_text']}"
+        if info["testing_notice_enabled"] and info["testing_notice_text"]
+        else ""
+    )
+    github_line = info["github_url"] or "не настроено"
+    changelog_line = info["changelog_url"] or "не настроено"
+    text = (
+        "ℹ️ О боте\n\n"
+        f"Версия: {info['version']}\n"
+        f"Канал: {info['release_channel']}\n"
+        f"Статус: {'тестирование' if info['testing_notice_enabled'] else 'стабильный режим'}\n\n"
+        "Проект:\n"
+        f"GitHub: {github_line}\n"
+        f"История изменений: {changelog_line}\n\n"
+        "Что нового:\n"
+        f"{changes}"
+        f"{testing_notice}"
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=get_about_keyboard(info["github_url"], info["changelog_url"]),
+        disable_web_page_preview=True,
+    )
     return ConversationHandler.END
 
 

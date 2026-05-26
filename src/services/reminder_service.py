@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
 from src.db.models import Reminder, ReminderStatus, RepeatRule, User
-from src.repositories.list_repo import ListRepository
 from src.repositories.medication_repo import MedicationRepository
 from src.repositories.reminder_repo import ReminderRepository
 
@@ -56,11 +55,11 @@ class ReminderService:
             Created Reminder
         """
         if list_id is not None:
-            list_repo = ListRepository(self.db)
-            list_obj = await list_repo.get_with_items(list_id, user_id)
-            if not list_obj:
+            from src.services.list_service import ListService
+
+            if not await ListService(self.db).can_view(list_id, user_id, source_module=None):
                 logger.warning(
-                    "Tried to create reminder for a list owned by another user or missing",
+                    "Tried to create reminder for a list without access or missing",
                     extra={"user_id": user_id, "list_id": list_id},
                 )
                 return None

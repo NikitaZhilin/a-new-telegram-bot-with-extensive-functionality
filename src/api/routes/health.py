@@ -55,7 +55,7 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         status="ok",
         timestamp=datetime.now(timezone.utc).isoformat(),
-        version="2.0.0",
+        version=settings.APP_VERSION,
         service="rememberme-api",
     )
 
@@ -99,7 +99,7 @@ async def health_ready() -> DetailedHealthResponse:
     return DetailedHealthResponse(
         status=overall_status,
         timestamp=datetime.now(timezone.utc).isoformat(),
-        version="2.0.0",
+        version=settings.APP_VERSION,
         service="rememberme-api",
         database=db_status,
         uptime_seconds=uptime,
@@ -123,7 +123,7 @@ async def health_live() -> HealthResponse:
     return HealthResponse(
         status="ok",
         timestamp=datetime.now(timezone.utc).isoformat(),
-        version="2.0.0",
+        version=settings.APP_VERSION,
         service="rememberme-api",
     )
 

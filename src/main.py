@@ -25,6 +25,13 @@ from src.config import settings
 from src.db.base import Base
 from src.db.session import engine, async_session_maker
 from src.services.activity_service import ActivityService
+from src.services.release_info import (
+    STARTUP_UPDATE_FALLBACK_MESSAGE,
+    looks_like_broken_encoding,
+    release_change_lines,
+    resolve_startup_update_message,
+    should_send_startup_announcement,
+)
 
 
 # Configure logging
@@ -55,6 +62,24 @@ def setup_logging(level: str = "INFO") -> None:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STARTUP_UPDATE_EVENT_PREFIX = "startup_update_sent"
+
+
+def _resolve_startup_update_message(
+    startup_message: str,
+    startup_message_b64: str | None = None,
+) -> str:
+    """Return a safe UTF-8 startup changelog, preferring base64 when provided."""
+    return resolve_startup_update_message(startup_message, startup_message_b64)
+
+
+def _looks_like_broken_encoding(value: str) -> bool:
+    """Backward-compatible wrapper for tests and local diagnostics."""
+    return looks_like_broken_encoding(value)
+
+
+def _should_send_startup_announcement(config=settings) -> bool:
+    """Return whether startup should broadcast release notes."""
+    return should_send_startup_announcement(config)
 
 
 def _make_alembic_config() -> Config:
@@ -486,7 +511,7 @@ async def run_bot() -> None:
         await bot_app.bot.delete_webhook()
         logger.info("Webhook deleted, starting polling")
 
-    if settings.SEND_STARTUP_MENU_ON_BOOT:
+    if _should_send_startup_announcement(settings):
         async with async_session_maker() as session:
             user_repo = UserRepository(session)
             users = await user_repo.get_all_with_telegram_id()
@@ -506,17 +531,10 @@ async def run_bot() -> None:
                 ):
                     continue
 
-                update_message = (
-                    settings.STARTUP_UPDATE_MESSAGE.strip()
-                    .strip("\"'")
-                    .strip()
-                    or "Улучшена стабильность работы бота."
+                change_lines = release_change_lines(
+                    settings.STARTUP_UPDATE_MESSAGE,
+                    settings.STARTUP_UPDATE_MESSAGE_B64,
                 )
-                change_lines = [
-                    line.strip().lstrip("-•").strip()
-                    for line in update_message.replace(";", "\n").splitlines()
-                    if line.strip()
-                ]
                 changes_text = "\n".join(f"- {line}" for line in change_lines)
                 testing_notice = (
                     f"\n\n{settings.TESTING_NOTICE_TEXT}"
@@ -529,7 +547,8 @@ async def run_bot() -> None:
                         f"Бот обновлен до бета-версии {settings.APP_VERSION} и перезапущен.\n\n"
                         "Что изменилось:\n"
                         f"{changes_text}\n\n"
-                        "Главное меню открыто ниже. Если кнопки не появились, отправьте /start."
+                        "Главное меню открыто ниже. Если кнопки не появились, отправьте /start.\n\n"
+                        "Подробности всегда доступны в Настройки → О боте."
                         f"{testing_notice}"
                     ),
                     reply_markup=get_main_menu_keyboard(),
