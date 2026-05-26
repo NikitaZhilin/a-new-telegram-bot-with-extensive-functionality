@@ -98,6 +98,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable Telegram voice-to-list transcription"
     )
+    VOICE_LIST_INPUT_ENABLED: bool = Field(
+        default=False,
+        description="Show and allow Telegram voice-to-list input"
+    )
     VOICE_TRANSCRIPTION_BASE_URL: str = Field(
         default="https://api.openai.com/v1",
         description="OpenAI-compatible API base URL for audio transcriptions"

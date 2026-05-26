@@ -680,7 +680,6 @@ def get_lists_list_keyboard(
     # Action buttons
     keyboard.append([
         InlineKeyboardButton("➕ Создать", callback_data="list_create"),
-        InlineKeyboardButton("🎙 Надиктовать", callback_data="list_voice_new"),
     ])
     
     keyboard.append([
@@ -716,7 +715,6 @@ def get_list_view_keyboard(
     if can_edit:
         keyboard.append([
             InlineKeyboardButton("➕ Добавить", callback_data=f"list_add_item:{list_id}"),
-            InlineKeyboardButton("🎙 Голосом", callback_data=f"list_voice_add:{list_id}"),
         ])
         keyboard.append([
             InlineKeyboardButton("📦 Пачкой", callback_data=f"list_add_bulk:{list_id}"),

@@ -512,6 +512,15 @@ async def list_voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
 
+    if not settings.VOICE_LIST_INPUT_ENABLED:
+        await query.edit_message_text(
+            "🎙 Голосовой ввод списков временно отключен.\n\n"
+            "Пока используйте добавление пункта текстом или пачкой.",
+            reply_markup=get_back_home_inline_keyboard(),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
     data = query.data
     mode = "add" if data.startswith("list_voice_add:") else "new"
     list_id = int(data.split(":", 1)[1]) if mode == "add" else None
