@@ -51,3 +51,17 @@ def test_web_driver_journal_has_forms_and_filters():
     assert '"/me/driver/journal"' in script
     assert "`/me/driver/journal/${form.dataset.id}`" in script
     assert '`/me/driver/journal/${id}`' in script
+
+
+def test_web_lists_use_single_active_checklist_surface():
+    """Active list checks should render one checklist surface and collapse source rows."""
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert "renderSourceListPanel" in script
+    assert "source-list-panel" in script
+    assert "Проверка идет выше" in script
+    assert "${checklistPanel}" in script
+    assert "${sourceListPanel}" in script
+    assert ".accordion-panel" in styles
+    assert ".source-list-items" in styles

@@ -837,53 +837,84 @@ async function openList(listId) {
   }
   const canEdit = detail.access_role === "owner" || detail.access_role === "editor";
   const canManage = detail.access_role === "owner";
-  const checklistPanel = state.activeChecklistRun?.source_list_id === detail.id
-    ? renderChecklistRunPanel(state.activeChecklistRun)
+  const checklistRun = state.activeChecklistRun?.source_list_id === detail.id
+    ? state.activeChecklistRun
+    : null;
+  const checklistPanel = checklistRun
+    ? renderChecklistRunPanel(checklistRun)
     : "";
+  const sourceListPanel = renderSourceListPanel(detail, canEdit, checklistRun?.status === "active");
   $("#listDetailPanel").classList.remove("hidden");
   $("#listDetailPanel").innerHTML = `
-    <h2>${escapeHtml(detail.title)}</h2>
-    <div class="item-meta">${detail.items_total} ${pluralRu(detail.items_total, "пункт", "пункта", "пунктов")} · ${formatRole(detail.access_role)}</div>
+    <div class="panel-heading">
+      <div>
+        <h2>${escapeHtml(detail.title)}</h2>
+        <div class="item-meta">${detail.items_total} ${pluralRu(detail.items_total, "пункт", "пункта", "пунктов")} · ${formatRole(detail.access_role)}</div>
+      </div>
+      ${!checklistRun && detail.items.length ? `<button class="small action-done" data-action="start-checklist-run" data-id="${detail.id}">Начать проверку</button>` : ""}
+    </div>
     ${checklistPanel}
     ${canManage ? `
-      <div class="item-actions">
-        <button class="secondary small action-share" data-action="share-list" data-id="${detail.id}">Ссылки доступа</button>
-        <button class="secondary small action-open" data-action="refresh-members" data-id="${detail.id}">Участники</button>
-      </div>
-      <div id="listSharePanel" class="subpanel hidden"></div>
-      <div id="listMembersPanel" class="subpanel hidden"></div>
-    ` : ""}
-    ${canEdit ? `<form id="listItemCreateForm" class="stack" data-list-id="${detail.id}">
-      <textarea name="text" rows="3" placeholder="Новый пункт или несколько строк" required></textarea>
-      <button class="action-save" type="submit">Добавить</button>
-    </form>` : `<div class="item-meta">У вас доступ только на просмотр.</div>`}
-    <div class="item-list">
-      ${detail.items.length ? detail.items.map((item) => {
-        const activeRunItem = state.activeChecklistRun?.source_list_id === detail.id && state.activeChecklistRun.status === "active"
-          ? state.activeChecklistRun.items.find((runItem) => Number(runItem.source_item_id) === Number(item.id))
-          : null;
-        return `
-        <div class="list-item-row">
-          <input type="checkbox" data-action="toggle-item" data-id="${item.id}" ${activeRunItem?.checked ? "checked" : ""}>
-          <div class="list-item-content">
-            ${state.editingItemId === item.id ? renderListItemEditForm(item) : `<span>${escapeHtml(item.text)}</span>`}
-          </div>
-          ${state.editingItemId === item.id ? "" : `
-            <div class="actions">
-              ${canEdit ? `
-                <button class="secondary small action-edit" data-action="edit-item" data-id="${item.id}">Изменить</button>
-                <button class="danger small action-danger" data-action="delete-item" data-id="${item.id}">Удалить</button>
-              ` : ""}
-            </div>
-          `}
+      <details class="accordion-panel">
+        <summary>Доступ и участники</summary>
+        <div class="item-actions">
+          <button class="secondary small action-share" data-action="share-list" data-id="${detail.id}">Ссылки доступа</button>
+          <button class="secondary small action-open" data-action="refresh-members" data-id="${detail.id}">Участники</button>
         </div>
-      `; }).join("") : `<div class="item-meta">Пунктов пока нет.</div>`}
-    </div>
+        <div id="listSharePanel" class="subpanel hidden"></div>
+        <div id="listMembersPanel" class="subpanel hidden"></div>
+      </details>
+    ` : ""}
+    ${sourceListPanel}
   `;
   $("#listItemCreateForm")?.addEventListener("submit", handleListItemCreate);
   $$(".list-item-edit-form").forEach((form) => {
     form.addEventListener("submit", (event) => handleListItemUpdate(event).catch((error) => showMessage(error.message, true)));
   });
+}
+
+function renderSourceListPanel(detail, canEdit, checklistIsActive) {
+  const title = checklistIsActive ? "Исходный список" : "Пункты списка";
+  const sourceItems = detail.items.length ? detail.items.map((item) => `
+    <div class="list-item-row ${item.is_completed ? "is-completed" : ""}">
+      <input
+        type="checkbox"
+        data-action="toggle-item"
+        data-id="${item.id}"
+        ${item.is_completed ? "checked" : ""}
+        ${checklistIsActive ? "disabled" : ""}
+        title="${checklistIsActive ? "Проверка идет выше" : "Отметить пункт"}"
+      >
+      <div class="list-item-content">
+        ${state.editingItemId === item.id ? renderListItemEditForm(item) : `<span>${escapeHtml(item.text)}</span>`}
+      </div>
+      ${state.editingItemId === item.id ? "" : `
+        <div class="actions">
+          ${canEdit ? `
+            <button class="secondary small action-edit" data-action="edit-item" data-id="${item.id}">Изменить</button>
+            <button class="danger small action-danger" data-action="delete-item" data-id="${item.id}">Удалить</button>
+          ` : ""}
+        </div>
+      `}
+    </div>
+  `).join("") : `<div class="item-meta">Пунктов пока нет.</div>`;
+
+  return `
+    <details class="accordion-panel source-list-panel" ${checklistIsActive ? "" : "open"}>
+      <summary>
+        <span>${title}</span>
+        ${checklistIsActive ? `<span class="summary-note">прохождение открыто выше</span>` : ""}
+      </summary>
+      ${checklistIsActive ? `<div class="notice-inline">Чтобы не дублировать отметки, пункты исходного списка во время проверки доступны только для просмотра и редактирования.</div>` : ""}
+      ${canEdit ? `<form id="listItemCreateForm" class="stack compact-form" data-list-id="${detail.id}">
+        <textarea name="text" rows="3" placeholder="Новый пункт или несколько строк" required></textarea>
+        <button class="action-save" type="submit">Добавить</button>
+      </form>` : `<div class="item-meta">У вас доступ только на просмотр.</div>`}
+      <div class="item-list source-list-items">
+        ${sourceItems}
+      </div>
+    </details>
+  `;
 }
 
 function renderChecklistRunPanel(run) {
