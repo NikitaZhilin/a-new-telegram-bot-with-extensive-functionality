@@ -89,3 +89,12 @@ def test_web_repeat_and_importance_use_choice_groups():
     assert "renderChoiceGroup" in script
     assert "handleChoiceButton" in script
     assert ".choice-button.active" in styles
+
+
+def test_web_dashboard_testing_notice_is_not_duplicated():
+    """Testing notice should stay in the topbar and not repeat inside release info."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert html.count("Тестовый режим: данные могут быть изменены или утеряны.") == 1
+    assert "info.testing_notice_text" not in script

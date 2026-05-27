@@ -39,11 +39,11 @@
   --surface-2: #303847;
   --surface-raised: #2d3544;
   --field-bg: #242b38;
-  --text: #f5f7fb;
-  --muted: #b8c2d1;
+  --text: #dbe4f1;
+  --muted: #9eabba;
   --line: #495466;
-  --accent: #8db7f4;
-  --accent-2: #8bd8c8;
+  --accent: #a8c2e8;
+  --accent-2: #9acfc4;
   --danger: #f87171;
   --warning: #f6c453;
   --warning-bg: rgba(246, 196, 83, 0.14);
@@ -81,6 +81,11 @@ body {
   font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
   letter-spacing: 0;
   line-height: 1.45;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 3px;
 }
 
 button,
@@ -654,7 +659,7 @@ h3 {
 .item-card summary,
 .release-info details summary {
   cursor: pointer;
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 88%, var(--text));
   font-weight: 800;
 }
 

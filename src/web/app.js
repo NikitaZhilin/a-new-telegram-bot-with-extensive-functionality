@@ -277,7 +277,6 @@ function renderReleaseInfo() {
         <summary>История версий</summary>
         <div class="item-list">${history}</div>
       </details>
-      ${info.testing_notice_enabled && info.testing_notice_text ? `<div class="notice-pill">${escapeHtml(info.testing_notice_text)}</div>` : ""}
     </div>
   `;
 }
