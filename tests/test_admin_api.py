@@ -1,7 +1,6 @@
 """Admin API regression tests."""
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 import httpx
 import pytest
@@ -110,10 +109,6 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     assert records_payload["driver"]["vehicles"][0]["title"] == "API visible vehicle"
     assert records_payload["driver"]["expenses"][0]["title"] == "API visible expense"
     assert records_payload["driver"]["documents"][0]["title"] == "API visible document"
-    assert records_payload["driver"]["journal"]
-    assert {"fuel_entry", "expense", "document"}.issubset(
-        {item["event_type"] for item in records_payload["driver"]["journal"]}
-    )
 
     activity_payload = activity_response.json()
     assert activity_payload["events_period"] == 2
@@ -163,48 +158,3 @@ async def test_admin_stats_week_is_last_seven_days_without_legacy_notes(db_sessi
     assert payload["lists"]["total"] == 3
     assert payload["lists"]["created_today"] == 1
     assert payload["lists"]["created_week"] == 2
-
-
-@pytest.mark.asyncio
-async def test_admin_restart_writes_allowlisted_request():
-    """Admin restart endpoint should only enqueue an allowlisted request."""
-    previous_dir = settings.RESTART_REQUEST_DIR
-    written: dict[str, str] = {}
-
-    def fake_write_text(_path, text, encoding=None):
-        written["text"] = text
-        return len(text)
-
-    settings.RESTART_REQUEST_DIR = "/restart-requests-test"
-    with (
-        patch("pathlib.Path.mkdir"),
-        patch("pathlib.Path.write_text", fake_write_text),
-        patch("pathlib.Path.replace"),
-    ):
-        app = create_application()
-        headers = {"X-Admin-Token": settings.ADMIN_TOKEN}
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(
-                "/admin/restart",
-                headers=headers,
-                json={
-                    "target": "worker",
-                    "confirm": "restart:rememberme",
-                    "requested_by": "pytest",
-                    "reason": "test",
-                },
-            )
-            bad_response = await client.post(
-                "/admin/restart",
-                headers=headers,
-                json={"target": "postgres", "confirm": "restart:rememberme"},
-            )
-
-        assert response.status_code == 202
-        payload = response.json()
-        assert payload["status"] == "accepted"
-        assert payload["target"] == "worker"
-        assert bad_response.status_code == 400
-        assert '"bot_key": "rememberme"' in written["text"]
-    settings.RESTART_REQUEST_DIR = previous_dir

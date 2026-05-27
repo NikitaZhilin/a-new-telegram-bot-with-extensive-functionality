@@ -18,7 +18,6 @@ API_CONTAINER="${API_CONTAINER:-rememberme_bot-api}"
 WORKER_CONTAINER="${WORKER_CONTAINER:-rememberme_bot-worker}"
 API_BIND_HOST="${API_BIND_HOST:-127.0.0.1}"
 API_HOST_PORT="${API_HOST_PORT:-8000}"
-RESTART_REQUEST_HOST_PATH="${RESTART_REQUEST_HOST_PATH:-$PROJECT_DIR/restart-requests}"
 
 assert_owned_container_name() {
   local value="$1"
@@ -82,7 +81,6 @@ docker build -t "$APP_IMAGE" -f Dockerfile .
 docker build -t "$WORKER_IMAGE" -f Dockerfile.worker .
 
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK"
-mkdir -p "$RESTART_REQUEST_HOST_PATH"
 
 docker run --rm \
   --env-file "$ENV_FILE" \
@@ -110,8 +108,6 @@ docker run -d \
   -e POSTGRES_HOST="$POSTGRES_HOST" \
   --network "$NETWORK" \
   -p "${API_BIND_HOST}:${API_HOST_PORT}:8000" \
-  -e RESTART_REQUEST_DIR=/app/restart-requests \
-  -v "$RESTART_REQUEST_HOST_PATH:/app/restart-requests" \
   "$APP_IMAGE" \
   sh -c 'DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB} python -m src.main api'
 

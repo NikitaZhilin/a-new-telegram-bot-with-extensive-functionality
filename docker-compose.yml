@@ -83,7 +83,6 @@ services:
       STARTUP_ANNOUNCE_IMPORTANCE: ${STARTUP_ANNOUNCE_IMPORTANCE:-minor}
       STARTUP_ADMIN_ANNOUNCE_MODE: ${STARTUP_ADMIN_ANNOUNCE_MODE:-once_per_version}
       DEFAULT_SUBSCRIPTION_PLAN: ${DEFAULT_SUBSCRIPTION_PLAN:-free}
-      RESTART_REQUEST_DIR: ${RESTART_REQUEST_DIR:-/app/restart-requests}
     command: ["python", "-m", "src.main", "init-db"]
     networks:
       - rememberme-network
@@ -198,8 +197,6 @@ services:
     command: ["python", "-m", "src.main", "api"]
     ports:
       - "${API_BIND_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
-    volumes:
-      - ${RESTART_REQUEST_HOST_PATH:-./restart-requests}:/app/restart-requests
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

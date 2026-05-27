@@ -153,10 +153,6 @@ class Settings(BaseSettings):
         default=45,
         description="Runtime heartbeat write interval for api, bot, and worker"
     )
-    RESTART_REQUEST_DIR: str = Field(
-        default="/app/restart-requests",
-        description="Directory where admin restart requests are written for the host-side supervisor"
-    )
     SEND_STARTUP_MENU_ON_BOOT: bool = Field(
         default=True,
         description="Legacy switch for startup announcements; STARTUP_ANNOUNCE_MODE still gates delivery"

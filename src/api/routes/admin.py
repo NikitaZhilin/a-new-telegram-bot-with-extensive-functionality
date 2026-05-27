@@ -5,18 +5,14 @@ All endpoints require X-Admin-Token header for authentication.
 """
 
 import logging
-import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, List, Optional
-from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.auth import require_admin
-from src.config import settings
 from src.db.session import get_db
 from src.db.models import Medication, TodoList, Reminder, ReminderStatus, User
 from src.services.activity_service import ActivityService
@@ -139,24 +135,6 @@ class ServiceStatusResponse(BaseModel):
     services: List[ServiceHeartbeatResponse]
 
 
-class RestartRequest(BaseModel):
-    """Controlled restart request from the external status bot."""
-
-    target: str = "all"
-    confirm: str
-    requested_by: str = ""
-    reason: str = ""
-
-
-class RestartResponse(BaseModel):
-    """Restart request acceptance response."""
-
-    status: str
-    operation_id: str
-    target: str
-    message: str
-
-
 # === Routes ===
 
 @router.get(
@@ -269,7 +247,6 @@ async def get_user_records(
     driver_overview = await driver_service.get_user_overview(user_id)
     driver_expenses = await driver_service.get_expenses(user_id, limit=50)
     driver_documents = await driver_service.get_documents(user_id, active_only=False, limit=50)
-    driver_journal = await driver_service.get_journal_entries(user_id, limit=50)
 
     lists_result = await db.execute(
         select(TodoList)
@@ -362,17 +339,6 @@ async def get_user_records(
                 }
                 for document in driver_documents
             ],
-            "journal": [
-                {
-                    "id": entry.id,
-                    "vehicle_id": entry.vehicle_id,
-                    "event_type": entry.event_type,
-                    "title": entry.title,
-                    "status": entry.status,
-                    "happened_at_utc": entry.happened_at_utc.isoformat(),
-                }
-                for entry in driver_journal
-            ],
         },
     )
 
@@ -425,54 +391,6 @@ async def get_service_status(
 ) -> ServiceStatusResponse:
     """Return heartbeat-based status for external status bots."""
     return ServiceStatusResponse(**await ServiceStatusService(db).get_status())
-
-
-@router.post(
-    "/restart",
-    response_model=RestartResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Request controlled RememberMe restart",
-    description="Writes an allowlisted restart request for the host-side supervisor",
-)
-async def request_restart(payload: RestartRequest) -> RestartResponse:
-    """Accept a controlled restart request without exposing Docker to the API container."""
-    allowed_targets = {"api", "bot", "worker", "all"}
-    target = payload.target.strip().lower()
-    if payload.confirm != "restart:rememberme":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid restart confirmation.")
-    if target not in allowed_targets:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid restart target.")
-
-    operation_id = f"rememberme-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
-    request_dir = Path(settings.RESTART_REQUEST_DIR)
-    try:
-        request_dir.mkdir(parents=True, exist_ok=True)
-        request_path = request_dir / f"{operation_id}.json"
-        tmp_path = request_path.with_suffix(".tmp")
-        request_payload = {
-            "bot_key": "rememberme",
-            "target": target,
-            "operation_id": operation_id,
-            "requested_by": payload.requested_by[:120],
-            "reason": payload.reason[:500],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        tmp_path.write_text(json.dumps(request_payload, ensure_ascii=False), encoding="utf-8")
-        tmp_path.replace(request_path)
-    except Exception as exc:
-        logger.exception("Failed to write restart request")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Restart request storage is unavailable: {exc}",
-        ) from exc
-
-    logger.warning("RememberMe restart requested", extra={"operation_id": operation_id, "target": target})
-    return RestartResponse(
-        status="accepted",
-        operation_id=operation_id,
-        target=target,
-        message="restart scheduled",
-    )
 
 
 @router.get(
