@@ -595,3 +595,79 @@ async def test_driver_journal_collects_vehicle_events_and_filters(db_session):
     assert [item.event_type for item in wash_entries] == ["wash"]
     assert [item.id for item in repair_entries] == [manual.id]
     assert overview["journal_entries_count"] >= 6
+
+
+@pytest.mark.asyncio
+async def test_driver_journal_manual_entries_can_be_updated_and_canceled(db_session):
+    """Manual journal entries should be editable and hidden after soft delete."""
+    user = User(telegram_id=7018, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(user.id, "Manual journal car", current_mileage_km=1000)
+    entry = await service.create_journal_entry(
+        user_id=user.id,
+        vehicle_id=vehicle.id,
+        event_type="note",
+        title="Old note",
+        description="old",
+        status="note",
+        metadata={"manual": True},
+    )
+    assert entry is not None
+
+    updated = await service.update_journal_entry(
+        entry.id,
+        user.id,
+        title="Updated repair",
+        event_type="repair",
+        vehicle_id=None,
+        description="new text",
+    )
+    assert updated is not None
+    assert updated.title == "Updated repair"
+    assert updated.event_type == "repair"
+    assert updated.vehicle_id is None
+    assert updated.description == "new text"
+    assert updated.metadata_json["edited_at_utc"]
+
+    assert await service.cancel_journal_entry(entry.id, user.id) is True
+    visible_entries = await service.get_journal_entries(user.id)
+    all_entries = await service.get_journal_entries(user.id, include_canceled=True)
+
+    assert visible_entries == []
+    assert all_entries[0].status == "canceled"
+    assert all_entries[0].metadata_json["canceled_at_utc"]
+    assert await service.cancel_journal_entry(entry.id, user.id) is False
+
+
+@pytest.mark.asyncio
+async def test_driver_journal_rejects_unknown_event_types_and_protects_automatic_entries(db_session):
+    """Service should whitelist journal types and keep automatic entries immutable."""
+    user = User(telegram_id=7019, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(user.id, "Automatic journal car", current_mileage_km=1000)
+
+    with pytest.raises(ValueError):
+        await service.create_journal_entry(
+            user_id=user.id,
+            vehicle_id=vehicle.id,
+            event_type="unknown_type",
+            title="Bad event",
+        )
+
+    automatic = await service.create_journal_entry(
+        user_id=user.id,
+        vehicle_id=vehicle.id,
+        event_type="wash",
+        title="Automatic wash",
+        metadata={"quick_action": True},
+    )
+
+    assert automatic is not None
+    assert await service.update_journal_entry(automatic.id, user.id, title="Changed") is None
+    assert await service.cancel_journal_entry(automatic.id, user.id) is False

@@ -25,7 +25,7 @@ from src.db.models import (
 )
 from src.db.session import get_db
 from src.services.checklist_service import ChecklistService
-from src.services.driver_service import DriverService
+from src.services.driver_service import DRIVER_JOURNAL_EVENT_TYPES, DriverService
 from src.services.list_service import ListService
 from src.services.medication_service import MedicationService
 from src.services.reminder_service import ReminderService
@@ -488,6 +488,10 @@ class DriverJournalCreateRequest(BaseModel):
     vehicle_id: Optional[int] = None
     happened_at_local: Optional[datetime] = None
     description: Optional[str] = Field(default=None, max_length=2000)
+
+
+class DriverJournalUpdateRequest(DriverJournalCreateRequest):
+    """Update manual driver journal entry."""
 
 
 def _repeat_rule(value: str) -> RepeatRule:
@@ -1678,24 +1682,75 @@ async def create_my_driver_journal_entry(
     db: AsyncSession = Depends(get_db),
 ) -> DriverJournalEntryResponse:
     """Create manual driver journal entry."""
+    if payload.event_type not in DRIVER_JOURNAL_EVENT_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported journal event type")
     service = DriverService(db)
-    entry = await service.create_journal_entry(
-        user_id=current_user.id,
-        vehicle_id=payload.vehicle_id,
-        event_type=payload.event_type or "note",
-        title=payload.title,
-        description=payload.description,
-        status="note",
-        happened_at_utc=_local_datetime_to_utc(payload.happened_at_local, current_user.timezone)
-        if payload.happened_at_local
-        else None,
-        metadata={"manual": True},
-    )
+    try:
+        entry = await service.create_journal_entry(
+            user_id=current_user.id,
+            vehicle_id=payload.vehicle_id,
+            event_type=payload.event_type or "note",
+            title=payload.title,
+            description=payload.description,
+            status="note",
+            happened_at_utc=_local_datetime_to_utc(payload.happened_at_local, current_user.timezone)
+            if payload.happened_at_local
+            else None,
+            metadata={"manual": True},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     await db.commit()
     await db.refresh(entry)
     return _journal_entry_response(entry)
+
+
+@router.patch("/me/driver/journal/{entry_id}", response_model=DriverJournalEntryResponse)
+async def update_my_driver_journal_entry(
+    entry_id: int,
+    payload: DriverJournalUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverJournalEntryResponse:
+    """Update a manual driver journal entry."""
+    if payload.event_type not in DRIVER_JOURNAL_EVENT_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported journal event type")
+    service = DriverService(db)
+    try:
+        entry = await service.update_journal_entry(
+            entry_id=entry_id,
+            user_id=current_user.id,
+            vehicle_id=payload.vehicle_id,
+            event_type=payload.event_type or "note",
+            title=payload.title,
+            description=payload.description,
+            happened_at_utc=_local_datetime_to_utc(payload.happened_at_local, current_user.timezone)
+            if payload.happened_at_local
+            else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual journal entry not found")
+    await db.commit()
+    await db.refresh(entry)
+    return _journal_entry_response(entry)
+
+
+@router.delete("/me/driver/journal/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_driver_journal_entry(
+    entry_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Soft-delete a manual driver journal entry."""
+    deleted = await DriverService(db).cancel_journal_entry(entry_id, current_user.id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual journal entry not found")
+    await db.commit()
+    return None
 
 
 @router.post("/me/driver/vehicles/{vehicle_id}/fuel", response_model=DriverFuelEntryResponse, status_code=status.HTTP_201_CREATED)

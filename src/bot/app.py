@@ -138,6 +138,14 @@ from src.bot.handlers.driver import (
     driver_fuel_delete_confirm_callback,
     driver_fuel_history_callback,
     driver_fuel_view_callback,
+    driver_journal_delete_callback,
+    driver_journal_delete_confirm_callback,
+    driver_journal_filter_callback,
+    driver_journal_quick_callback,
+    driver_journal_quick_vehicle_callback,
+    driver_journal_vehicle_filter_callback,
+    driver_journal_vehicle_value_callback,
+    driver_journal_view_callback,
     driver_list_view_callback,
     driver_list_template_callback,
     driver_menu_callback,
@@ -303,6 +311,14 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(driver_document_delete_confirm_callback, pattern="^driver_document_delete_confirm:"))
     application.add_handler(CallbackQueryHandler(driver_document_delete_callback, pattern="^driver_document_delete:"))
     application.add_handler(CallbackQueryHandler(driver_service_view_callback, pattern="^driver_service_view:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_filter_callback, pattern="^driver_journal_filter:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_vehicle_filter_callback, pattern="^driver_journal_vehicle_filter:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_vehicle_value_callback, pattern="^driver_journal_vehicle_value:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_quick_callback, pattern="^driver_journal_quick:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_quick_vehicle_callback, pattern="^driver_journal_quick_vehicle:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_view_callback, pattern="^driver_journal_view:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_delete_confirm_callback, pattern="^driver_journal_delete_confirm:"))
+    application.add_handler(CallbackQueryHandler(driver_journal_delete_callback, pattern="^driver_journal_delete:"))
 
     application.add_handler(CallbackQueryHandler(share_bot_callback, pattern="^share_bot$"))
     

@@ -45,5 +45,9 @@ def test_web_driver_journal_has_forms_and_filters():
     assert 'id="driverJournalFilterForm"' in html
     assert 'id="journalContainer"' in html
     assert "handleJournalCreate" in script
+    assert "handleJournalUpdate" in script
     assert "handleJournalFilter" in script
+    assert "renderJournalEditForm" in script
     assert '"/me/driver/journal"' in script
+    assert "`/me/driver/journal/${form.dataset.id}`" in script
+    assert '`/me/driver/journal/${id}`' in script

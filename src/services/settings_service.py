@@ -71,6 +71,7 @@ class SettingsService:
             DriverDocument,
             DriverExpense,
             DriverFuelEntry,
+            DriverJournalEntry,
             DriverVehicle,
             ListMember,
             Medication,
@@ -189,6 +190,7 @@ class SettingsService:
             DriverDocument,
             DriverExpense,
             DriverFuelEntry,
+            DriverJournalEntry,
             DriverVehicle,
             ListMember,
             Medication,
@@ -260,6 +262,15 @@ class SettingsService:
         driver_documents_users = await count(
             select(func.count(distinct(DriverDocument.user_id))).where(DriverDocument.user_id != current_user_id)
         )
+        driver_journal_total = await count(
+            select(func.count(DriverJournalEntry.id)).where(DriverJournalEntry.status != "canceled")
+        )
+        driver_journal_users = await count(
+            select(func.count(distinct(DriverJournalEntry.user_id))).where(
+                DriverJournalEntry.user_id != current_user_id,
+                DriverJournalEntry.status != "canceled",
+            )
+        )
         activity_service = ActivityService(self.db)
         activity = await activity_service.get_admin_event_summary(current_user_id)
         funnels = await activity_service.get_funnel_summary()
@@ -298,6 +309,8 @@ class SettingsService:
                 "expense_users": driver_expenses_users,
                 "documents": driver_documents_total,
                 "document_users": driver_documents_users,
+                "journal_entries": driver_journal_total,
+                "journal_users": driver_journal_users,
             },
             "activity": activity,
             "funnels": funnels,

@@ -402,6 +402,38 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
                 "description": "Changed belt",
             },
         )
+        invalid_journal_response = await client.post(
+            "/me/driver/journal",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "event_type": "unknown_type",
+                "title": "Broken event",
+            },
+        )
+        updated_journal_response = await client.patch(
+            f"/me/driver/journal/{manual_journal_response.json()['id']}",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "event_type": "repair",
+                "title": "Manual repair",
+                "description": "Changed belt and rollers",
+            },
+        )
+        journal_to_delete_response = await client.post(
+            "/me/driver/journal",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "event_type": "note",
+                "title": "Temporary note",
+            },
+        )
+        deleted_journal_response = await client.delete(
+            f"/me/driver/journal/{journal_to_delete_response.json()['id']}",
+            headers=headers,
+        )
 
         lists_response = await client.get("/me/lists", headers=headers)
         list_detail_response = await client.get(f"/me/lists/{list_id}", headers=headers)
@@ -452,6 +484,11 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert journal_response.status_code == 200
     assert filtered_journal_response.status_code == 200
     assert manual_journal_response.status_code == 201
+    assert invalid_journal_response.status_code == 400
+    assert updated_journal_response.status_code == 200
+    assert updated_journal_response.json()["description"] == "Changed belt and rollers"
+    assert journal_to_delete_response.status_code == 201
+    assert deleted_journal_response.status_code == 204
     journal_event_types = {item["event_type"] for item in journal_response.json()}
     assert {"service_done", "fuel_entry", "fuel_entry_updated", "wash", "document", "document_updated"}.issubset(
         journal_event_types
@@ -470,6 +507,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert driver_response.json()["overview"]["documents_active_count"] == 1
     assert driver_response.json()["overview"]["journal_entries_count"] >= 7
     assert any(item["title"] == "Manual repair" for item in driver_response.json()["journal"])
+    assert all(item["title"] != "Temporary note" for item in driver_response.json()["journal"])
     assert driver_response.json()["expenses"][0]["title"] == "Wash updated"
     assert driver_response.json()["documents"][0]["title"] == "OSAGO updated"
 

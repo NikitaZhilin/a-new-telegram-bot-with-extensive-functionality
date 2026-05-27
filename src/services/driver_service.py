@@ -21,6 +21,38 @@ from src.db.models import (
 )
 
 
+DRIVER_JOURNAL_EVENT_TYPES = frozenset(
+    {
+        "note",
+        "repair",
+        "diagnostic",
+        "parts",
+        "tire_pressure",
+        "fuel_entry",
+        "fuel_entry_updated",
+        "fuel_entry_deleted",
+        "expense",
+        "expense_deleted",
+        "wash",
+        "service_expense",
+        "parts_expense",
+        "document",
+        "document_updated",
+        "document_deleted",
+        "service_done",
+        "fluids_check",
+        "trip_check",
+        "parts_check",
+        "driver_checklist",
+        "tire_pressure_reminder",
+        "wash_reminder",
+        "oil_reminder",
+        "fluids_reminder",
+        "service_reminder",
+    }
+)
+
+
 class DriverService:
     """Service for vehicle profiles and fuel journal entries."""
 
@@ -830,6 +862,10 @@ class DriverService:
         metadata: Optional[dict] = None,
     ) -> Optional[DriverJournalEntry]:
         """Create a driver journal entry with ownership checks."""
+        event_type = (event_type or "note").strip()
+        if event_type not in DRIVER_JOURNAL_EVENT_TYPES:
+            raise ValueError(f"Unsupported driver journal event type: {event_type}")
+
         if vehicle_id is not None and not await self.get_vehicle(vehicle_id, user_id):
             return None
 
@@ -856,6 +892,67 @@ class DriverService:
         await self.db.flush()
         await self.db.refresh(entry)
         return entry
+
+    async def get_journal_entry(self, entry_id: int, user_id: int) -> Optional[DriverJournalEntry]:
+        """Return one journal entry owned by the user."""
+        result = await self.db.execute(
+            select(DriverJournalEntry).options(selectinload(DriverJournalEntry.vehicle)).where(
+                DriverJournalEntry.id == entry_id,
+                DriverJournalEntry.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_journal_entry(
+        self,
+        entry_id: int,
+        user_id: int,
+        title: str,
+        event_type: str = "note",
+        vehicle_id: Optional[int] = None,
+        description: Optional[str] = None,
+        happened_at_utc: Optional[datetime] = None,
+    ) -> Optional[DriverJournalEntry]:
+        """Update a manual journal entry without rewriting automatic history."""
+        event_type = (event_type or "note").strip()
+        if event_type not in DRIVER_JOURNAL_EVENT_TYPES:
+            raise ValueError(f"Unsupported driver journal event type: {event_type}")
+        if vehicle_id is not None and not await self.get_vehicle(vehicle_id, user_id):
+            return None
+
+        entry = await self.get_journal_entry(entry_id, user_id)
+        if not entry or entry.status == "canceled":
+            return None
+        metadata = dict(entry.metadata_json or {})
+        if not isinstance(metadata, dict) or not metadata.get("manual"):
+            return None
+
+        entry.vehicle_id = vehicle_id
+        entry.event_type = event_type
+        entry.title = title.strip()[:255]
+        entry.description = description
+        if happened_at_utc is not None:
+            entry.happened_at_utc = _as_utc(happened_at_utc)
+        metadata["edited_at_utc"] = datetime.now(timezone.utc).isoformat()
+        entry.metadata_json = metadata
+        await self.db.flush()
+        await self.db.refresh(entry)
+        return entry
+
+    async def cancel_journal_entry(self, entry_id: int, user_id: int) -> bool:
+        """Soft-delete a manual journal entry by marking it canceled."""
+        entry = await self.get_journal_entry(entry_id, user_id)
+        if not entry or entry.status == "canceled":
+            return False
+        metadata = dict(entry.metadata_json or {})
+        if not isinstance(metadata, dict) or not metadata.get("manual"):
+            return False
+
+        metadata["canceled_at_utc"] = datetime.now(timezone.utc).isoformat()
+        entry.metadata_json = metadata
+        entry.status = "canceled"
+        await self.db.flush()
+        return True
 
     async def record_checklist_completion(
         self,
@@ -903,9 +1000,11 @@ class DriverService:
         limit: int = 20,
         offset: int = 0,
         event_type: Optional[str] = None,
+        event_types: Optional[set[str]] = None,
         vehicle_id: Optional[int] = None,
         since_utc: Optional[datetime] = None,
         until_utc: Optional[datetime] = None,
+        include_canceled: bool = False,
     ) -> list[DriverJournalEntry]:
         """Return recent driver journal entries."""
         limit = max(1, min(limit, 100))
@@ -918,8 +1017,12 @@ class DriverService:
             .limit(limit)
             .offset(offset)
         )
+        if not include_canceled:
+            query = query.where(DriverJournalEntry.status != "canceled")
         if event_type:
             query = query.where(DriverJournalEntry.event_type == event_type)
+        if event_types:
+            query = query.where(DriverJournalEntry.event_type.in_(event_types))
         if vehicle_id is not None:
             if not await self.get_vehicle(vehicle_id, user_id):
                 return []
@@ -934,7 +1037,10 @@ class DriverService:
     async def count_journal_entries(self, user_id: int) -> int:
         """Return number of driver journal entries for a user."""
         result = await self.db.execute(
-            select(func.count(DriverJournalEntry.id)).where(DriverJournalEntry.user_id == user_id)
+            select(func.count(DriverJournalEntry.id)).where(
+                DriverJournalEntry.user_id == user_id,
+                DriverJournalEntry.status != "canceled",
+            )
         )
         return int(result.scalar() or 0)
 

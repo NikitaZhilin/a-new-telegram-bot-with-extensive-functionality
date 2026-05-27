@@ -141,12 +141,18 @@ def get_driver_section_keyboard(section_key: Optional[str] = None) -> InlineKeyb
         ])
     elif section_key == "wash":
         keyboard.append([
+            InlineKeyboardButton("✅ Мойка сделана", callback_data="driver_journal_quick:wash"),
+        ])
+        keyboard.append([
             InlineKeyboardButton("⏰ Напомнить про мойку", callback_data="driver_reminder_template:wash"),
         ])
         keyboard.append([
             InlineKeyboardButton("💰 Записать расход", callback_data="driver_expense_add"),
         ])
     elif section_key == "tires":
+        keyboard.append([
+            InlineKeyboardButton("✅ Давление проверено", callback_data="driver_journal_quick:tire_pressure"),
+        ])
         keyboard.append([
             InlineKeyboardButton("🛞 Настроить контроль давления", callback_data="driver_reminder_template:tire_pressure"),
         ])
@@ -424,15 +430,112 @@ def get_driver_created_list_keyboard(list_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_driver_journal_keyboard() -> InlineKeyboardMarkup:
+def get_driver_journal_keyboard(
+    page: int = 0,
+    event_filter: str = "all",
+    vehicle_id: Optional[int] = None,
+    has_more: bool = False,
+    entries: Optional[List[object]] = None,
+    offset: int = 0,
+) -> InlineKeyboardMarkup:
     """Driver journal navigation keyboard."""
+    vehicle_part = vehicle_id if vehicle_id is not None else "all"
     keyboard = [
+        [
+            InlineKeyboardButton(
+                "✅ Все" if event_filter == "all" else "Все",
+                callback_data=f"driver_journal_filter:all:0:{vehicle_part}",
+            ),
+            InlineKeyboardButton(
+                "✅ ТО" if event_filter == "service" else "ТО",
+                callback_data=f"driver_journal_filter:service:0:{vehicle_part}",
+            ),
+            InlineKeyboardButton(
+                "✅ Заправки" if event_filter == "fuel" else "Заправки",
+                callback_data=f"driver_journal_filter:fuel:0:{vehicle_part}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ Чек-листы" if event_filter == "checklists" else "Чек-листы",
+                callback_data=f"driver_journal_filter:checklists:0:{vehicle_part}",
+            ),
+            InlineKeyboardButton(
+                "✅ Расходы" if event_filter == "expenses" else "Расходы",
+                callback_data=f"driver_journal_filter:expenses:0:{vehicle_part}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ Документы" if event_filter == "documents" else "Документы",
+                callback_data=f"driver_journal_filter:documents:0:{vehicle_part}",
+            ),
+            InlineKeyboardButton(
+                "✅ Ручные" if event_filter == "manual" else "Ручные",
+                callback_data=f"driver_journal_filter:manual:0:{vehicle_part}",
+            ),
+        ],
+        [
+            InlineKeyboardButton("🚗 По авто", callback_data=f"driver_journal_vehicle_filter:{event_filter}:{page}"),
+            InlineKeyboardButton("Сброс авто", callback_data=f"driver_journal_filter:{event_filter}:0:all"),
+        ],
+    ]
+    nav_row = []
+    if page > 0:
+        nav_row.append(
+            InlineKeyboardButton("⬅️ Назад", callback_data=f"driver_journal_filter:{event_filter}:{page - 1}:{vehicle_part}")
+        )
+    if has_more:
+        nav_row.append(
+            InlineKeyboardButton("Ещё ➡️", callback_data=f"driver_journal_filter:{event_filter}:{page + 1}:{vehicle_part}")
+        )
+    if nav_row:
+        keyboard.append(nav_row)
+    entry_buttons = []
+    for index, entry in enumerate(entries or [], start=offset + 1):
+        metadata = getattr(entry, "metadata_json", None) or {}
+        if isinstance(metadata, dict) and metadata.get("manual"):
+            entry_buttons.append(
+                InlineKeyboardButton(f"✏️ #{index}", callback_data=f"driver_journal_view:{entry.id}")
+            )
+    for start in range(0, len(entry_buttons), 2):
+        keyboard.append(entry_buttons[start : start + 2])
+    keyboard.extend([
         [
             InlineKeyboardButton("➕ Запись", callback_data="driver_journal_add"),
         ],
         [
             InlineKeyboardButton("⬅️ Для водителя", callback_data="driver_menu"),
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_journal_entry_keyboard(entry_id: int) -> InlineKeyboardMarkup:
+    """Manual journal entry action keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Изменить", callback_data=f"driver_journal_edit:{entry_id}"),
+            InlineKeyboardButton("🗑 Удалить", callback_data=f"driver_journal_delete:{entry_id}"),
+        ],
+        [
+            InlineKeyboardButton("🧾 Журнал авто", callback_data="driver_section:journal"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_journal_delete_confirm_keyboard(entry_id: int) -> InlineKeyboardMarkup:
+    """Manual journal entry delete confirmation keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🗑 Да, удалить", callback_data=f"driver_journal_delete_confirm:{entry_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К записи", callback_data=f"driver_journal_view:{entry_id}"),
+            InlineKeyboardButton("🧾 Журнал", callback_data="driver_section:journal"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)

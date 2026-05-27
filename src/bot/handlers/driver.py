@@ -3,6 +3,7 @@
 import logging
 import re
 from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import Update
 from telegram.ext import (
@@ -24,6 +25,8 @@ from src.bot.keyboards import (
     get_driver_fuel_keyboard,
     get_driver_full_tank_keyboard,
     get_driver_created_list_keyboard,
+    get_driver_journal_delete_confirm_keyboard,
+    get_driver_journal_entry_keyboard,
     get_driver_journal_keyboard,
     get_driver_journal_type_keyboard,
     get_driver_menu_keyboard,
@@ -59,6 +62,35 @@ from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_preset
 logger = logging.getLogger(__name__)
 
 FUEL_PAGE_SIZE = 8
+JOURNAL_PAGE_SIZE = 10
+
+DRIVER_JOURNAL_FILTERS = {
+    "all": None,
+    "fuel": {"fuel_entry", "fuel_entry_updated", "fuel_entry_deleted"},
+    "service": {"service_done", "service_expense", "oil_reminder", "service_reminder"},
+    "checklists": {"fluids_check", "trip_check", "parts_check", "driver_checklist"},
+    "expenses": {"expense", "expense_deleted", "wash", "parts_expense"},
+    "documents": {"document", "document_updated", "document_deleted"},
+    "manual": {"note", "repair", "diagnostic", "parts", "tire_pressure"},
+}
+
+DRIVER_JOURNAL_FILTER_LABELS = {
+    "all": "все события",
+    "fuel": "заправки",
+    "service": "ТО и сервис",
+    "checklists": "чек-листы",
+    "expenses": "расходы",
+    "documents": "документы",
+    "manual": "ручные записи",
+}
+
+DRIVER_JOURNAL_QUICK_EVENTS = {
+    "wash": ("Мойка выполнена", "Автомобиль помыт. Детали можно уточнить отдельной записью."),
+    "tire_pressure": (
+        "Давление шин проверено",
+        "Проверка давления шин выполнена. Рекомендованные значения лучше сверять с наклейкой на кузове или руководством авто.",
+    ),
+}
 
 DRIVER_MENU_TEXT = (
     "🚗 Для водителя\n\n"
@@ -240,6 +272,20 @@ async def _get_app_user_id(update: Update, session) -> int:
     return user.id
 
 
+async def _get_app_user(update: Update, session):
+    """Return internal user, creating it when needed."""
+    repo = UserRepository(session)
+    telegram_user = update.effective_user
+    user = await repo.get_or_create(
+        telegram_id=telegram_user.id,
+        username=telegram_user.username,
+        first_name=telegram_user.first_name,
+        last_name=telegram_user.last_name,
+    )
+    await session.commit()
+    return user
+
+
 def _parse_callback_id(data: str, index: int = 1) -> int:
     """Parse a numeric callback part."""
     return int(data.split(":")[index])
@@ -367,13 +413,21 @@ def _format_date(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).strftime("%d.%m.%Y")
 
 
-def _format_datetime(value: datetime | None) -> str:
+def _timezone_or_utc(tz_name: str | None):
+    """Return a safe timezone object for display."""
+    try:
+        return ZoneInfo(tz_name or "UTC")
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def _format_datetime(value: datetime | None, tz_name: str | None = "UTC") -> str:
     """Format UTC datetime for compact driver journal output."""
     if not value:
         return "не указано"
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M")
+    return value.astimezone(_timezone_or_utc(tz_name)).strftime("%d.%m.%Y %H:%M")
 
 
 def _parse_date(value: str) -> datetime:
@@ -503,9 +557,10 @@ async def _render_driver_checklist_run(service: ChecklistService, run) -> tuple[
     )
 
 
-def _format_journal_entry(entry) -> list[str]:
+def _format_journal_entry(entry, user_timezone: str = "UTC", index: int | None = None) -> list[str]:
     """Format one driver journal entry for bot output."""
-    lines = [f"• {_format_datetime(entry.happened_at_utc)} — {entry.title}"]
+    prefix = f"{index}." if index is not None else "•"
+    lines = [f"{prefix} {_format_datetime(entry.happened_at_utc, user_timezone)} — {entry.title}"]
     vehicle = getattr(entry, "vehicle", None)
     if vehicle:
         lines.append(f"  Авто: {vehicle.title}")
@@ -958,13 +1013,48 @@ async def _render_driver_stats(update: Update, context: ContextTypes.DEFAULT_TYP
     return ConversationHandler.END
 
 
-async def _render_driver_journal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def _render_driver_journal(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_filter: str = "all",
+    page: int = 0,
+    vehicle_id: int | None = None,
+) -> int:
     """Render autonomous driver journal."""
+    event_filter = event_filter if event_filter in DRIVER_JOURNAL_FILTERS else "all"
+    page = max(page, 0)
+    offset = page * JOURNAL_PAGE_SIZE
+    vehicle_title = None
     async with async_session_maker() as session:
-        user_id = await _get_app_user_id(update, session)
-        entries = await DriverService(session).get_journal_entries(user_id, limit=20)
+        user = await _get_app_user(update, session)
+        user_id = user.id
+        service = DriverService(session)
+        if vehicle_id is not None:
+            vehicle = await service.get_vehicle(vehicle_id, user_id)
+            if vehicle:
+                vehicle_title = vehicle.title
+            else:
+                vehicle_id = None
+        entries = await service.get_journal_entries(
+            user_id,
+            limit=JOURNAL_PAGE_SIZE + 1,
+            offset=offset,
+            event_types=DRIVER_JOURNAL_FILTERS[event_filter],
+            vehicle_id=vehicle_id,
+        )
+        user_timezone = user.timezone or "UTC"
+    has_more = len(entries) > JOURNAL_PAGE_SIZE
+    entries = entries[:JOURNAL_PAGE_SIZE]
 
-    lines = ["🧾 Журнал авто", ""]
+    filter_label = DRIVER_JOURNAL_FILTER_LABELS[event_filter]
+    lines = [
+        "🧾 Журнал авто",
+        "",
+        f"Фильтр: {filter_label}",
+        f"Авто: {vehicle_title or 'все авто'}",
+        f"Страница: {page + 1}",
+        "",
+    ]
     if not entries:
         lines.extend([
             "Записей пока нет.",
@@ -974,14 +1064,212 @@ async def _render_driver_journal(update: Update, context: ContextTypes.DEFAULT_T
     else:
         lines.append("Последние события:")
         lines.append("")
-        for entry in entries:
-            lines.extend(_format_journal_entry(entry))
+        for index, entry in enumerate(entries, start=offset + 1):
+            lines.extend(_format_journal_entry(entry, user_timezone, index=index))
 
     await update.callback_query.edit_message_text(
         "\n".join(lines),
+        reply_markup=get_driver_journal_keyboard(
+            page=page,
+            event_filter=event_filter,
+            vehicle_id=vehicle_id,
+            has_more=has_more,
+            entries=entries,
+            offset=offset,
+        ),
+    )
+    return ConversationHandler.END
+
+
+async def driver_journal_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Render journal with selected filter/page."""
+    query = update.callback_query
+    await query.answer()
+    _, event_filter, page_part, vehicle_part = query.data.split(":", 3)
+    vehicle_id = None if vehicle_part == "all" else int(vehicle_part)
+    return await _render_driver_journal(update, context, event_filter, int(page_part), vehicle_id)
+
+
+async def driver_journal_vehicle_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for a vehicle filter in journal."""
+    query = update.callback_query
+    await query.answer()
+    _, event_filter, page_part = query.data.split(":", 2)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        vehicles = await DriverService(session).get_vehicles(user_id)
+    if not vehicles:
+        await query.answer("Сначала добавьте авто.", show_alert=True)
+        return await _render_driver_journal(update, context, event_filter, int(page_part))
+    await query.edit_message_text(
+        "🚗 Выберите авто для фильтра журнала:",
+        reply_markup=get_driver_vehicle_choice_keyboard(
+            vehicles,
+            f"driver_journal_vehicle_value:{event_filter}:{page_part}",
+        ),
+    )
+    return ConversationHandler.END
+
+
+async def driver_journal_vehicle_value_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Apply a vehicle filter to journal."""
+    query = update.callback_query
+    await query.answer()
+    _, event_filter, page_part, vehicle_part = query.data.split(":", 3)
+    vehicle_id = None if vehicle_part == "none" else int(vehicle_part)
+    return await _render_driver_journal(update, context, event_filter, int(page_part), vehicle_id)
+
+
+async def driver_journal_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Render one manual journal entry."""
+    query = update.callback_query
+    await query.answer()
+    entry_id = _parse_callback_id(query.data)
+    async with async_session_maker() as session:
+        user = await _get_app_user(update, session)
+        entry = await DriverService(session).get_journal_entry(entry_id, user.id)
+
+    if not entry or entry.status == "canceled":
+        await query.edit_message_text("❌ Запись не найдена.", reply_markup=get_driver_journal_keyboard())
+        return ConversationHandler.END
+
+    lines = ["🧾 Запись журнала", ""]
+    lines.extend(_format_journal_entry(entry, user.timezone or "UTC"))
+    metadata = entry.metadata_json or {}
+    if isinstance(metadata, dict) and not metadata.get("manual"):
+        lines.append("")
+        lines.append("Это автоматическая запись. Её нельзя редактировать вручную.")
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=get_driver_journal_entry_keyboard(entry.id)
+        if isinstance(metadata, dict) and metadata.get("manual")
+        else get_driver_journal_keyboard(),
+    )
+    return ConversationHandler.END
+
+
+async def driver_journal_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for manual journal entry delete confirmation."""
+    query = update.callback_query
+    await query.answer()
+    entry_id = _parse_callback_id(query.data)
+    await query.edit_message_text(
+        "Удалить ручную запись из журнала?\n\nОна будет скрыта из обычного журнала, но история останется в базе как отмененная запись.",
+        reply_markup=get_driver_journal_delete_confirm_keyboard(entry_id),
+    )
+    return ConversationHandler.END
+
+
+async def driver_journal_delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Soft-delete a manual journal entry."""
+    query = update.callback_query
+    await query.answer()
+    entry_id = _parse_callback_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        deleted = await DriverService(session).cancel_journal_entry(entry_id, user_id)
+        await session.commit()
+    if not deleted:
+        await query.edit_message_text("❌ Запись не найдена или не является ручной.", reply_markup=get_driver_journal_keyboard())
+        return ConversationHandler.END
+    await query.edit_message_text("✅ Запись удалена из журнала.", reply_markup=get_driver_journal_keyboard())
+    return ConversationHandler.END
+
+
+async def _create_quick_journal_entry(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_type: str,
+    vehicle_id: int | None = None,
+) -> int:
+    """Create a quick completed driver journal entry."""
+    title, description = DRIVER_JOURNAL_QUICK_EVENTS[event_type]
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        entry = await DriverService(session).create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            event_type=event_type,
+            title=title,
+            description=description,
+            metadata={"quick_action": True},
+        )
+        await session.commit()
+    if not entry:
+        await update.callback_query.edit_message_text("❌ Авто не найдено.", reply_markup=get_driver_section_keyboard())
+        return ConversationHandler.END
+    await update.callback_query.edit_message_text(
+        f"✅ Записано в журнал.\n\n{title}",
         reply_markup=get_driver_journal_keyboard(),
     )
     return ConversationHandler.END
+
+
+async def driver_journal_quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start quick wash/tire pressure journal entry."""
+    query = update.callback_query
+    await query.answer()
+    event_type = query.data.split(":", 1)[1]
+    if event_type not in DRIVER_JOURNAL_QUICK_EVENTS:
+        await query.answer("Неизвестное действие.", show_alert=True)
+        return ConversationHandler.END
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        vehicles = await DriverService(session).get_vehicles(user_id)
+    if vehicles:
+        await query.edit_message_text(
+            "🚗 К какому авто привязать запись?",
+            reply_markup=get_driver_vehicle_choice_keyboard(
+                vehicles,
+                f"driver_journal_quick_vehicle:{event_type}",
+            ),
+        )
+        return ConversationHandler.END
+    return await _create_quick_journal_entry(update, context, event_type)
+
+
+async def driver_journal_quick_vehicle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Create quick journal entry after vehicle choice."""
+    query = update.callback_query
+    await query.answer()
+    _, event_type, vehicle_part = query.data.split(":", 2)
+    vehicle_id = None if vehicle_part == "none" else int(vehicle_part)
+    return await _create_quick_journal_entry(update, context, event_type, vehicle_id)
+
+
+async def driver_journal_edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start manual driver journal entry editing."""
+    query = update.callback_query
+    await query.answer()
+    entry_id = _parse_callback_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        entry = await DriverService(session).get_journal_entry(entry_id, user_id)
+
+    metadata = entry.metadata_json if entry else None
+    if not entry or entry.status == "canceled" or not isinstance(metadata, dict) or not metadata.get("manual"):
+        await query.edit_message_text(
+            "❌ Можно редактировать только ручные записи журнала.",
+            reply_markup=get_driver_journal_keyboard(),
+        )
+        return ConversationHandler.END
+
+    _clear_driver_context(context)
+    context.user_data["driver_journal_data"] = {
+        "entry_id": entry.id,
+        "event_type": entry.event_type,
+        "vehicle_id": entry.vehicle_id,
+        "title": entry.title,
+        "description": entry.description,
+    }
+    await _show_driver_step(
+        update,
+        context,
+        "🧾 Редактирование записи журнала\n\nВыберите тип события.",
+        get_driver_journal_type_keyboard(),
+    )
+    return DriverStates.WAIT_JOURNAL_EVENT
 
 
 async def driver_journal_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1004,11 +1292,13 @@ async def driver_journal_type_callback(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     await query.answer()
     event_type = query.data.split(":", 1)[1]
-    context.user_data.setdefault("driver_journal_data", {})["event_type"] = event_type
+    data = context.user_data.setdefault("driver_journal_data", {})
+    data["event_type"] = event_type
+    flow_title = "🧾 Редактирование записи журнала" if data.get("entry_id") else "🧾 Новая запись в журнал"
     await _show_driver_step(
         update,
         context,
-        "🧾 Новая запись в журнал\n\nЧто сделать или что произошло?\n\nНапример: замена масла, диагностика подвески, ремонт тормозов.",
+        f"{flow_title}\n\nЧто сделать или что произошло?\n\nНапример: замена масла, диагностика подвески, ремонт тормозов.",
         get_driver_step_keyboard(),
     )
     return DriverStates.WAIT_JOURNAL_TITLE
@@ -1021,7 +1311,9 @@ async def driver_journal_title_save(update: Update, context: ContextTypes.DEFAUL
     if not title:
         await _show_driver_step(update, context, "Введите название записи.", get_driver_step_keyboard())
         return DriverStates.WAIT_JOURNAL_TITLE
-    context.user_data.setdefault("driver_journal_data", {})["title"] = title
+    data = context.user_data.setdefault("driver_journal_data", {})
+    data["title"] = title
+    flow_title = "🧾 Редактирование записи журнала" if data.get("entry_id") else "🧾 Новая запись в журнал"
 
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
@@ -1030,7 +1322,7 @@ async def driver_journal_title_save(update: Update, context: ContextTypes.DEFAUL
     await _show_driver_step(
         update,
         context,
-        "🧾 Новая запись в журнал\n\nК какому авто привязать запись?",
+        f"{flow_title}\n\nК какому авто привязать запись?",
         get_driver_vehicle_choice_keyboard(vehicles, "driver_journal_vehicle"),
     )
     return DriverStates.WAIT_JOURNAL_VEHICLE
@@ -1041,13 +1333,15 @@ async def driver_journal_vehicle_callback(update: Update, context: ContextTypes.
     query = update.callback_query
     await query.answer()
     vehicle_part = query.data.split(":", 1)[1]
-    context.user_data.setdefault("driver_journal_data", {})["vehicle_id"] = (
+    data = context.user_data.setdefault("driver_journal_data", {})
+    data["vehicle_id"] = (
         None if vehicle_part == "none" else int(vehicle_part)
     )
+    flow_title = "🧾 Редактирование записи журнала" if data.get("entry_id") else "🧾 Новая запись в журнал"
     await _show_driver_step(
         update,
         context,
-        "🧾 Новая запись в журнал\n\nДобавьте комментарий или пропустите.",
+        f"{flow_title}\n\nДобавьте комментарий или пропустите.",
         get_driver_step_keyboard(can_skip=True),
     )
     return DriverStates.WAIT_JOURNAL_NOTE
@@ -1073,15 +1367,26 @@ async def _finish_journal_entry(update: Update, context: ContextTypes.DEFAULT_TY
     data = context.user_data.get("driver_journal_data") or {}
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
-        entry = await DriverService(session).create_journal_entry(
-            user_id=user_id,
-            vehicle_id=data.get("vehicle_id"),
-            event_type=data.get("event_type") or "note",
-            title=data.get("title") or "Запись в журнал",
-            description=data.get("description"),
-            status="note",
-            metadata={"manual": True},
-        )
+        service = DriverService(session)
+        if data.get("entry_id"):
+            entry = await service.update_journal_entry(
+                entry_id=data["entry_id"],
+                user_id=user_id,
+                vehicle_id=data.get("vehicle_id"),
+                event_type=data.get("event_type") or "note",
+                title=data.get("title") or "Запись в журнал",
+                description=data.get("description"),
+            )
+        else:
+            entry = await service.create_journal_entry(
+                user_id=user_id,
+                vehicle_id=data.get("vehicle_id"),
+                event_type=data.get("event_type") or "note",
+                title=data.get("title") or "Запись в журнал",
+                description=data.get("description"),
+                status="note",
+                metadata={"manual": True},
+            )
         await session.commit()
 
     if not entry:
@@ -1090,7 +1395,8 @@ async def _finish_journal_entry(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     _clear_driver_context(context)
-    await _show_driver_step(update, context, "✅ Запись добавлена в журнал.", get_driver_journal_keyboard())
+    message = "✅ Запись обновлена." if data.get("entry_id") else "✅ Запись добавлена в журнал."
+    await _show_driver_step(update, context, message, get_driver_journal_keyboard())
     return ConversationHandler.END
 
 
@@ -1248,6 +1554,13 @@ async def driver_list_template_callback(update: Update, context: ContextTypes.DE
     title, items = template
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
+        driver_service = DriverService(session)
+        if vehicle_id is not None and not await driver_service.get_vehicle(vehicle_id, user_id):
+            await query.edit_message_text(
+                "❌ Авто не найдено или недоступно. Откройте шаблон заново.",
+                reply_markup=get_driver_templates_keyboard(),
+            )
+            return ConversationHandler.END
         service = ListService(session)
         list_obj = await service.create_list(user_id, title, source_module="driver")
         await service.add_items_bulk(list_obj.id, user_id, items, source_module="driver")
@@ -3019,7 +3332,10 @@ driver_document_conv = ConversationHandler(
 
 
 driver_journal_conv = ConversationHandler(
-    entry_points=[CallbackQueryHandler(driver_journal_add_start, pattern="^driver_journal_add$")],
+    entry_points=[
+        CallbackQueryHandler(driver_journal_add_start, pattern="^driver_journal_add$"),
+        CallbackQueryHandler(driver_journal_edit_start, pattern="^driver_journal_edit:"),
+    ],
     states={
         DriverStates.WAIT_JOURNAL_EVENT: [
             CallbackQueryHandler(driver_journal_type_callback, pattern="^driver_journal_type:"),

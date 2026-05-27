@@ -30,6 +30,7 @@ const state = {
   editingFuelId: null,
   editingExpenseId: null,
   editingDocumentId: null,
+  editingJournalId: null,
   serviceVehicleId: null,
   driverJournalFilters: {
     vehicleId: "",
@@ -759,6 +760,28 @@ function renderDocumentEditForm(item) {
   `;
 }
 
+function renderJournalEventOptions(selected) {
+  return ["note", "repair", "diagnostic", "parts", "service_done", "wash", "tire_pressure"].map((value) => `
+    <option value="${value}" ${selected === value ? "selected" : ""}>${escapeHtml(formatJournalEventType(value))}</option>
+  `).join("");
+}
+
+function renderJournalEditForm(item) {
+  return `
+    <form class="stack inline-edit-form journal-edit-form" data-id="${item.id}">
+      <select name="vehicle_id">${renderVehicleOptions(item.vehicle_id)}</select>
+      <select name="event_type">${renderJournalEventOptions(item.event_type)}</select>
+      <input name="title" type="text" value="${escapeHtml(item.title)}" placeholder="Что произошло" required>
+      <input name="happened_at_local" type="datetime-local" value="${escapeHtml(toLocalInputFromIso(item.happened_at_utc))}">
+      <textarea name="description" rows="3" placeholder="Комментарий">${escapeHtml(item.description || "")}</textarea>
+      <div class="button-row">
+        <button class="small action-save" type="submit">Сохранить</button>
+        <button class="secondary small action-cancel" type="button" data-action="cancel-journal-edit">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
 async function loadSummary() {
   state.summary = await api("/me/summary");
   state.user = state.summary.user;
@@ -1110,6 +1133,7 @@ function renderJournal() {
     ? entries.map((item) => {
       const details = item.metadata_json || {};
       const items = Array.isArray(details.items) ? details.items.slice(0, 4).join(", ") : "";
+      const isManual = details.manual === true;
       return `
         <article class="item-card journal-entry">
           <div class="item-card-header">
@@ -1121,10 +1145,19 @@ function renderJournal() {
           </div>
           ${item.description ? `<div class="item-text">${escapeHtml(item.description)}</div>` : ""}
           ${items ? `<div class="item-meta">Пункты: ${escapeHtml(items)}${details.items.length > 4 ? " ..." : ""}</div>` : ""}
+          ${state.editingJournalId === item.id ? renderJournalEditForm(item) : isManual ? `
+            <div class="item-actions">
+              <button class="secondary small action-edit" data-action="edit-journal" data-id="${item.id}">Изменить</button>
+              <button class="danger small action-danger" data-action="delete-journal" data-id="${item.id}">Удалить</button>
+            </div>
+          ` : ""}
         </article>
       `;
     }).join("")
     : `<div class="item-meta">Записей в журнале пока нет.</div>`;
+  $$(".journal-edit-form").forEach((form) => {
+    form.addEventListener("submit", (event) => handleJournalUpdate(event).catch((error) => showMessage(error.message, true)));
+  });
 }
 
 function renderVehiclePresetSelect() {
@@ -1745,6 +1778,25 @@ async function handleJournalCreate(event) {
   showMessage("Запись добавлена в журнал.");
 }
 
+async function handleJournalUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api(`/me/driver/journal/${form.dataset.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      vehicle_id: form.vehicle_id.value ? Number(form.vehicle_id.value) : null,
+      event_type: form.event_type.value || "note",
+      title: form.title.value,
+      happened_at_local: form.happened_at_local.value || null,
+      description: form.description.value || null,
+    }),
+  });
+  state.editingJournalId = null;
+  await loadDriver();
+  await loadSummary();
+  showMessage("Запись журнала обновлена.");
+}
+
 async function handleJournalFilter(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1760,7 +1812,7 @@ async function handleAction(event) {
   if (!target) return;
   const action = target.dataset.action;
   const id = target.dataset.id;
-  const needsSecondClick = new Set(["delete-list", "delete-item", "delete-reminder", "archive-medication", "delete-vehicle", "delete-fuel", "delete-expense", "delete-document", "remove-member"]);
+  const needsSecondClick = new Set(["delete-list", "delete-item", "delete-reminder", "archive-medication", "delete-vehicle", "delete-fuel", "delete-expense", "delete-document", "delete-journal", "remove-member"]);
   if (needsSecondClick.has(action) && target.dataset.confirmed !== "1") {
     target.dataset.originalText = target.textContent;
     target.dataset.confirmed = "1";
@@ -1940,6 +1992,17 @@ async function handleAction(event) {
       renderDocuments();
     } else if (action === "delete-document") {
       await api(`/me/driver/documents/${id}`, { method: "DELETE" });
+      await loadDriver();
+      await loadSummary();
+    } else if (action === "edit-journal") {
+      state.editingJournalId = Number(id);
+      renderJournal();
+    } else if (action === "cancel-journal-edit") {
+      state.editingJournalId = null;
+      renderJournal();
+    } else if (action === "delete-journal") {
+      await api(`/me/driver/journal/${id}`, { method: "DELETE" });
+      state.editingJournalId = null;
       await loadDriver();
       await loadSummary();
     }
