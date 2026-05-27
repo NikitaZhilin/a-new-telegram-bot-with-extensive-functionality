@@ -29,6 +29,7 @@ from src.bot.keyboards import (
     get_reminder_repeat_keyboard,
     get_reminder_edit_keyboard,
     get_reminder_edit_repeat_keyboard,
+    get_driver_reminder_repeat_keyboard,
     get_back_home_inline_keyboard,
     get_cancel_keyboard,
     get_cancel_inline_keyboard,
@@ -144,6 +145,25 @@ def _context_timezone(context: ContextTypes.DEFAULT_TYPE) -> str:
     return context.user_data.get("user_timezone", settings.TIMEZONE_DEFAULT)
 
 
+def _build_driver_reminder_template_text(template_key: str, reminder_text: str) -> str:
+    """Build a ready-made driver reminder setup screen."""
+    lines = [
+        "⏰ Авто-напоминание готово",
+        "",
+        f"📝 {reminder_text}",
+    ]
+    if template_key == "tire_pressure":
+        lines.extend([
+            "",
+            "Ориентиры по давлению:",
+            "• легковые авто обычно: 2.2-2.4 бар",
+            "• при полной загрузке часто добавляют около 0.2 бар",
+            "• точные значения смотрите на табличке в проеме двери, лючке бака или в инструкции к авто",
+        ])
+    lines.extend(["", "Выберите периодичность:"])
+    return "\n".join(lines)
+
+
 def _selected_date(context: ContextTypes.DEFAULT_TYPE, tz_name: str) -> date:
     """Get selected local date for time-only input."""
     selected = context.user_data.get("selected_date")
@@ -195,6 +215,17 @@ def _parse_flexible_datetime(value: str, context: ContextTypes.DEFAULT_TYPE) -> 
     except ValueError:
         parsed = parse_datetime(value, tz_name)
         return parsed.astimezone(timezone.utc)
+
+
+def _roll_forward_if_needed(remind_at_utc: datetime, context: ContextTypes.DEFAULT_TYPE) -> datetime:
+    """Move time-only driver reminders to the next future occurrence."""
+    if not context.user_data.get("reminder_time_rollover_if_past"):
+        return remind_at_utc
+
+    now = datetime.now(timezone.utc)
+    while remind_at_utc <= now:
+        remind_at_utc += timedelta(days=1)
+    return remind_at_utc
 
 
 def _parse_date_only(value: str, context: ContextTypes.DEFAULT_TYPE) -> date:
@@ -343,6 +374,8 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop("linked_list_id", None)
         context.user_data.pop("linked_list_title", None)
         context.user_data["reminder_source_module"] = "driver"
+        context.user_data["driver_reminder_template"] = template_key
+        context.user_data["reminder_time_rollover_if_past"] = True
         context.user_data["reminder_text"] = DRIVER_REMINDER_TEMPLATES.get(
             template_key,
             "Автомобильное напоминание",
@@ -352,10 +385,10 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data["user_timezone"] = await _get_user_timezone(update, session)
 
         await query.edit_message_text(
-            f"⏰ Авто-напоминание\n\n📝 {context.user_data['reminder_text']}\n\nКогда напомнить?",
-            reply_markup=get_reminder_date_keyboard(),
+            _build_driver_reminder_template_text(template_key, context.user_data["reminder_text"]),
+            reply_markup=get_driver_reminder_repeat_keyboard(),
         )
-        return ReminderStates.WAIT_DATE
+        return ReminderStates.WAIT_REPEAT
 
     if query and query.data.startswith("list_remind:"):
         await query.answer()
@@ -567,6 +600,7 @@ async def reminder_time_preset(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         remind_at = now + timedelta(hours=1)
     
+    remind_at = _roll_forward_if_needed(remind_at, context)
     context.user_data["remind_at_utc"] = remind_at.isoformat()
 
     return await _create_reminder_from_context(update, context)
@@ -576,6 +610,16 @@ async def reminder_time_back(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Return from time selection to date selection."""
     query = update.callback_query
     await query.answer()
+
+    if context.user_data.get("driver_reminder_template"):
+        await query.edit_message_text(
+            _build_driver_reminder_template_text(
+                context.user_data["driver_reminder_template"],
+                context.user_data.get("reminder_text", "Автомобильное напоминание"),
+            ),
+            reply_markup=get_driver_reminder_repeat_keyboard(),
+        )
+        return ReminderStates.WAIT_REPEAT
 
     await query.edit_message_text(
         "Когда напомнить?",
@@ -609,6 +653,7 @@ async def reminder_save_custom_time(update: Update, context: ContextTypes.DEFAUL
     
     try:
         remind_at = _parse_flexible_datetime(time_str, context)
+        remind_at = _roll_forward_if_needed(remind_at, context)
         context.user_data["remind_at_utc"] = remind_at.isoformat()
         await _delete_user_message(update)
         return await _create_reminder_from_context(update, context)
@@ -792,6 +837,29 @@ async def reminder_repeat_set(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     
     return ReminderStates.WAIT_REPEAT
+
+
+async def driver_reminder_repeat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save repeat rule for a ready-made driver reminder and ask only for time."""
+    query = update.callback_query
+    await query.answer()
+
+    repeat_value = query.data.split(":", 1)[1]
+    try:
+        repeat_rule = RepeatRule(repeat_value)
+    except ValueError:
+        repeat_rule = RepeatRule.NONE
+
+    context.user_data["repeat_rule"] = repeat_rule
+    context.user_data["selected_date"] = datetime.now(ZoneInfo(_context_timezone(context))).date().isoformat()
+    context.user_data["reminder_time_rollover_if_past"] = True
+
+    await query.edit_message_text(
+        f"🔁 Периодичность: {repeat_rule_label(repeat_rule)}\n\n"
+        "Теперь выберите время напоминания:",
+        reply_markup=get_reminder_time_keyboard(),
+    )
+    return ReminderStates.WAIT_TIME
 
 
 async def reminder_back_to_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1229,6 +1297,7 @@ reminder_create_conv = ConversationHandler(
             CallbackQueryHandler(reminder_change_time, pattern="^rem_time_change$"),
         ],
         ReminderStates.WAIT_REPEAT: [
+            CallbackQueryHandler(driver_reminder_repeat_callback, pattern="^driver_rem_repeat:"),
             CallbackQueryHandler(reminder_back_to_confirm, pattern="^rem_confirm_back$"),
             CallbackQueryHandler(reminder_save_repeat, pattern="^rem_repeat_"),
         ],

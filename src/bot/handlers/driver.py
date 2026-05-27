@@ -605,6 +605,18 @@ def _format_document_type(value: str) -> str:
     }.get(value, value or "другое")
 
 
+def _document_title_for_type(value: str) -> str:
+    """Default document title for the selected document type."""
+    return {
+        "insurance": "ОСАГО/КАСКО",
+        "license": "Водительское удостоверение",
+        "diagnostic": "Диагностическая карта",
+        "tax": "Транспортный налог",
+        "fine": "Штраф",
+        "other": "Документ",
+    }.get(value, "Документ")
+
+
 def _format_expense(entry, vehicle_title: str | None = None) -> str:
     """Format one manual driver expense."""
     lines = [
@@ -2300,7 +2312,7 @@ async def _ask_document_title(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Ask for document title."""
     mode = context.user_data.get("driver_document_mode", "create")
     current = context.user_data.setdefault("driver_document_data", {}).get("title")
-    text = "📄 Документ\n\nШаг 1/6. Что это за документ?\n\nНапример: ОСАГО, права, диагностика."
+    text = "📄 Документ\n\nНазвание нужно только для типа «Другое».\n\nНапример: пропуск, доверенность, квитанция."
     if current:
         text += f"\n\nТекущее значение: {current}"
     await _show_driver_step(
@@ -2314,7 +2326,7 @@ async def _ask_document_title(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def _ask_document_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for document type."""
-    await _show_driver_step(update, context, "📄 Документ\n\nШаг 2/7. Выберите тип.", get_driver_document_type_keyboard())
+    await _show_driver_step(update, context, "📄 Документ\n\nШаг 1/6. Выберите тип документа.", get_driver_document_type_keyboard())
     return DriverStates.WAIT_DOCUMENT_TYPE
 
 
@@ -2326,7 +2338,7 @@ async def _ask_document_vehicle(update: Update, context: ContextTypes.DEFAULT_TY
     await _show_driver_step(
         update,
         context,
-        "📄 Документ\n\nШаг 3/7. К какому авто привязать документ?",
+        "📄 Документ\n\nШаг 2/6. К какому авто привязать документ?",
         get_driver_vehicle_choice_keyboard(
             vehicles,
             "driver_document_vehicle",
@@ -2339,7 +2351,7 @@ async def _ask_document_vehicle(update: Update, context: ContextTypes.DEFAULT_TY
 async def _ask_document_identifier(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for optional document identifier."""
     current = context.user_data.setdefault("driver_document_data", {}).get("identifier")
-    text = "📄 Документ\n\nШаг 4/7. Укажите номер или короткую пометку."
+    text = "📄 Документ\n\nШаг 3/6. Укажите номер или короткую пометку."
     if current:
         text += f"\n\nТекущее значение: {current}"
     await _show_driver_step(update, context, text, get_driver_step_keyboard(can_skip=True))
@@ -2349,7 +2361,7 @@ async def _ask_document_identifier(update: Update, context: ContextTypes.DEFAULT
 async def _ask_document_expires(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for document expiry date."""
     current = context.user_data.setdefault("driver_document_data", {}).get("expires_at_utc")
-    text = "📄 Документ\n\nШаг 5/7. До какой даты действует документ?\n\nНапример: 25.12.2026 или 25.12."
+    text = "📄 Документ\n\nШаг 4/6. До какой даты действует документ?\n\nНапример: 25.12.2026 или 25.12."
     if current:
         text += f"\n\nТекущее значение: {_format_date(current)}"
     await _show_driver_step(update, context, text, get_driver_step_keyboard(can_skip=True, skip_text="Без срока/оставить"))
@@ -2361,7 +2373,7 @@ async def _ask_document_remind_days(update: Update, context: ContextTypes.DEFAUL
     await _show_driver_step(
         update,
         context,
-        "📄 Документ\n\nШаг 6/7. За сколько дней напомнить о сроке?",
+        "📄 Документ\n\nШаг 5/6. За сколько дней напомнить о сроке?",
         get_driver_document_remind_keyboard(),
     )
     return DriverStates.WAIT_DOCUMENT_REMIND_DAYS
@@ -2370,7 +2382,7 @@ async def _ask_document_remind_days(update: Update, context: ContextTypes.DEFAUL
 async def _ask_document_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for optional document note."""
     current = context.user_data.setdefault("driver_document_data", {}).get("note")
-    text = "📄 Документ\n\nШаг 7/7. Добавьте комментарий или пропустите."
+    text = "📄 Документ\n\nШаг 6/6. Добавьте комментарий или пропустите."
     if current:
         text += f"\n\nТекущее значение: {current}"
     await _show_driver_step(update, context, text, get_driver_step_keyboard(can_skip=True))
@@ -2384,7 +2396,7 @@ async def driver_document_add_start(update: Update, context: ContextTypes.DEFAUL
     _clear_driver_context(context)
     context.user_data["driver_document_mode"] = "create"
     context.user_data["driver_document_data"] = {"remind_before_days": 14, "is_active": True}
-    return await _ask_document_title(update, context)
+    return await _ask_document_type(update, context)
 
 
 async def driver_document_edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2411,7 +2423,7 @@ async def driver_document_edit_start(update: Update, context: ContextTypes.DEFAU
         "note": document.note,
         "is_active": document.is_active,
     }
-    return await _ask_document_title(update, context)
+    return await _ask_document_type(update, context)
 
 
 async def driver_document_title_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2421,7 +2433,7 @@ async def driver_document_title_save(update: Update, context: ContextTypes.DEFAU
     if not title:
         return await _ask_document_title(update, context)
     context.user_data.setdefault("driver_document_data", {})["title"] = title
-    return await _ask_document_type(update, context)
+    return await _ask_document_vehicle(update, context)
 
 
 async def driver_document_title_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2430,14 +2442,20 @@ async def driver_document_title_skip(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     if not context.user_data.get("driver_document_data", {}).get("title"):
         return await _ask_document_title(update, context)
-    return await _ask_document_type(update, context)
+    return await _ask_document_vehicle(update, context)
 
 
 async def driver_document_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Save document type."""
     query = update.callback_query
     await query.answer()
-    context.user_data.setdefault("driver_document_data", {})["document_type"] = query.data.split(":", 1)[1]
+    document_type = query.data.split(":", 1)[1]
+    data = context.user_data.setdefault("driver_document_data", {})
+    data["document_type"] = document_type
+    if document_type != "other":
+        data["title"] = _document_title_for_type(document_type)
+    elif not data.get("title"):
+        return await _ask_document_title(update, context)
     return await _ask_document_vehicle(update, context)
 
 

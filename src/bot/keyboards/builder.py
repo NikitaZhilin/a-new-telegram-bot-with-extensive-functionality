@@ -145,7 +145,7 @@ def get_driver_section_keyboard(section_key: Optional[str] = None) -> InlineKeyb
         ])
     elif section_key == "tires":
         keyboard.append([
-            InlineKeyboardButton("⏰ Напомнить про давление", callback_data="driver_reminder_template:tire_pressure"),
+            InlineKeyboardButton("🛞 Настроить контроль давления", callback_data="driver_reminder_template:tire_pressure"),
         ])
         keyboard.append([
             InlineKeyboardButton("✅ Проверка перед поездкой", callback_data="driver_list_template:trip_check"),
@@ -163,6 +163,25 @@ def get_driver_section_keyboard(section_key: Optional[str] = None) -> InlineKeyb
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ],
     ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_reminder_repeat_keyboard() -> InlineKeyboardMarkup:
+    """Repeat choices for ready-made driver reminders."""
+    keyboard = [
+        [
+            InlineKeyboardButton("Разово", callback_data="driver_rem_repeat:none"),
+            InlineKeyboardButton("Еженедельно", callback_data="driver_rem_repeat:weekly"),
+        ],
+        [
+            InlineKeyboardButton("Ежемесячно", callback_data="driver_rem_repeat:monthly"),
+            InlineKeyboardButton("Ежедневно", callback_data="driver_rem_repeat:daily"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К шаблонам", callback_data="driver_section:templates"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 

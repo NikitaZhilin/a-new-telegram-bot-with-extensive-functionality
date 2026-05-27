@@ -53,6 +53,7 @@ from src.bot.keyboards.builder import (
     # Driver
     get_driver_menu_keyboard,
     get_driver_section_keyboard,
+    get_driver_reminder_repeat_keyboard,
     get_driver_templates_keyboard,
     get_driver_created_list_keyboard,
     get_driver_vehicles_keyboard,
@@ -134,6 +135,7 @@ __all__ = [
     # Driver
     "get_driver_menu_keyboard",
     "get_driver_section_keyboard",
+    "get_driver_reminder_repeat_keyboard",
     "get_driver_templates_keyboard",
     "get_driver_created_list_keyboard",
     "get_driver_vehicles_keyboard",

@@ -23,6 +23,7 @@ from src.bot.keyboards import (
     get_driver_fuel_history_keyboard,
     get_driver_created_list_keyboard,
     get_driver_menu_keyboard,
+    get_driver_reminder_repeat_keyboard,
     get_driver_section_keyboard,
     get_driver_service_keyboard,
     get_driver_step_keyboard,
@@ -184,6 +185,7 @@ def test_important_callback_patterns_are_registered():
         "^driver_list_view:",
         "^driver_list_template:",
         "^driver_reminder_template:",
+        "^driver_rem_repeat:",
         "^driver_vehicle_create$",
         "^driver_vehicle_manual$",
         "^driver_vehicle_preset:",
@@ -394,6 +396,7 @@ def test_driver_keyboards_have_registered_callbacks():
 
     for keyboard in [
         get_driver_menu_keyboard(),
+        get_driver_reminder_repeat_keyboard(),
         get_driver_section_keyboard(),
         get_driver_templates_keyboard(),
         get_driver_created_list_keyboard(10),

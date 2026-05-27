@@ -5,7 +5,12 @@ from types import SimpleNamespace
 import pytest
 
 from src.bot.handlers import reminders as reminders_module
-from src.bot.handlers.driver import _clear_driver_context, _limit_text, _parse_bool
+from src.bot.handlers.driver import (
+    _clear_driver_context,
+    _document_title_for_type,
+    _limit_text,
+    _parse_bool,
+)
 from src.bot.states import ReminderStates
 
 
@@ -47,7 +52,7 @@ def test_clear_driver_context_removes_wizard_ids_and_keeps_unrelated_state():
 
 @pytest.mark.asyncio
 async def test_driver_reminder_template_starts_reminder_flow(monkeypatch):
-    """Driver reminder templates should prefill text and open the reminder date step."""
+    """Driver reminder templates should prefill text and ask for repeat before time."""
     class FakeSession:
         async def __aenter__(self):
             return self
@@ -79,8 +84,24 @@ async def test_driver_reminder_template_starts_reminder_flow(monkeypatch):
 
     state = await reminders_module.reminder_create_start(update, context)
 
-    assert state == ReminderStates.WAIT_DATE
+    assert state == ReminderStates.WAIT_REPEAT
     assert context.user_data["reminder_text"] == "Заменить моторное масло и масляный фильтр"
     assert context.user_data["user_timezone"] == "Europe/Moscow"
+    assert context.user_data["driver_reminder_template"] == "oil"
+    assert context.user_data["reminder_time_rollover_if_past"] is True
+    callback_data = {
+        button["callback_data"]
+        for row in query.reply_markup.to_dict()["inline_keyboard"]
+        for button in row
+        if "callback_data" in button
+    }
+    assert "driver_rem_repeat:weekly" in callback_data
     assert "Авто-напоминание" in query.edited
     assert "linked_list_id" not in context.user_data
+
+
+def test_driver_document_type_prefills_title():
+    """Known document types should not ask the user to duplicate the title."""
+    assert _document_title_for_type("insurance") == "ОСАГО/КАСКО"
+    assert _document_title_for_type("license") == "Водительское удостоверение"
+    assert _document_title_for_type("other") == "Документ"
