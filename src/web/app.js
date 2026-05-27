@@ -51,7 +51,7 @@ const titles = {
   reminders: ["Напоминания", "Активные напоминания пользователя."],
   medications: ["Лекарства", "Приемы, важность и ежедневное расписание."],
   driver: ["Водитель", "Автомобили, заправки, расходы и документы."],
-  admin: ["Админ", "Активность и воронки тестового проекта."],
+  admin: ["Админ-панель", "Агрегированная активность, пользователи и воронки сценариев."],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -579,10 +579,29 @@ function toDatetimeLocal(value) {
   return local.toISOString().slice(0, 16);
 }
 
+function formatLocalDatetimeText(value) {
+  return toLocalInputFromIso(value).replace("T", " ");
+}
+
+function normalizeLocalDatetimeInput(value) {
+  const raw = String(value || "").trim();
+  const ruMatch = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})[\s,]+(\d{1,2}):(\d{2})$/);
+  if (ruMatch) {
+    const [, day, month, year, hour, minute] = ruMatch;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute}`;
+  }
+  const isoLike = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[\sT]+(\d{1,2}):(\d{2})$/);
+  if (isoLike) {
+    const [, year, month, day, hour, minute] = isoLike;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute}`;
+  }
+  return raw.replace(" ", "T");
+}
+
 function defaultReminderTime() {
   const value = new Date(Date.now() + 60 * 60 * 1000);
   value.setMinutes(0, 0, 0);
-  return toDatetimeLocal(value);
+  return toDatetimeLocal(value).replace("T", " ");
 }
 
 function parseTimes(value) {
@@ -592,18 +611,40 @@ function parseTimes(value) {
     .filter(Boolean);
 }
 
+function renderChoiceGroup(name, value, options, label) {
+  return `
+    <div class="choice-group" data-field="${escapeHtml(name)}" role="group" aria-label="${escapeHtml(label)}">
+      <input name="${escapeHtml(name)}" type="hidden" value="${escapeHtml(value)}">
+      ${options.map((option) => `
+        <button class="choice-button ${option.value === value ? "active" : ""}" type="button" data-value="${escapeHtml(option.value)}">
+          ${escapeHtml(option.label)}
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+const repeatChoices = [
+  { value: "none", label: "Без повтора" },
+  { value: "daily", label: "Каждый день" },
+  { value: "weekly", label: "Каждую неделю" },
+  { value: "monthly", label: "Каждый месяц" },
+];
+
+const importanceChoices = [
+  { value: "supplement", label: "БАД" },
+  { value: "normal", label: "Обычное" },
+  { value: "important", label: "Важное" },
+  { value: "critical", label: "Критичное" },
+];
+
 function renderMedicationEditForm(item) {
   return `
     <form class="stack inline-edit-form medication-edit-form" data-id="${item.id}">
       <input name="name" type="text" value="${escapeHtml(item.name)}" placeholder="Название" required>
       <input name="dosage" type="text" value="${escapeHtml(item.dosage || "")}" placeholder="Дозировка">
       <textarea name="instructions" rows="3" placeholder="Комментарий">${escapeHtml(item.instructions || "")}</textarea>
-      <select name="importance">
-        <option value="supplement" ${item.importance === "supplement" ? "selected" : ""}>БАД</option>
-        <option value="normal" ${item.importance === "normal" ? "selected" : ""}>Обычное</option>
-        <option value="important" ${item.importance === "important" ? "selected" : ""}>Важное</option>
-        <option value="critical" ${item.importance === "critical" ? "selected" : ""}>Критичное</option>
-      </select>
+      ${renderChoiceGroup("importance", item.importance || "normal", importanceChoices, "Важность лекарства")}
       <input name="daily_times_local" type="text" value="${escapeHtml(item.daily_times_local?.join(", ") || "")}" placeholder="Время: 09:00, 21:00">
       <div class="item-actions">
         <button class="small action-save" type="submit">Сохранить</button>
@@ -618,13 +659,8 @@ function renderReminderEditForm(item) {
     <form class="stack inline-edit-form reminder-edit-form" data-id="${item.id}">
       <input name="title" type="text" value="${escapeHtml(item.title || "")}" placeholder="Заголовок">
       <textarea name="text" rows="3" placeholder="Текст напоминания" required>${escapeHtml(item.text || "")}</textarea>
-      <input name="remind_at_local" type="datetime-local" value="${escapeHtml(toLocalInputFromIso(item.remind_at_utc))}" required>
-      <select name="repeat_rule">
-        <option value="none" ${item.repeat_rule === "none" ? "selected" : ""}>Без повтора</option>
-        <option value="daily" ${item.repeat_rule === "daily" ? "selected" : ""}>Каждый день</option>
-        <option value="weekly" ${item.repeat_rule === "weekly" ? "selected" : ""}>Каждую неделю</option>
-        <option value="monthly" ${item.repeat_rule === "monthly" ? "selected" : ""}>Каждый месяц</option>
-      </select>
+      <input name="remind_at_local" type="text" inputmode="numeric" value="${escapeHtml(formatLocalDatetimeText(item.remind_at_utc))}" placeholder="28.05.2026 12:00" required>
+      ${renderChoiceGroup("repeat_rule", item.repeat_rule || "none", repeatChoices, "Повтор напоминания")}
       <div class="button-row">
         <button class="small action-save" type="submit">Сохранить</button>
         <button class="secondary small action-cancel" type="button" data-action="cancel-reminder-edit">Отмена</button>
@@ -1358,8 +1394,8 @@ function renderDocuments() {
 
 async function loadAdmin() {
   if (!state.auth.adminToken) {
-    $("#adminActivity").innerHTML = `<div class="item-meta">Нужен admin token.</div>`;
-    $("#adminFunnels").innerHTML = "";
+    $("#adminActivity").innerHTML = `<div class="empty-state">Для просмотра активности укажите admin token в блоке входа. Токен хранится только в браузере.</div>`;
+    $("#adminFunnels").innerHTML = `<div class="empty-state">Воронки загрузятся после подключения admin token.</div>`;
     $("#adminActivityOverview").innerHTML = "";
     return;
   }
@@ -1517,7 +1553,7 @@ async function handleReminderCreate(event) {
     body: JSON.stringify({
       title: form.title.value,
       text: form.text.value,
-      remind_at_local: form.remind_at_local.value,
+      remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
     }),
   });
@@ -1536,7 +1572,7 @@ async function handleReminderUpdate(event) {
     body: JSON.stringify({
       title: form.title.value,
       text: form.text.value,
-      remind_at_local: form.remind_at_local.value,
+      remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
     }),
   });
@@ -1838,6 +1874,21 @@ async function handleJournalFilter(event) {
   await loadDriverJournal();
 }
 
+function handleChoiceButton(event) {
+  const button = event.target.closest(".choice-button");
+  if (!button) return;
+  const group = button.closest(".choice-group");
+  if (!group) return;
+  event.preventDefault();
+  const input = group.querySelector("input[type='hidden']");
+  if (input) {
+    input.value = button.dataset.value || "";
+  }
+  group.querySelectorAll(".choice-button").forEach((item) => {
+    item.classList.toggle("active", item === button);
+  });
+}
+
 async function handleAction(event) {
   const target = event.target.closest("[data-action]");
   if (!target) return;
@@ -2071,6 +2122,7 @@ function bindEvents() {
     state.adminFilters.userId = event.currentTarget.user_id.value || "";
     loadAdmin().catch((error) => showMessage(error.message, true));
   });
+  document.body.addEventListener("click", handleChoiceButton);
   document.body.addEventListener("click", handleAction);
   $("#vehicleCreateForm select[name='preset_slug']").addEventListener("change", applyVehiclePresetToCreateForm);
   $("#fuelCreateForm select[name='vehicle_id']").addEventListener("change", (event) => loadFuel(event.target.value).catch((error) => showMessage(error.message, true)));

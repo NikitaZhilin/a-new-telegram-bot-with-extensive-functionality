@@ -65,3 +65,27 @@ def test_web_lists_use_single_active_checklist_surface():
     assert "${sourceListPanel}" in script
     assert ".accordion-panel" in styles
     assert ".source-list-items" in styles
+
+
+def test_web_reminder_datetime_avoids_native_picker():
+    """Reminder web form should use the styled text datetime input, not native calendar UI."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert 'name="remind_at_local" type="text" inputmode="numeric"' in html
+    assert 'name="remind_at_local" type="datetime-local"' not in html
+    assert "normalizeLocalDatetimeInput" in script
+    assert "formatLocalDatetimeText" in script
+
+
+def test_web_repeat_and_importance_use_choice_groups():
+    """Repeat and medication importance controls should avoid native select dropdowns."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert 'class="choice-group" data-field="repeat_rule"' in html
+    assert 'class="choice-group" data-field="importance"' in html
+    assert "renderChoiceGroup" in script
+    assert "handleChoiceButton" in script
+    assert ".choice-button.active" in styles
