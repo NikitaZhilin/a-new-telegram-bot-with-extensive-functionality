@@ -83,6 +83,8 @@ docker build -t "$WORKER_IMAGE" -f Dockerfile.worker .
 
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK"
 mkdir -p "$RESTART_REQUEST_HOST_PATH"
+chown 1000:1000 "$RESTART_REQUEST_HOST_PATH" 2>/dev/null || true
+chmod 0750 "$RESTART_REQUEST_HOST_PATH" 2>/dev/null || true
 
 docker run --rm \
   --env-file "$ENV_FILE" \
