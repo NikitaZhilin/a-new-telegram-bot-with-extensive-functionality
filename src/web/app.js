@@ -214,8 +214,8 @@ function renderMetrics() {
     ["Расходы на авто", formatMoney(stats.driver?.driver_total_cost ?? stats.driver?.fuel_total_cost ?? 0), `топливо: ${formatMoney(stats.driver?.fuel_total_cost ?? 0)}; прочее: ${formatMoney(stats.driver?.expense_total_cost ?? 0)}`],
     ["Тариф", state.summary?.access?.plan_title || formatPlan(state.summary?.access?.plan), `статус: ${formatSubscriptionStatus(state.summary?.access?.subscription_status)}`],
   ];
-  $("#dashboardCards").innerHTML = cards.map(([label, value, detail]) => `
-    <article class="metric">
+  $("#dashboardCards").innerHTML = cards.map(([label, value, detail], index) => `
+    <article class="metric metric-accent-${(index % 4) + 1}">
       <div class="metric-value">${escapeHtml(value)}</div>
       <div class="metric-label">${escapeHtml(label)}</div>
       <div class="metric-detail">${escapeHtml(detail || "")}</div>
@@ -1184,8 +1184,8 @@ function renderDriverOverview() {
     ["Документы", overview.documents_active_count ?? 0, `скоро истекают: ${overview.documents_expiring_soon_count ?? 0}`],
     ["Журнал", overview.journal_entries_count ?? 0, "события авто и ручные записи"],
   ];
-  $("#driverOverview").innerHTML = cards.map(([label, value, detail]) => `
-    <article class="metric">
+  $("#driverOverview").innerHTML = cards.map(([label, value, detail], index) => `
+    <article class="metric metric-accent-${(index % 4) + 1}">
       <div class="metric-value">${escapeHtml(value)}</div>
       <div class="metric-label">${escapeHtml(label)}</div>
       <div class="metric-detail">${escapeHtml(detail)}</div>

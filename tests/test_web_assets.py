@@ -106,3 +106,17 @@ def test_web_background_uses_soft_theme_gradient():
 
     assert "--page-gradient" in styles
     assert "var(--page-gradient)" in styles
+
+
+def test_web_design_system_styles_cards_forms_and_metrics():
+    """Dashboard/cards/forms should share the same design-system primitives."""
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert "--radius-lg" in styles
+    assert "--panel-bg" in styles
+    assert "--card-bg" in styles
+    assert ".panel > h2:first-child" in styles
+    assert ".metric::before" in styles
+    assert ".metric-accent-4" in styles
+    assert 'class="metric metric-accent-${(index % 4) + 1}"' in script

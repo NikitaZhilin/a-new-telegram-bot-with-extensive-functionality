@@ -30,6 +30,15 @@
   --focus: rgba(59, 111, 221, 0.24);
   --shadow: 0 16px 44px rgba(30, 41, 59, 0.10);
   --shadow-soft: 0 8px 24px rgba(30, 41, 59, 0.07);
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 9px;
+  --panel-bg:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, white) 0%, color-mix(in srgb, var(--surface) 88%, var(--surface-2)) 100%);
+  --card-bg:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, white) 0%, color-mix(in srgb, var(--surface) 88%, var(--surface-2)) 100%);
+  --metric-accent-start: #7aa7e8;
+  --metric-accent-end: #9acfc4;
   --page-gradient:
     linear-gradient(135deg, rgba(224, 242, 254, 0.68) 0%, rgba(236, 253, 245, 0.56) 46%, rgba(255, 247, 237, 0.64) 100%);
 }
@@ -66,6 +75,12 @@
   --focus: rgba(141, 183, 244, 0.30);
   --shadow: 0 18px 52px rgba(0, 0, 0, 0.22);
   --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.16);
+  --panel-bg:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, #384154) 0%, color-mix(in srgb, var(--surface) 88%, #1f2632) 100%);
+  --card-bg:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 90%, #374153) 0%, color-mix(in srgb, var(--surface) 86%, #202735) 100%);
+  --metric-accent-start: #98b8e6;
+  --metric-accent-end: #9acfc4;
   --page-gradient:
     linear-gradient(135deg, #20242f 0%, #263341 48%, #2c332f 100%);
 }
@@ -102,7 +117,7 @@ textarea {
 
 button {
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: white;
   min-height: 40px;
@@ -192,7 +207,7 @@ textarea {
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 11px 14px;
   background: var(--field-bg);
   color: var(--text);
@@ -339,7 +354,7 @@ label span {
 }
 
 .content {
-  padding: 28px 24px 48px;
+  padding: 30px 24px 52px;
   max-width: 1320px;
   width: 100%;
   margin: 0 auto;
@@ -444,12 +459,29 @@ h3 {
 }
 
 .panel {
-  background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface));
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 18px;
+  position: relative;
+  background: var(--panel-bg);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 20px;
   box-shadow: var(--shadow-soft);
   min-width: 0;
+}
+
+.panel > h2:first-child {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.panel > h2:first-child::after {
+  content: "";
+  height: 1px;
+  flex: 1 1 auto;
+  min-width: 24px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 26%, transparent), transparent);
 }
 
 .panel-heading {
@@ -467,7 +499,7 @@ h3 {
 .subpanel {
   margin: 14px 0;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
   padding: 14px;
 }
@@ -519,7 +551,12 @@ h3 {
 
 .stack {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+}
+
+.stack > button[type="submit"],
+.stack > .button-row:last-child {
+  margin-top: 2px;
 }
 
 .compact-form {
@@ -540,8 +577,8 @@ h3 {
   gap: 8px;
   padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--field-bg) 78%, var(--surface-2));
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--field-bg) 84%, transparent), color-mix(in srgb, var(--surface-2) 62%, transparent));
 }
 
 .choice-button {
@@ -570,7 +607,7 @@ h3 {
 .split-layout {
   display: grid;
   grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
-  gap: 16px;
+  gap: 18px;
   align-items: start;
 }
 
@@ -596,18 +633,18 @@ h3 {
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 .dashboard-details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 12px;
+  gap: 14px;
+  margin-top: 14px;
 }
 
 .release-info {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .section-overview {
@@ -615,19 +652,49 @@ h3 {
 }
 
 .metric {
-  background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface-2));
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 18px;
+  position: relative;
+  overflow: hidden;
+  background: var(--card-bg);
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 20px 18px 18px 22px;
   box-shadow: var(--shadow-soft);
   min-height: 108px;
   min-width: 0;
+}
+
+.metric::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 16px;
+  bottom: 16px;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(180deg, var(--metric-accent-start), var(--metric-accent-end));
+  opacity: 0.78;
+}
+
+.metric-accent-2 {
+  --metric-accent-start: #a7d7b8;
+  --metric-accent-end: #e5c58f;
+}
+
+.metric-accent-3 {
+  --metric-accent-start: #c5b4ea;
+  --metric-accent-end: #f0b5c0;
+}
+
+.metric-accent-4 {
+  --metric-accent-start: #93c5fd;
+  --metric-accent-end: #f7c59f;
 }
 
 .metric-value {
   font-size: 28px;
   font-weight: 800;
   margin-bottom: 4px;
+  letter-spacing: 0;
 }
 
 .metric-label,
@@ -640,6 +707,7 @@ h3 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+  margin-top: 6px;
 }
 
 .item-list {
@@ -649,12 +717,18 @@ h3 {
 }
 
 .item-card {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface));
-  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  padding: 15px;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   min-width: 0;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.item-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  box-shadow: var(--shadow-soft);
 }
 
 .item-card details {
@@ -671,8 +745,8 @@ h3 {
 .item-card details,
 .release-info details {
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-2) 56%, transparent);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 62%, transparent), color-mix(in srgb, var(--surface) 18%, transparent));
   overflow: hidden;
 }
 
@@ -710,6 +784,7 @@ details > summary::after {
   border-bottom: 2px solid currentColor;
   transform: rotate(45deg);
   margin-left: auto;
+  margin-right: 2px;
   flex: 0 0 auto;
   opacity: 0.78;
   transition: transform 0.16s ease;
@@ -721,8 +796,8 @@ details[open] > summary::after {
 
 .accordion-panel {
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-raised) 82%, var(--surface-2));
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
   padding: 0;
   overflow: hidden;
   box-shadow: var(--shadow-soft);
@@ -739,12 +814,12 @@ details[open] > summary::after {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 13px 15px;
   cursor: pointer;
   color: var(--text);
   font-weight: 800;
   list-style: none;
-  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 78%, transparent), color-mix(in srgb, var(--surface-raised) 42%, transparent));
 }
 
 .accordion-panel[open] > summary {
@@ -773,7 +848,7 @@ details[open] > summary::after {
   border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
   background: var(--warning-bg);
   color: var(--warning);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 9px 10px;
   font-size: 13px;
   font-weight: 700;
@@ -810,7 +885,7 @@ details[open] > summary::after {
   margin-top: 10px;
   padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--surface-2) 58%, transparent);
 }
 
@@ -843,8 +918,10 @@ details[open] > summary::after {
 .item-actions {
   display: flex;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
   flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
 }
 
 .button-row {
@@ -861,6 +938,8 @@ details[open] > summary::after {
 
 .item-actions.no-margin {
   margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .compact-row {
@@ -869,8 +948,8 @@ details[open] > summary::after {
   gap: 10px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-raised) 88%, var(--surface));
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
   padding: 11px 12px;
 }
 
@@ -953,14 +1032,14 @@ button.checklist-row:hover {
 .message {
   margin-bottom: 14px;
   border: 1px solid var(--line);
-  background: var(--surface);
-  border-radius: 8px;
+  background: var(--panel-bg);
+  border-radius: var(--radius-md);
   padding: 12px 14px;
 }
 
 .empty-state {
   border: 1px dashed color-mix(in srgb, var(--line) 84%, var(--muted));
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--surface-2) 58%, transparent);
   color: var(--muted);
   padding: 16px;
