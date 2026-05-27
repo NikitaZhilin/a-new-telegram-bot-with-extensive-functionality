@@ -6,9 +6,9 @@ All endpoints require X-Admin-Token header for authentication.
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,11 @@ from src.db.session import get_db
 from src.db.models import Medication, TodoList, Reminder, ReminderStatus, User
 from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
+from src.services.restart_request_service import (
+    RESTART_CONFIRMATION,
+    RestartRequestNotSupportedError,
+    RestartRequestService,
+)
 from src.services.service_heartbeat import ServiceStatusService
 from src.services.subscription_service import SubscriptionService
 
@@ -129,10 +134,28 @@ class ServiceStatusResponse(BaseModel):
     status: str
     version: str
     generated_at: str
-    db: dict[str, Any]
+    database: str
     last_errors_count: int
     heartbeat_down_after_seconds: int
-    services: List[ServiceHeartbeatResponse]
+    services: dict[str, ServiceHeartbeatResponse]
+
+
+class RestartRequestPayload(BaseModel):
+    """Controlled restart request accepted from an external status bot."""
+
+    target: Literal["api", "bot", "worker", "all"]
+    confirm: str = Field(..., min_length=1, max_length=80)
+    requested_by: str = Field(..., min_length=1, max_length=120)
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class RestartAcceptedResponse(BaseModel):
+    """Accepted restart request metadata."""
+
+    status: str
+    operation_id: str
+    target: str
+    message: str
 
 
 # === Routes ===
@@ -391,6 +414,41 @@ async def get_service_status(
 ) -> ServiceStatusResponse:
     """Return heartbeat-based status for external status bots."""
     return ServiceStatusResponse(**await ServiceStatusService(db).get_status())
+
+
+@router.post(
+    "/restart",
+    response_model=RestartAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue controlled RememberMe restart",
+    description=(
+        "Queue an allowlisted restart request for a local RememberMe supervisor. "
+        "The API never executes shell commands or talks to Docker directly."
+    ),
+)
+async def request_restart(
+    payload: RestartRequestPayload,
+) -> RestartAcceptedResponse:
+    """Queue a controlled restart request for RememberMe-owned components."""
+    if payload.confirm != RESTART_CONFIRMATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid restart confirmation",
+        )
+
+    try:
+        accepted = RestartRequestService().create_request(
+            target=payload.target,
+            requested_by=payload.requested_by,
+            reason=payload.reason,
+        )
+    except RestartRequestNotSupportedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=str(exc),
+        ) from exc
+
+    return RestartAcceptedResponse(**accepted)
 
 
 @router.get(

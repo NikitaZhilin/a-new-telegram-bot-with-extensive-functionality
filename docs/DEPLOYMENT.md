@@ -95,6 +95,8 @@ TESTING_NOTICE_TEXT=
 SEND_STARTUP_MENU_ON_BOOT=true
 DEFAULT_SUBSCRIPTION_PLAN=free
 WORKER_INTERVAL=60
+SERVICE_HEARTBEAT_INTERVAL_SECONDS=45
+RESTART_REQUEST_DIR=
 ```
 
 Use Variables for non-secret configuration only. Use Secrets for tokens,
@@ -161,6 +163,45 @@ CORS_ORIGINS=
 ```
 
 The real `.env.prod` is ignored by Git and must not be committed.
+
+## Admin status and controlled restart
+
+External status bots can read RememberMe health through:
+
+```http
+GET /admin/service-status
+X-Admin-Token: <ADMIN_TOKEN>
+```
+
+The response contains the overall status, app version, database status,
+heartbeat timeout, last error count, and `api`/`bot`/`worker` heartbeat states.
+
+Controlled restart requests use:
+
+```http
+POST /admin/restart
+X-Admin-Token: <ADMIN_TOKEN>
+Content-Type: application/json
+```
+
+```json
+{
+  "target": "all",
+  "confirm": "restart:rememberme",
+  "requested_by": "telegram:123456789",
+  "reason": "manual restart from status bot"
+}
+```
+
+Allowed `target` values are only `api`, `bot`, `worker`, and `all`. The API
+does not receive Docker socket access, does not execute shell commands, and
+does not accept container names, systemd units, or filesystem paths from the
+request.
+
+If `RESTART_REQUEST_DIR` is empty, the endpoint returns `501 restart is not
+supported by this deployment`. If it is set, the API writes one JSON request
+into that internal directory for a separate local RememberMe supervisor to
+consume.
 
 ## First automatic deploy
 

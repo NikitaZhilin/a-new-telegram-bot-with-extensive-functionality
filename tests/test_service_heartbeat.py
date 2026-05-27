@@ -1,5 +1,6 @@
 """Service heartbeat and admin status tests."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -58,10 +59,10 @@ async def test_service_status_marks_required_stale_heartbeat_down(db_session):
     )
 
     payload = await ServiceStatusService(db_session, clock=lambda: now).get_status()
-    services = {item["service_name"]: item for item in payload["services"]}
+    services = payload["services"]
 
     assert payload["status"] == "down"
-    assert payload["db"]["status"] == "ok"
+    assert payload["database"] == "ok"
     assert payload["last_errors_count"] == 2
     assert services["api"]["status"] == "down"
     assert services["api"]["stale"] is True
@@ -105,4 +106,81 @@ async def test_admin_service_status_endpoint_is_token_protected(db_session):
     payload = accepted.json()
     assert payload["status"] == "ok"
     assert payload["version"] == settings.APP_VERSION
-    assert {item["service_name"] for item in payload["services"]} >= {"api", "bot", "worker"}
+    assert payload["database"] == "ok"
+    assert set(payload["services"]) >= {"api", "bot", "worker"}
+    assert payload["services"]["api"]["last_seen_at"]
+
+
+@pytest.mark.asyncio
+async def test_admin_restart_endpoint_returns_501_when_queue_disabled(monkeypatch):
+    """Restart endpoint is token-protected and disabled without an internal queue."""
+    monkeypatch.setattr(settings, "RESTART_REQUEST_DIR", None)
+    app = create_application()
+    transport = httpx.ASGITransport(app=app)
+    payload = {
+        "target": "all",
+        "confirm": "restart:rememberme",
+        "requested_by": "telegram:123456789",
+        "reason": "manual restart from status bot",
+    }
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        rejected = await client.post("/admin/restart", json=payload)
+        accepted = await client.post(
+            "/admin/restart",
+            headers={"X-Admin-Token": settings.ADMIN_TOKEN},
+            json=payload,
+        )
+
+    assert rejected.status_code in {401, 403, 422}
+    assert accepted.status_code == 501
+    assert accepted.json()["detail"] == "restart is not supported by this deployment"
+
+
+@pytest.mark.asyncio
+async def test_admin_restart_endpoint_queues_allowlisted_request(monkeypatch, tmp_path):
+    """When configured, API writes a JSON request and never accepts arbitrary targets."""
+    monkeypatch.setattr(settings, "RESTART_REQUEST_DIR", str(tmp_path))
+    app = create_application()
+    transport = httpx.ASGITransport(app=app)
+    payload = {
+        "target": "worker",
+        "confirm": "restart:rememberme",
+        "requested_by": "telegram:123456789",
+        "reason": "manual restart from status bot",
+    }
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        invalid_target = await client.post(
+            "/admin/restart",
+            headers={"X-Admin-Token": settings.ADMIN_TOKEN},
+            json={**payload, "target": "rememberme_bot-worker"},
+        )
+        invalid_confirm = await client.post(
+            "/admin/restart",
+            headers={"X-Admin-Token": settings.ADMIN_TOKEN},
+            json={**payload, "confirm": "restart:anything"},
+        )
+        accepted = await client.post(
+            "/admin/restart",
+            headers={"X-Admin-Token": settings.ADMIN_TOKEN},
+            json=payload,
+        )
+
+    assert invalid_target.status_code == 422
+    assert invalid_confirm.status_code == 400
+    assert accepted.status_code == 202
+
+    body = accepted.json()
+    assert body["status"] == "accepted"
+    assert body["target"] == "worker"
+    assert body["message"] == "restart scheduled"
+    assert body["operation_id"].startswith("rememberme-")
+
+    queued_files = list(tmp_path.glob("rememberme-*.json"))
+    assert len(queued_files) == 1
+    queued_payload = json.loads(queued_files[0].read_text(encoding="utf-8"))
+    assert queued_payload["operation_id"] == body["operation_id"]
+    assert queued_payload["target"] == "worker"
+    assert queued_payload["requested_by"] == "telegram:123456789"
+    assert queued_payload["reason"] == "manual restart from status bot"

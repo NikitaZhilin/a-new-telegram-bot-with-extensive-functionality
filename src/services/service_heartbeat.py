@@ -176,11 +176,11 @@ class ServiceStatusService:
 
         db_status = await self._database_status()
         recent_errors_count = await self._recent_errors_count(now)
-        services = [
-            self._format_service(row=rows_by_name.get(name), service_name=name, now=now)
+        services = {
+            name: self._format_service(row=rows_by_name.get(name), service_name=name, now=now)
             for name in service_names
-        ]
-        heartbeat_errors_count = sum(1 for service in services if service["last_error"])
+        }
+        heartbeat_errors_count = sum(1 for service in services.values() if service["last_error"])
         last_errors_count = recent_errors_count + heartbeat_errors_count
         overall_status = self._overall_status(services, db_status, last_errors_count)
 
@@ -188,7 +188,7 @@ class ServiceStatusService:
             "status": overall_status,
             "version": settings.APP_VERSION,
             "generated_at": now.isoformat(),
-            "db": db_status,
+            "database": db_status["status"],
             "last_errors_count": last_errors_count,
             "heartbeat_down_after_seconds": HEARTBEAT_DOWN_AFTER_SECONDS,
             "services": services,
@@ -271,16 +271,17 @@ class ServiceStatusService:
 
     @staticmethod
     def _overall_status(
-        services: list[dict[str, Any]],
+        services: dict[str, dict[str, Any]],
         db_status: dict[str, Any],
         recent_errors_count: int,
     ) -> str:
         if db_status["status"] != "ok":
             return "degraded"
-        if any(service["required"] and service["status"] == "down" for service in services):
+        service_values = services.values()
+        if any(service["required"] and service["status"] == "down" for service in service_values):
             return "down"
         if recent_errors_count > 0:
             return "degraded"
-        if any(service["status"] == "degraded" for service in services):
+        if any(service["status"] == "degraded" for service in services.values()):
             return "degraded"
         return "ok"
