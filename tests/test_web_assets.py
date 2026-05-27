@@ -98,3 +98,11 @@ def test_web_dashboard_testing_notice_is_not_duplicated():
 
     assert html.count("Тестовый режим: данные могут быть изменены или утеряны.") == 1
     assert "info.testing_notice_text" not in script
+
+
+def test_web_background_uses_soft_theme_gradient():
+    """Web app background should use a subtle theme gradient instead of a flat fill."""
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert "--page-gradient" in styles
+    assert "var(--page-gradient)" in styles

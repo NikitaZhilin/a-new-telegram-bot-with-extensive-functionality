@@ -30,6 +30,8 @@
   --focus: rgba(59, 111, 221, 0.24);
   --shadow: 0 16px 44px rgba(30, 41, 59, 0.10);
   --shadow-soft: 0 8px 24px rgba(30, 41, 59, 0.07);
+  --page-gradient:
+    linear-gradient(135deg, rgba(224, 242, 254, 0.68) 0%, rgba(236, 253, 245, 0.56) 46%, rgba(255, 247, 237, 0.64) 100%);
 }
 
 [data-theme="dark"] {
@@ -64,6 +66,8 @@
   --focus: rgba(141, 183, 244, 0.30);
   --shadow: 0 18px 52px rgba(0, 0, 0, 0.22);
   --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.16);
+  --page-gradient:
+    linear-gradient(135deg, #20242f 0%, #263341 48%, #2c332f 100%);
 }
 
 * {
@@ -75,7 +79,8 @@ body {
   margin: 0;
   min-height: 100%;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg) 88%, var(--surface-2)) 0%, var(--bg) 320px),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 78%, transparent) 0%, var(--bg) 420px),
+    var(--page-gradient),
     var(--bg);
   color: var(--text);
   font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
