@@ -306,6 +306,41 @@ class BotActivityEvent(Base):
         return f"<BotActivityEvent(user_id={self.user_id}, event='{self.event_name}')>"
 
 
+class ServiceHeartbeat(Base):
+    """Runtime heartbeat written by api, bot, and worker processes."""
+
+    __tablename__ = "service_heartbeats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    service_name: Mapped[str] = mapped_column(String(60), unique=True, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ok", server_default="ok", index=True)
+    version: Mapped[str] = mapped_column(String(80), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    uptime_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("status IN ('ok', 'degraded', 'down')", name="ck_service_heartbeats_status"),
+        Index("ix_service_heartbeats_service_seen", "service_name", "last_seen_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ServiceHeartbeat(service_name='{self.service_name}', status='{self.status}')>"
+
+
 class TodoList(Base):
     """TodoList model for storing todo/shopping lists."""
 

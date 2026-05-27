@@ -27,6 +27,7 @@ from src.db.models.models import (
     Reminder,
     ReminderStatus,
     RepeatRule,
+    ServiceHeartbeat,
 )
 
 __all__ = [
@@ -52,4 +53,5 @@ __all__ = [
     "Reminder",
     "ReminderStatus",
     "RepeatRule",
+    "ServiceHeartbeat",
 ]

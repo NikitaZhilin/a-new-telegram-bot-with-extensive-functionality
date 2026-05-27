@@ -149,6 +149,10 @@ class Settings(BaseSettings):
     
     # Worker
     WORKER_INTERVAL: int = Field(default=60, description="Worker check interval in seconds")
+    SERVICE_HEARTBEAT_INTERVAL_SECONDS: int = Field(
+        default=45,
+        description="Runtime heartbeat write interval for api, bot, and worker"
+    )
     SEND_STARTUP_MENU_ON_BOOT: bool = Field(
         default=True,
         description="Legacy switch for startup announcements; STARTUP_ANNOUNCE_MODE still gates delivery"

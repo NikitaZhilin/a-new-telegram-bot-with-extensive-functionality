@@ -6,7 +6,7 @@ All endpoints require X-Admin-Token header for authentication.
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
@@ -17,6 +17,7 @@ from src.db.session import get_db
 from src.db.models import Medication, TodoList, Reminder, ReminderStatus, User
 from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
+from src.services.service_heartbeat import ServiceStatusService
 from src.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,35 @@ class FunnelSummaryResponse(BaseModel):
     period_days: int
     filtered_user_id: Optional[int] = None
     funnels: List[dict]
+
+
+class ServiceHeartbeatResponse(BaseModel):
+    """Computed runtime heartbeat status for one service."""
+
+    service_name: str
+    status: str
+    reported_status: Optional[str] = None
+    required: bool
+    stale: bool
+    seconds_since_seen: Optional[int] = None
+    version: Optional[str] = None
+    started_at: Optional[str] = None
+    last_seen_at: Optional[str] = None
+    uptime_seconds: int
+    last_error: Optional[str] = None
+    metadata_json: dict[str, Any]
+
+
+class ServiceStatusResponse(BaseModel):
+    """Read-only service status snapshot for external status bots."""
+
+    status: str
+    version: str
+    generated_at: str
+    db: dict[str, Any]
+    last_errors_count: int
+    heartbeat_down_after_seconds: int
+    services: List[ServiceHeartbeatResponse]
 
 
 # === Routes ===
@@ -348,6 +378,19 @@ async def get_funnel_summary(
     """Return basic funnel stages for core bot domains."""
     summary = await ActivityService(db).get_funnel_summary(days=days, user_id=user_id)
     return FunnelSummaryResponse(**summary)
+
+
+@router.get(
+    "/service-status",
+    response_model=ServiceStatusResponse,
+    summary="Get runtime service status",
+    description="Read-only heartbeat status for api, bot, worker, and database",
+)
+async def get_service_status(
+    db: AsyncSession = Depends(get_db),
+) -> ServiceStatusResponse:
+    """Return heartbeat-based status for external status bots."""
+    return ServiceStatusResponse(**await ServiceStatusService(db).get_status())
 
 
 @router.get(

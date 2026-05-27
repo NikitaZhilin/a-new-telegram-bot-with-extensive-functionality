@@ -1351,56 +1351,6 @@ def get_reminders_list_keyboard(
 ) -> InlineKeyboardMarkup:
     """Keyboard for reminders list with pagination and filter."""
     keyboard = []
-    
-    # Reminders buttons
-    for reminder in reminders:
-        time_str = reminder.remind_at_utc.strftime("%d.%m %H:%M")
-        status_icon = "⏰" if reminder.status == "active" else "✅"
-        text = reminder.text[:35] + "..." if len(reminder.text) > 35 else reminder.text
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{status_icon} [{time_str}] {text}",
-                callback_data=f"reminder_view:{reminder.id}"
-            )
-        ])
-    
-    # Pagination
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f"reminders_page:{page-1}"))
-    if has_next:
-        nav_row.append(InlineKeyboardButton("➡️", callback_data=f"reminders_page:{page+1}"))
-    if nav_row:
-        keyboard.append(nav_row)
-    
-    # Filter toggle
-    filter_text = "📅 Активные" if show_active else "📜 История"
-    filter_action = "reminders_filter_active" if show_active else "reminders_filter_history"
-    
-    keyboard.append([
-        InlineKeyboardButton(filter_text, callback_data=filter_action),
-    ])
-    
-    # Action buttons
-    keyboard.append([
-        InlineKeyboardButton("➕ Создать", callback_data="reminder_create"),
-    ])
-    
-    keyboard.append([
-        InlineKeyboardButton("🏠 В меню", callback_data="home"),
-    ])
-    
-    return InlineKeyboardMarkup(keyboard)
-
-
-def get_reminders_list_keyboard(
-    reminders: List,
-    page: int = 0,
-    has_next: bool = False,
-    show_active: bool = True,
-) -> InlineKeyboardMarkup:
-    """Keyboard for reminders list with pagination and filter."""
-    keyboard = []
 
     for reminder in reminders:
         time_str = reminder.remind_at_utc.strftime("%d.%m %H:%M")
@@ -1421,6 +1371,10 @@ def get_reminders_list_keyboard(
     if nav_row:
         keyboard.append(nav_row)
 
+    keyboard.append([
+        InlineKeyboardButton("➕ Создать", callback_data="reminder_create"),
+    ])
+
     if show_active:
         keyboard.append([
             InlineKeyboardButton("📜 Завершенные", callback_data="reminders_filter_history"),
@@ -1430,9 +1384,6 @@ def get_reminders_list_keyboard(
             InlineKeyboardButton("📅 Активные", callback_data="reminders_filter_active"),
         ])
 
-    keyboard.append([
-        InlineKeyboardButton("➕ Создать", callback_data="reminder_create"),
-    ])
     keyboard.append([
         InlineKeyboardButton("🏠 В меню", callback_data="home"),
     ])

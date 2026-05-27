@@ -21,6 +21,7 @@ from src.db.models import (  # noqa: F401
     MedicationIntake,
     Note,
     Reminder,
+    ServiceHeartbeat,
     TodoList,
     User,
     UserSubscription,

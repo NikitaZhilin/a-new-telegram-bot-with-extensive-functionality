@@ -581,6 +581,7 @@ async def run_bot() -> None:
     from src.bot.app import create_application
     from src.bot.keyboards import get_main_menu_keyboard
     from src.repositories.user_repo import UserRepository
+    from src.services.service_heartbeat import ServiceHeartbeatWriter
     from telegram import BotCommand
     
     logger = structlog.get_logger(__name__)
@@ -589,11 +590,21 @@ async def run_bot() -> None:
     initialized = False
     started = False
     polling_started = False
+    heartbeat_task = None
 
     await bot_app.initialize()
     initialized = True
     await bot_app.start()
     started = True
+    heartbeat = ServiceHeartbeatWriter(
+        "bot",
+        metadata_factory=lambda: {
+            "handlers_count": count_bot_handlers(bot_app),
+            "webhook_configured": bool(settings.WEBHOOK_URL),
+            "polling_started": polling_started,
+        },
+    )
+    heartbeat_task = asyncio.create_task(heartbeat.run(), name="heartbeat-bot")
 
     await bot_app.bot.set_my_commands(
         [
@@ -682,6 +693,11 @@ async def run_bot() -> None:
     except KeyboardInterrupt:
         logger.info("Bot stopping...")
     finally:
+        if heartbeat_task:
+            heartbeat.stop()
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
         if polling_started and bot_app.updater:
             with suppress(Exception):
                 await bot_app.updater.stop()
@@ -696,6 +712,7 @@ async def run_bot() -> None:
 async def run_worker() -> None:
     """Run reminder worker."""
     from src.worker import ReminderWorkerService
+    from src.services.service_heartbeat import ServiceHeartbeatWriter
 
     logger = structlog.get_logger(__name__)
 
@@ -703,18 +720,34 @@ async def run_worker() -> None:
     from telegram import Bot
     bot = Bot(token=settings.BOT_TOKEN)
 
+    heartbeat_task = None
     try:
         await bot.initialize()
-        
+        heartbeat = ServiceHeartbeatWriter(
+            "worker",
+            metadata_factory=lambda: {
+                "batch_size": 100,
+                "poll_interval": settings.WORKER_INTERVAL,
+                "telegram_bot_initialized": True,
+            },
+        )
+        heartbeat_task = asyncio.create_task(heartbeat.run(), name="heartbeat-worker")
+
         worker = ReminderWorkerService(
             bot=bot,
             batch_size=100,
             poll_interval=settings.WORKER_INTERVAL,
+            heartbeat=heartbeat,
         )
 
         logger.info("Reminder worker started")
         await worker.start()
     finally:
+        if heartbeat_task:
+            heartbeat.stop()
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
         await bot.shutdown()
 
 

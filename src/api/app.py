@@ -6,6 +6,7 @@ Provides REST API for:
 - Admin operations (protected by X-Admin-Token)
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import health, admin, admin_ui, me, web
 from src.config import settings
 from src.db.session import engine
+from src.services.service_heartbeat import ServiceHeartbeatWriter
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +25,27 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("FastAPI application starting")
-    yield
-    # Shutdown
-    logger.info("FastAPI application shutting down")
-    await engine.dispose()
+    heartbeat = ServiceHeartbeatWriter(
+        "api",
+        metadata_factory=lambda: {
+            "api_host": settings.API_HOST,
+            "api_port": settings.API_PORT,
+            "docs_enabled": settings.API_DOCS_ENABLED,
+        },
+    )
+    heartbeat_task = asyncio.create_task(heartbeat.run(), name="heartbeat-api")
+    try:
+        yield
+    finally:
+        # Shutdown
+        heartbeat.stop()
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("FastAPI application shutting down")
+        await engine.dispose()
 
 
 def create_application() -> FastAPI:
