@@ -13,6 +13,7 @@ from src.bot.keyboards import (
 from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.checklist_service import ChecklistService
+from src.services.driver_service import DriverService
 from src.utils.text import truncate
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,8 @@ async def checklist_finish_callback(update: Update, context: ContextTypes.DEFAUL
 
         await query.answer()
         run = await service.finish_run(run_id, user_id)
+        if run:
+            await DriverService(session).record_checklist_completion(run.id, user_id)
         await session.commit()
 
     if not run:

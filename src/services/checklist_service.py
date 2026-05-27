@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db.models import ChecklistRun, ChecklistRunItem, TodoList
+from src.db.models import ChecklistRun, ChecklistRunItem, DriverVehicle, TodoList
 from src.services.list_service import ListService
 
 
@@ -29,6 +29,7 @@ class ChecklistService:
         user_id: int,
         source_module: Optional[str] = None,
         initial_source_item_id: Optional[int] = None,
+        driver_vehicle_id: Optional[int] = None,
     ) -> Optional[ChecklistRun]:
         """Create a personal checklist run snapshot from an accessible list."""
         list_obj = await self.list_service.get_list(list_id, user_id, source_module=source_module)
@@ -40,10 +41,20 @@ class ChecklistService:
             return None
         if initial_source_item_id is not None and all(item.id != initial_source_item_id for item in items):
             return None
+        if driver_vehicle_id is not None:
+            result = await self.db.execute(
+                select(DriverVehicle.id).where(
+                    DriverVehicle.id == driver_vehicle_id,
+                    DriverVehicle.user_id == user_id,
+                )
+            )
+            if result.scalar_one_or_none() is None:
+                return None
 
         run = ChecklistRun(
             user_id=user_id,
             source_list_id=list_obj.id,
+            driver_vehicle_id=driver_vehicle_id,
             title_snapshot=list_obj.title,
             source_updated_at=list_obj.updated_at,
             status=ACTIVE,

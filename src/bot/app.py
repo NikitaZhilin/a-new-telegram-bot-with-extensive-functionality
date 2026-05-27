@@ -37,6 +37,7 @@ from src.bot.handlers import (
     driver_document_conv,
     driver_expense_conv,
     driver_fuel_create_conv,
+    driver_journal_conv,
     driver_service_conv,
     driver_vehicle_create_conv,
     driver_vehicle_mileage_conv,
@@ -205,6 +206,7 @@ def create_application() -> Application:
     application.add_handler(driver_fuel_create_conv)
     application.add_handler(driver_expense_conv)
     application.add_handler(driver_document_conv)
+    application.add_handler(driver_journal_conv)
     application.add_handler(driver_service_conv)
 
     # Settings
@@ -285,6 +287,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(driver_menu_callback, pattern="^driver_menu$"))
     application.add_handler(CallbackQueryHandler(driver_section_callback, pattern="^driver_section:"))
     application.add_handler(CallbackQueryHandler(driver_list_view_callback, pattern="^driver_list_view:"))
+    application.add_handler(CallbackQueryHandler(driver_list_template_callback, pattern="^driver_list_template_vehicle:"))
     application.add_handler(CallbackQueryHandler(driver_list_template_callback, pattern="^driver_list_template:"))
     application.add_handler(CallbackQueryHandler(driver_vehicle_view_callback, pattern="^driver_vehicle_view:"))
     application.add_handler(CallbackQueryHandler(driver_vehicle_delete_confirm_callback, pattern="^driver_vehicle_delete_confirm:"))

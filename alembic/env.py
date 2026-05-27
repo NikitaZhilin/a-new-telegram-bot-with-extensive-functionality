@@ -12,10 +12,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from src.db.base import Base
 from src.db.models import (  # noqa: F401
+    ChecklistRun,
+    DriverDocument,
+    DriverExpense,
     ListItem,
     ListMember,
     ListShareToken,
     DriverFuelEntry,
+    DriverJournalEntry,
     DriverVehicle,
     Medication,
     MedicationIntake,

@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from src.db.models import Reminder, ReminderStatus, User
+from src.services.checklist_service import ChecklistService
 from src.services.driver_service import DriverService
+from src.services.list_service import ListService
 from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_presets
 
 
@@ -466,3 +468,130 @@ async def test_driver_document_syncs_active_reminder(db_session):
         )
     )
     assert result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_driver_checklist_completion_creates_journal_entry(db_session):
+    """Completed driver checklists should be fixed in the autonomous driver journal."""
+    user = User(telegram_id=7016, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    list_service = ListService(db_session)
+    checklist_service = ChecklistService(db_session)
+    driver_service = DriverService(db_session)
+    vehicle = await driver_service.create_vehicle(
+        user_id=user.id,
+        title="Checklist car",
+        current_mileage_km=1000,
+    )
+
+    todo_list = await list_service.create_list(user.id, "Проверка жидкостей", source_module="driver")
+    await list_service.add_items_bulk(
+        todo_list.id,
+        user.id,
+        ["Моторное масло", "Антифриз", "Тормозная жидкость"],
+        source_module="driver",
+    )
+
+    run = await checklist_service.create_run_from_list(
+        todo_list.id,
+        user.id,
+        source_module="driver",
+        driver_vehicle_id=vehicle.id,
+    )
+    assert run is not None
+    run = await checklist_service.check_all(run.id, user.id)
+    assert run is not None
+    finished = await checklist_service.finish_run(run.id, user.id)
+    assert finished is not None
+
+    entry = await driver_service.record_checklist_completion(finished.id, user.id)
+    duplicate = await driver_service.record_checklist_completion(finished.id, user.id)
+    entries = await driver_service.get_journal_entries(user.id)
+    overview = await driver_service.get_user_overview(user.id)
+
+    assert entry is not None
+    assert duplicate is not None
+    assert duplicate.id == entry.id
+    assert len(entries) == 1
+    assert entries[0].vehicle_id == vehicle.id
+    assert entries[0].event_type == "fluids_check"
+    assert entries[0].title == "Проверка жидкостей пройдена"
+    assert entries[0].description == "Выполнено 3/3 пунктов."
+    assert entries[0].metadata_json["items"] == ["Моторное масло", "Антифриз", "Тормозная жидкость"]
+    vehicle_entries = await driver_service.get_journal_entries(user.id, vehicle_id=vehicle.id)
+    assert [item.id for item in vehicle_entries] == [entry.id]
+    assert overview["journal_entries_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_driver_journal_collects_vehicle_events_and_filters(db_session):
+    """Fuel, expenses, documents, service, and manual notes should be visible in journal filters."""
+    user = User(telegram_id=7017, timezone="Europe/Moscow")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(
+        user_id=user.id,
+        title="Journal car",
+        current_mileage_km=1000,
+    )
+    fuel = await service.add_fuel_entry(
+        user_id=user.id,
+        vehicle_id=vehicle.id,
+        mileage_km=1200,
+        liters=20,
+        total_cost=1100,
+        is_full_tank=True,
+    )
+    await service.update_fuel_entry(
+        fuel.id,
+        user.id,
+        mileage_km=1250,
+        liters=22,
+        total_cost=1210,
+        is_full_tank=True,
+    )
+    await service.create_expense(
+        user_id=user.id,
+        vehicle_id=vehicle.id,
+        title="Wash",
+        category="wash",
+        amount=500,
+    )
+    await service.create_document(
+        user_id=user.id,
+        vehicle_id=vehicle.id,
+        title="OSAGO",
+        document_type="insurance",
+    )
+    await service.mark_service_done(vehicle.id, user.id, service_mileage_km=1300)
+    manual = await service.create_journal_entry(
+        user_id=user.id,
+        vehicle_id=vehicle.id,
+        event_type="repair",
+        title="Manual repair",
+        status="note",
+    )
+
+    entries = await service.get_journal_entries(user.id, vehicle_id=vehicle.id, limit=20)
+    event_types = {item.event_type for item in entries}
+    wash_entries = await service.get_journal_entries(user.id, event_type="wash")
+    repair_entries = await service.get_journal_entries(user.id, event_type="repair")
+    overview = await service.get_user_overview(user.id)
+
+    assert manual is not None
+    assert {
+        "fuel_entry",
+        "fuel_entry_updated",
+        "wash",
+        "document",
+        "service_done",
+        "repair",
+    }.issubset(event_types)
+    assert all(item.vehicle_id == vehicle.id for item in entries)
+    assert [item.event_type for item in wash_entries] == ["wash"]
+    assert [item.id for item in repair_entries] == [manual.id]
+    assert overview["journal_entries_count"] >= 6

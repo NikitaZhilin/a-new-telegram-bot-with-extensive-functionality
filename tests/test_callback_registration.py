@@ -22,6 +22,8 @@ from src.bot.keyboards import (
     get_driver_fuel_entry_keyboard,
     get_driver_fuel_history_keyboard,
     get_driver_created_list_keyboard,
+    get_driver_journal_keyboard,
+    get_driver_journal_type_keyboard,
     get_driver_menu_keyboard,
     get_driver_reminder_repeat_keyboard,
     get_driver_section_keyboard,
@@ -267,7 +269,8 @@ def test_driver_section_keyboard_does_not_start_general_flows():
     run = SimpleNamespace(id=50, items=[run_item])
     callbacks = _collect_callback_data(get_checklist_run_keyboard(run, 10, source_module="driver"))
     callbacks |= _collect_callback_data(get_checklist_finished_keyboard(10, source_module="driver"))
-    assert "driver_list_view:10" in callbacks
+    assert "driver_menu" in callbacks
+    assert "driver_list_view:10" not in callbacks
     assert "list_view:10" not in callbacks
 
 
@@ -400,6 +403,8 @@ def test_driver_keyboards_have_registered_callbacks():
         get_driver_section_keyboard(),
         get_driver_templates_keyboard(),
         get_driver_created_list_keyboard(10),
+        get_driver_journal_keyboard(),
+        get_driver_journal_type_keyboard(),
         get_driver_vehicles_keyboard([]),
         get_driver_vehicle_preset_keyboard(list_vehicle_presets()),
         get_driver_vehicle_preset_confirm_keyboard(),

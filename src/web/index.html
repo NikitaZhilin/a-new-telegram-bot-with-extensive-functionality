@@ -230,6 +230,62 @@
             <div id="documentsContainer" class="item-list"></div>
           </div>
         </div>
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Журнал авто</h2>
+            <form id="journalCreateForm" class="stack">
+              <select name="vehicle_id"></select>
+              <select name="event_type">
+                <option value="note">Заметка</option>
+                <option value="repair">Ремонт</option>
+                <option value="diagnostic">Диагностика</option>
+                <option value="parts">Замена детали</option>
+                <option value="service_done">ТО выполнено</option>
+                <option value="wash">Мойка</option>
+                <option value="tire_pressure">Давление шин</option>
+              </select>
+              <input name="title" type="text" placeholder="Что произошло: замена масла, диагностика, ремонт" required>
+              <input name="happened_at_local" type="datetime-local">
+              <textarea name="description" rows="3" placeholder="Комментарий, детали, стоимость или результат"></textarea>
+              <button class="action-save" type="submit">Добавить запись</button>
+            </form>
+          </div>
+          <div class="panel">
+            <h2>История</h2>
+            <form id="driverJournalFilterForm" class="filters-row">
+              <label>
+                <span>Авто</span>
+                <select name="vehicle_id"></select>
+              </label>
+              <label>
+                <span>Тип события</span>
+                <select name="event_type">
+                  <option value="">Все события</option>
+                  <option value="note">Ручные записи</option>
+                  <option value="repair">Ремонт</option>
+                  <option value="diagnostic">Диагностика</option>
+                  <option value="parts">Замена детали</option>
+                  <option value="service_done">ТО</option>
+                  <option value="fuel_entry">Заправки</option>
+                  <option value="wash">Мойка</option>
+                  <option value="document">Документы</option>
+                  <option value="fluids_check">Проверка жидкостей</option>
+                  <option value="tire_pressure_reminder">Давление шин</option>
+                </select>
+              </label>
+              <label>
+                <span>С даты</span>
+                <input name="from" type="date">
+              </label>
+              <label>
+                <span>По дату</span>
+                <input name="to" type="date">
+              </label>
+              <button class="action-save" type="submit">Показать</button>
+            </form>
+            <div id="journalContainer" class="item-list"></div>
+          </div>
+        </div>
       </section>
 
       <section id="admin" class="section">

@@ -387,6 +387,21 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
                 "is_active": True,
             },
         )
+        journal_response = await client.get("/me/driver/journal", headers=headers)
+        filtered_journal_response = await client.get(
+            f"/me/driver/journal?vehicle_id={vehicle_id}&event_type=wash",
+            headers=headers,
+        )
+        manual_journal_response = await client.post(
+            "/me/driver/journal",
+            headers=headers,
+            json={
+                "vehicle_id": vehicle_id,
+                "event_type": "repair",
+                "title": "Manual repair",
+                "description": "Changed belt",
+            },
+        )
 
         lists_response = await client.get("/me/lists", headers=headers)
         list_detail_response = await client.get(f"/me/lists/{list_id}", headers=headers)
@@ -434,6 +449,17 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert document_response.status_code == 201
     assert updated_document_response.json()["title"] == "OSAGO updated"
     assert updated_document_response.json()["remind_before_days"] == 7
+    assert journal_response.status_code == 200
+    assert filtered_journal_response.status_code == 200
+    assert manual_journal_response.status_code == 201
+    journal_event_types = {item["event_type"] for item in journal_response.json()}
+    assert {"service_done", "fuel_entry", "fuel_entry_updated", "wash", "document", "document_updated"}.issubset(
+        journal_event_types
+    )
+    assert filtered_journal_response.json()
+    assert all(item["event_type"] == "wash" for item in filtered_journal_response.json())
+    assert manual_journal_response.json()["event_type"] == "repair"
+    assert manual_journal_response.json()["vehicle_id"] == vehicle_id
     assert lists_response.json()[0]["title"] == "Web CRUD"
     assert next(item for item in list_detail_response.json()["items"] if item["id"] == second_item_id)["is_completed"] is False
     assert reminders_response.json()[0]["status"] == "canceled"
@@ -442,6 +468,8 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert driver_response.json()["overview"]["fuel_entries_count"] == 1
     assert driver_response.json()["overview"]["expense_entries_count"] == 1
     assert driver_response.json()["overview"]["documents_active_count"] == 1
+    assert driver_response.json()["overview"]["journal_entries_count"] >= 7
+    assert any(item["title"] == "Manual repair" for item in driver_response.json()["journal"])
     assert driver_response.json()["expenses"][0]["title"] == "Wash updated"
     assert driver_response.json()["documents"][0]["title"] == "OSAGO updated"
 

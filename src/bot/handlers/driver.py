@@ -17,12 +17,15 @@ from sqlalchemy import func, select
 
 from src.bot.keyboards import (
     get_back_home_inline_keyboard,
+    get_checklist_run_keyboard,
     get_driver_fuel_delete_confirm_keyboard,
     get_driver_fuel_entry_keyboard,
     get_driver_fuel_history_keyboard,
     get_driver_fuel_keyboard,
     get_driver_full_tank_keyboard,
     get_driver_created_list_keyboard,
+    get_driver_journal_keyboard,
+    get_driver_journal_type_keyboard,
     get_driver_menu_keyboard,
     get_driver_document_delete_confirm_keyboard,
     get_driver_document_remind_keyboard,
@@ -81,6 +84,7 @@ def _format_driver_menu_text(
         f"• топливо: {_format_money(overview['fuel_total_cost'])}",
         f"• прочие расходы: {_format_money(overview.get('expense_total_cost', 0))}",
         f"• документов: {overview.get('documents_active_count', 0)}",
+        f"• записей в журнале: {overview.get('journal_entries_count', 0)}",
         f"• авто-списков: {driver_lists_count}",
         f"• авто-напоминаний: {active_driver_reminders_count}",
     ]
@@ -363,6 +367,15 @@ def _format_date(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).strftime("%d.%m.%Y")
 
 
+def _format_datetime(value: datetime | None) -> str:
+    """Format UTC datetime for compact driver journal output."""
+    if not value:
+        return "не указано"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M")
+
+
 def _parse_date(value: str) -> datetime:
     """Parse a simple date and store it as UTC noon."""
     raw = value.strip().replace("/", ".").replace("-", ".")
@@ -458,6 +471,55 @@ def _format_section_text(section_key: str) -> str:
     lines.extend(f"• {item}" for item in items)
     lines.extend(["", "Для быстрых действий можно создать список или обычное напоминание."])
     return "\n".join(lines)
+
+
+async def _render_driver_checklist_run(service: ChecklistService, run) -> tuple[str, object]:
+    """Build active driver checklist text and keyboard."""
+    checked, total = service.progress(run)
+    source_changed = await service.source_changed(run)
+
+    lines = [
+        f"▶️ Чек-лист авто: {run.title_snapshot[:80]}",
+        "",
+        "После завершения запись попадёт в Журнал авто.",
+        "",
+        f"Готово: {checked}/{total}",
+    ]
+    if source_changed:
+        lines.extend([
+            "",
+            "⚠️ Исходный шаблон изменился после запуска. Этот чек-лист идёт по сохранённой копии.",
+        ])
+
+    lines.extend(["", "Отмечайте выполненные пункты:", ""])
+    for item in run.items:
+        status = "✅" if item.checked else "⬜"
+        lines.append(f"{status} {item.text_snapshot[:90]}")
+
+    return "\n".join(lines), get_checklist_run_keyboard(
+        run,
+        getattr(run, "source_list_id", None),
+        "driver",
+    )
+
+
+def _format_journal_entry(entry) -> list[str]:
+    """Format one driver journal entry for bot output."""
+    lines = [f"• {_format_datetime(entry.happened_at_utc)} — {entry.title}"]
+    vehicle = getattr(entry, "vehicle", None)
+    if vehicle:
+        lines.append(f"  Авто: {vehicle.title}")
+    if entry.description:
+        lines.append(f"  {entry.description}")
+
+    metadata = entry.metadata_json or {}
+    items = metadata.get("items") if isinstance(metadata, dict) else None
+    if items:
+        preview = ", ".join(str(item) for item in items[:4])
+        if len(items) > 4:
+            preview += f" и ещё {len(items) - 4}"
+        lines.append(f"  Пункты: {preview}")
+    return lines
 
 
 def _format_vehicle(vehicle) -> str:
@@ -896,6 +958,142 @@ async def _render_driver_stats(update: Update, context: ContextTypes.DEFAULT_TYP
     return ConversationHandler.END
 
 
+async def _render_driver_journal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Render autonomous driver journal."""
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        entries = await DriverService(session).get_journal_entries(user_id, limit=20)
+
+    lines = ["🧾 Журнал авто", ""]
+    if not entries:
+        lines.extend([
+            "Записей пока нет.",
+            "",
+            "Они появятся после завершения водительских чек-листов, отметки ТО и других авто-действий.",
+        ])
+    else:
+        lines.append("Последние события:")
+        lines.append("")
+        for entry in entries:
+            lines.extend(_format_journal_entry(entry))
+
+    await update.callback_query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=get_driver_journal_keyboard(),
+    )
+    return ConversationHandler.END
+
+
+async def driver_journal_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start manual driver journal entry creation."""
+    query = update.callback_query
+    await query.answer()
+    _clear_driver_context(context)
+    context.user_data["driver_journal_data"] = {}
+    await _show_driver_step(
+        update,
+        context,
+        "🧾 Новая запись в журнал\n\nВыберите тип события.",
+        get_driver_journal_type_keyboard(),
+    )
+    return DriverStates.WAIT_JOURNAL_EVENT
+
+
+async def driver_journal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save manual journal event type."""
+    query = update.callback_query
+    await query.answer()
+    event_type = query.data.split(":", 1)[1]
+    context.user_data.setdefault("driver_journal_data", {})["event_type"] = event_type
+    await _show_driver_step(
+        update,
+        context,
+        "🧾 Новая запись в журнал\n\nЧто сделать или что произошло?\n\nНапример: замена масла, диагностика подвески, ремонт тормозов.",
+        get_driver_step_keyboard(),
+    )
+    return DriverStates.WAIT_JOURNAL_TITLE
+
+
+async def driver_journal_title_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save manual journal title."""
+    title = _limit_text(update.message.text, 255)
+    await _delete_user_message(update)
+    if not title:
+        await _show_driver_step(update, context, "Введите название записи.", get_driver_step_keyboard())
+        return DriverStates.WAIT_JOURNAL_TITLE
+    context.user_data.setdefault("driver_journal_data", {})["title"] = title
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        vehicles = await DriverService(session).get_vehicles(user_id)
+
+    await _show_driver_step(
+        update,
+        context,
+        "🧾 Новая запись в журнал\n\nК какому авто привязать запись?",
+        get_driver_vehicle_choice_keyboard(vehicles, "driver_journal_vehicle"),
+    )
+    return DriverStates.WAIT_JOURNAL_VEHICLE
+
+
+async def driver_journal_vehicle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save optional vehicle binding for manual journal entry."""
+    query = update.callback_query
+    await query.answer()
+    vehicle_part = query.data.split(":", 1)[1]
+    context.user_data.setdefault("driver_journal_data", {})["vehicle_id"] = (
+        None if vehicle_part == "none" else int(vehicle_part)
+    )
+    await _show_driver_step(
+        update,
+        context,
+        "🧾 Новая запись в журнал\n\nДобавьте комментарий или пропустите.",
+        get_driver_step_keyboard(can_skip=True),
+    )
+    return DriverStates.WAIT_JOURNAL_NOTE
+
+
+async def driver_journal_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skip manual journal note."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.setdefault("driver_journal_data", {})["description"] = None
+    return await _finish_journal_entry(update, context)
+
+
+async def driver_journal_note_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save manual journal note."""
+    context.user_data.setdefault("driver_journal_data", {})["description"] = _limit_text(update.message.text, 2000)
+    await _delete_user_message(update)
+    return await _finish_journal_entry(update, context)
+
+
+async def _finish_journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Persist manual journal entry and show journal."""
+    data = context.user_data.get("driver_journal_data") or {}
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        entry = await DriverService(session).create_journal_entry(
+            user_id=user_id,
+            vehicle_id=data.get("vehicle_id"),
+            event_type=data.get("event_type") or "note",
+            title=data.get("title") or "Запись в журнал",
+            description=data.get("description"),
+            status="note",
+            metadata={"manual": True},
+        )
+        await session.commit()
+
+    if not entry:
+        await _show_driver_step(update, context, "❌ Не удалось сохранить запись.", get_driver_journal_keyboard())
+        _clear_driver_context(context)
+        return ConversationHandler.END
+
+    _clear_driver_context(context)
+    await _show_driver_step(update, context, "✅ Запись добавлена в журнал.", get_driver_journal_keyboard())
+    return ConversationHandler.END
+
+
 async def driver_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show the driver assistant hub."""
     query = update.callback_query
@@ -956,6 +1154,8 @@ async def driver_section_callback(update: Update, context: ContextTypes.DEFAULT_
         return await _render_driver_documents(update, context)
     if section_key == "stats":
         return await _render_driver_stats(update, context)
+    if section_key == "journal":
+        return await _render_driver_journal(update, context)
     if section_key not in DRIVER_SECTIONS:
         await query.edit_message_text(DRIVER_MENU_TEXT, reply_markup=get_driver_menu_keyboard())
         return ConversationHandler.END
@@ -984,7 +1184,12 @@ async def driver_list_view_callback(update: Update, context: ContextTypes.DEFAUL
             )
             return ConversationHandler.END
         items = await list_service.get_list_items(list_id, user_id, source_module="driver")
-        active_run = await ChecklistService(session).get_active_run_for_list(list_id, user_id)
+        checklist_service = ChecklistService(session)
+        active_run = await checklist_service.get_active_run_for_list(list_id, user_id)
+        if active_run:
+            text, keyboard = await _render_driver_checklist_run(checklist_service, active_run)
+            await query.edit_message_text(text, reply_markup=keyboard)
+            return ConversationHandler.END
 
     lines = [
         "🚗 Авто-список",
@@ -1015,7 +1220,26 @@ async def driver_list_template_callback(update: Update, context: ContextTypes.DE
     query = update.callback_query
     await query.answer()
 
-    template_key = query.data.split(":", 1)[1]
+    vehicle_id = None
+    if query.data.startswith("driver_list_template_vehicle:"):
+        _, template_key, vehicle_part = query.data.split(":", 2)
+        vehicle_id = None if vehicle_part == "none" else int(vehicle_part)
+    else:
+        template_key = query.data.split(":", 1)[1]
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            vehicles = await DriverService(session).get_vehicles(user_id)
+        if vehicles:
+            await query.edit_message_text(
+                "🚗 К какому авто привязать запись журнала после завершения чек-листа?",
+                reply_markup=get_driver_vehicle_choice_keyboard(
+                    vehicles,
+                    f"driver_list_template_vehicle:{template_key}",
+                    can_skip=False,
+                ),
+            )
+            return ConversationHandler.END
+
     template = DRIVER_LIST_TEMPLATES.get(template_key)
     if not template:
         await query.edit_message_text("❌ Шаблон не найден", reply_markup=get_driver_templates_keyboard())
@@ -1027,11 +1251,30 @@ async def driver_list_template_callback(update: Update, context: ContextTypes.DE
         service = ListService(session)
         list_obj = await service.create_list(user_id, title, source_module="driver")
         await service.add_items_bulk(list_obj.id, user_id, items, source_module="driver")
+        list_id = list_obj.id
+        checklist_service = ChecklistService(session)
+        run = await checklist_service.create_run_from_list(
+            list_id,
+            user_id,
+            source_module="driver",
+            driver_vehicle_id=vehicle_id,
+        )
+        run_id = run.id if run else None
         await session.commit()
+
+    if run_id:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            checklist_service = ChecklistService(session)
+            run = await checklist_service.get_run(run_id, user_id)
+            if run:
+                text, keyboard = await _render_driver_checklist_run(checklist_service, run)
+                await query.edit_message_text(text, reply_markup=keyboard)
+                return ConversationHandler.END
 
     await query.edit_message_text(
         f"✅ Список создан\n\n📋 {title}\nПунктов: {len(items)}",
-        reply_markup=get_driver_created_list_keyboard(list_obj.id),
+        reply_markup=get_driver_created_list_keyboard(list_id),
     )
     return ConversationHandler.END
 
@@ -2766,6 +3009,30 @@ driver_document_conv = ConversationHandler(
         DriverStates.WAIT_DOCUMENT_NOTE: [
             CallbackQueryHandler(driver_document_note_skip, pattern="^driver_skip$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_note_save),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", driver_cancel_handler),
+        CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+    ],
+)
+
+
+driver_journal_conv = ConversationHandler(
+    entry_points=[CallbackQueryHandler(driver_journal_add_start, pattern="^driver_journal_add$")],
+    states={
+        DriverStates.WAIT_JOURNAL_EVENT: [
+            CallbackQueryHandler(driver_journal_type_callback, pattern="^driver_journal_type:"),
+        ],
+        DriverStates.WAIT_JOURNAL_TITLE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_journal_title_save),
+        ],
+        DriverStates.WAIT_JOURNAL_VEHICLE: [
+            CallbackQueryHandler(driver_journal_vehicle_callback, pattern="^driver_journal_vehicle:"),
+        ],
+        DriverStates.WAIT_JOURNAL_NOTE: [
+            CallbackQueryHandler(driver_journal_note_skip, pattern="^driver_skip$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_journal_note_save),
         ],
     },
     fallbacks=[

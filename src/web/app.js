@@ -18,6 +18,7 @@ const state = {
   fuelEntries: [],
   driverExpenses: [],
   driverDocuments: [],
+  driverJournal: [],
   activeChecklistRun: null,
   selectedListId: null,
   selectedVehicleId: null,
@@ -30,6 +31,12 @@ const state = {
   editingExpenseId: null,
   editingDocumentId: null,
   serviceVehicleId: null,
+  driverJournalFilters: {
+    vehicleId: "",
+    eventType: "",
+    from: "",
+    to: "",
+  },
   adminUsers: [],
   adminFilters: {
     days: 7,
@@ -364,6 +371,37 @@ function formatDocumentType(value) {
     fine: "Штраф",
     other: "Другое",
   }[value] || value || "Другое";
+}
+
+function formatJournalEventType(value) {
+  return {
+    note: "Ручная запись",
+    repair: "Ремонт",
+    diagnostic: "Диагностика",
+    parts: "Замена детали",
+    tire_pressure: "Давление шин",
+    fuel_entry: "Заправка",
+    fuel_entry_updated: "Заправка обновлена",
+    fuel_entry_deleted: "Заправка удалена",
+    expense: "Расход",
+    expense_deleted: "Расход удалён",
+    wash: "Мойка",
+    service_expense: "Расход на ТО",
+    parts_expense: "Расход на запчасти",
+    document: "Документ",
+    document_updated: "Документ обновлён",
+    document_deleted: "Документ удалён",
+    service_done: "ТО выполнено",
+    fluids_check: "Проверка жидкостей",
+    trip_check: "Проверка перед поездкой",
+    parts_check: "Список запчастей",
+    driver_checklist: "Чек-лист авто",
+    tire_pressure_reminder: "Давление шин",
+    wash_reminder: "Мойка",
+    oil_reminder: "Замена масла",
+    fluids_reminder: "Проверка жидкостей",
+    service_reminder: "ТО",
+  }[value] || value || "Событие";
 }
 
 function formatVehicleName(vehicleId) {
@@ -1026,6 +1064,15 @@ function renderDriver() {
   select.innerHTML = vehicles.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join("");
   $("#expenseCreateForm select[name='vehicle_id']").innerHTML = renderVehicleOptions();
   $("#documentCreateForm select[name='vehicle_id']").innerHTML = renderVehicleOptions();
+  $("#journalCreateForm select[name='vehicle_id']").innerHTML = renderVehicleOptions();
+  $("#driverJournalFilterForm select[name='vehicle_id']").innerHTML = `
+    <option value="">Все авто</option>
+    ${renderVehicleOptions(null, false)}
+  `;
+  $("#driverJournalFilterForm select[name='vehicle_id']").value = state.driverJournalFilters.vehicleId || "";
+  $("#driverJournalFilterForm select[name='event_type']").value = state.driverJournalFilters.eventType || "";
+  $("#driverJournalFilterForm input[name='from']").value = state.driverJournalFilters.from || "";
+  $("#driverJournalFilterForm input[name='to']").value = state.driverJournalFilters.to || "";
   const vehicleIds = new Set(vehicles.map((item) => Number(item.id)));
   if (state.selectedVehicleId && !vehicleIds.has(Number(state.selectedVehicleId))) {
     state.selectedVehicleId = null;
@@ -1036,6 +1083,7 @@ function renderDriver() {
   if (state.selectedVehicleId) {
     select.value = String(state.selectedVehicleId);
   }
+  renderJournal();
 }
 
 function renderDriverOverview() {
@@ -1045,6 +1093,7 @@ function renderDriverOverview() {
     ["Заправки", overview.fuel_entries_count ?? 0, `топливо: ${formatMoney(overview.fuel_total_cost ?? 0)}`],
     ["Расходы", formatMoney(overview.driver_total_cost ?? overview.fuel_total_cost ?? 0), `прочие: ${formatMoney(overview.expense_total_cost ?? 0)}`],
     ["Документы", overview.documents_active_count ?? 0, `скоро истекают: ${overview.documents_expiring_soon_count ?? 0}`],
+    ["Журнал", overview.journal_entries_count ?? 0, "события авто и ручные записи"],
   ];
   $("#driverOverview").innerHTML = cards.map(([label, value, detail]) => `
     <article class="metric">
@@ -1053,6 +1102,29 @@ function renderDriverOverview() {
       <div class="metric-detail">${escapeHtml(detail)}</div>
     </article>
   `).join("");
+}
+
+function renderJournal() {
+  const entries = state.driverJournal || [];
+  $("#journalContainer").innerHTML = entries.length
+    ? entries.map((item) => {
+      const details = item.metadata_json || {};
+      const items = Array.isArray(details.items) ? details.items.slice(0, 4).join(", ") : "";
+      return `
+        <article class="item-card journal-entry">
+          <div class="item-card-header">
+            <div>
+              <div class="item-title">${escapeHtml(item.title)}</div>
+              <div class="item-meta">${formatDate(item.happened_at_utc)} · ${escapeHtml(formatJournalEventType(item.event_type))}</div>
+              <div class="item-meta">${escapeHtml(formatVehicleName(item.vehicle_id))}</div>
+            </div>
+          </div>
+          ${item.description ? `<div class="item-text">${escapeHtml(item.description)}</div>` : ""}
+          ${items ? `<div class="item-meta">Пункты: ${escapeHtml(items)}${details.items.length > 4 ? " ..." : ""}</div>` : ""}
+        </article>
+      `;
+    }).join("")
+    : `<div class="item-meta">Записей в журнале пока нет.</div>`;
 }
 
 function renderVehiclePresetSelect() {
@@ -1108,6 +1180,7 @@ async function loadDriver() {
   state.driver = await api("/me/driver");
   state.driverExpenses = state.driver.expenses || [];
   state.driverDocuments = state.driver.documents || [];
+  state.driverJournal = state.driver.journal || [];
   renderDriver();
   renderExpenses();
   renderDocuments();
@@ -1116,6 +1189,16 @@ async function loadDriver() {
   } else {
     $("#fuelContainer").innerHTML = `<div class="item-meta">Выберите авто.</div>`;
   }
+}
+
+async function loadDriverJournal() {
+  const params = new URLSearchParams({ limit: "50" });
+  if (state.driverJournalFilters.vehicleId) params.set("vehicle_id", state.driverJournalFilters.vehicleId);
+  if (state.driverJournalFilters.eventType) params.set("event_type", state.driverJournalFilters.eventType);
+  if (state.driverJournalFilters.from) params.set("from_local", `${state.driverJournalFilters.from}T00:00`);
+  if (state.driverJournalFilters.to) params.set("to_local", `${state.driverJournalFilters.to}T23:59`);
+  state.driverJournal = await api(`/me/driver/journal?${params}`);
+  renderJournal();
 }
 
 async function loadFuel(vehicleId) {
@@ -1642,6 +1725,36 @@ async function handleDocumentUpdate(event) {
   showMessage("Документ обновлен.");
 }
 
+async function handleJournalCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api("/me/driver/journal", {
+    method: "POST",
+    body: JSON.stringify({
+      vehicle_id: form.vehicle_id.value ? Number(form.vehicle_id.value) : null,
+      event_type: form.event_type.value || "note",
+      title: form.title.value,
+      happened_at_local: form.happened_at_local.value || null,
+      description: form.description.value || null,
+    }),
+  });
+  form.reset();
+  form.happened_at_local.value = toDatetimeLocal(new Date());
+  await loadDriver();
+  await loadSummary();
+  showMessage("Запись добавлена в журнал.");
+}
+
+async function handleJournalFilter(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  state.driverJournalFilters.vehicleId = form.vehicle_id.value || "";
+  state.driverJournalFilters.eventType = form.event_type.value || "";
+  state.driverJournalFilters.from = form.from.value || "";
+  state.driverJournalFilters.to = form.to.value || "";
+  await loadDriverJournal();
+}
+
 async function handleAction(event) {
   const target = event.target.closest("[data-action]");
   if (!target) return;
@@ -1856,6 +1969,8 @@ function bindEvents() {
   $("#fuelCreateForm").addEventListener("submit", (event) => handleFuelCreate(event).catch((error) => showMessage(error.message, true)));
   $("#expenseCreateForm").addEventListener("submit", (event) => handleExpenseCreate(event).catch((error) => showMessage(error.message, true)));
   $("#documentCreateForm").addEventListener("submit", (event) => handleDocumentCreate(event).catch((error) => showMessage(error.message, true)));
+  $("#journalCreateForm").addEventListener("submit", (event) => handleJournalCreate(event).catch((error) => showMessage(error.message, true)));
+  $("#driverJournalFilterForm").addEventListener("submit", (event) => handleJournalFilter(event).catch((error) => showMessage(error.message, true)));
   $("#adminActivityFilterForm").addEventListener("submit", (event) => {
     event.preventDefault();
     state.adminFilters.days = Number(event.currentTarget.days.value || 7);
@@ -1871,6 +1986,7 @@ async function boot() {
   document.documentElement.dataset.theme = localStorage.getItem("rememberme.theme") || "light";
   $("#reminderCreateForm input[name='remind_at_local']").value = defaultReminderTime();
   $("#expenseCreateForm input[name='spent_at_local']").value = toDatetimeLocal(new Date());
+  $("#journalCreateForm input[name='happened_at_local']").value = toDatetimeLocal(new Date());
   const url = new URL(window.location.href);
   const tokenFromLink = url.searchParams.get("token");
   if (tokenFromLink) {

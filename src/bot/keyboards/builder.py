@@ -111,6 +111,9 @@ def get_driver_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("📊 Статистика", callback_data="driver_section:stats"),
         ],
         [
+            InlineKeyboardButton("🧾 Журнал авто", callback_data="driver_section:journal"),
+        ],
+        [
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ],
     ]
@@ -411,14 +414,47 @@ def get_driver_created_list_keyboard(list_id: int) -> InlineKeyboardMarkup:
     """Keyboard shown after creating a driver checklist template."""
     keyboard = [
         [
-            InlineKeyboardButton("📋 Открыть авто-список", callback_data=f"driver_list_view:{list_id}"),
-        ],
-        [
             InlineKeyboardButton("▶️ Пройти чек-лист", callback_data=f"checklist_start:{list_id}"),
         ],
         [
             InlineKeyboardButton("⚡ К шаблонам", callback_data="driver_section:templates"),
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_journal_keyboard() -> InlineKeyboardMarkup:
+    """Driver journal navigation keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ Запись", callback_data="driver_journal_add"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Для водителя", callback_data="driver_menu"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_driver_journal_type_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting manual driver journal event type."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🔧 Ремонт", callback_data="driver_journal_type:repair"),
+            InlineKeyboardButton("🔎 Диагностика", callback_data="driver_journal_type:diagnostic"),
+        ],
+        [
+            InlineKeyboardButton("🧩 Замена детали", callback_data="driver_journal_type:parts"),
+            InlineKeyboardButton("🧽 Мойка", callback_data="driver_journal_type:wash"),
+        ],
+        [
+            InlineKeyboardButton("🛞 Давление шин", callback_data="driver_journal_type:tire_pressure"),
+            InlineKeyboardButton("📝 Заметка", callback_data="driver_journal_type:note"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -939,7 +975,7 @@ def get_list_item_delete_confirm_keyboard(list_id: int, item_id: int) -> InlineK
 def _list_callback_for_source(list_id: int, source_module: Optional[str] = None) -> str:
     """Return the correct list view callback for a domain-owned list."""
     if source_module == "driver":
-        return f"driver_list_view:{list_id}"
+        return "driver_menu"
     return f"list_view:{list_id}"
 
 
@@ -980,6 +1016,12 @@ def get_checklist_run_keyboard(
         InlineKeyboardButton("❌ Отменить", callback_data=f"checklist_cancel:{run.id}"),
     ])
     if source_list_id:
+        if source_module == "driver":
+            keyboard.append([
+                InlineKeyboardButton("⬅️ Для водителя", callback_data="driver_menu"),
+                InlineKeyboardButton("🏠 В меню", callback_data="home"),
+            ])
+            return InlineKeyboardMarkup(keyboard)
         keyboard.append([
             InlineKeyboardButton("⬅️ К списку", callback_data=_list_callback_for_source(source_list_id, source_module)),
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
@@ -999,6 +1041,17 @@ def get_checklist_finished_keyboard(
 ) -> InlineKeyboardMarkup:
     """Keyboard for finished or canceled checklist run screen."""
     if source_list_id:
+        if source_module == "driver":
+            keyboard = [
+                [
+                    InlineKeyboardButton("🧾 Журнал авто", callback_data="driver_section:journal"),
+                    InlineKeyboardButton("🚗 Для водителя", callback_data="driver_menu"),
+                ],
+                [
+                    InlineKeyboardButton("🏠 В меню", callback_data="home"),
+                ],
+            ]
+            return InlineKeyboardMarkup(keyboard)
         keyboard = [
             [
                 InlineKeyboardButton("⬅️ К списку", callback_data=_list_callback_for_source(source_list_id, source_module)),

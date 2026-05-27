@@ -21,6 +21,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import (
@@ -138,6 +139,13 @@ class User(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
         order_by="DriverDocument.expires_at_utc.asc().nullslast()",
+    )
+    driver_journal_entries = relationship(
+        "DriverJournalEntry",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="DriverJournalEntry.happened_at_utc.desc()",
     )
     activity_events = relationship(
         "BotActivityEvent",
@@ -523,6 +531,12 @@ class ChecklistRun(Base):
         nullable=True,
         index=True,
     )
+    driver_vehicle_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("driver_vehicles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
     source_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active", index=True)
@@ -541,6 +555,7 @@ class ChecklistRun(Base):
 
     user = relationship("User", back_populates="checklist_runs")
     source_list = relationship("TodoList", back_populates="checklist_runs")
+    driver_vehicle = relationship("DriverVehicle")
     items = relationship(
         "ChecklistRunItem",
         back_populates="run",
@@ -661,6 +676,12 @@ class DriverVehicle(Base):
         back_populates="vehicle",
         lazy="selectin",
         order_by="DriverDocument.expires_at_utc.asc().nullslast()",
+    )
+    journal_entries = relationship(
+        "DriverJournalEntry",
+        back_populates="vehicle",
+        lazy="selectin",
+        order_by="DriverJournalEntry.happened_at_utc.desc()",
     )
 
     __table_args__ = (
@@ -866,6 +887,63 @@ class DriverDocument(Base):
 
     def __repr__(self) -> str:
         return f"<DriverDocument(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
+
+
+class DriverJournalEntry(Base):
+    """Driver event journal entry."""
+
+    __tablename__ = "driver_journal_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vehicle_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("driver_vehicles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    checklist_run_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("checklist_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, default="note", server_default="note", index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="completed", server_default="completed", index=True)
+    happened_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="driver_journal_entries")
+    vehicle = relationship("DriverVehicle", back_populates="journal_entries")
+    checklist_run = relationship("ChecklistRun")
+
+    __table_args__ = (
+        CheckConstraint("status IN ('completed', 'planned', 'canceled', 'note')", name="ck_driver_journal_status"),
+        UniqueConstraint("checklist_run_id", name="ux_driver_journal_checklist_run"),
+        Index("ix_driver_journal_user_happened", "user_id", "happened_at_utc"),
+        Index("ix_driver_journal_vehicle_happened", "vehicle_id", "happened_at_utc"),
+        Index("ix_driver_journal_user_type", "user_id", "event_type"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DriverJournalEntry(id={self.id}, user_id={self.user_id}, type='{self.event_type}')>"
 
 
 class Reminder(Base):

@@ -332,6 +332,20 @@ class DriverDocumentResponse(BaseModel):
     updated_at: datetime
 
 
+class DriverJournalEntryResponse(BaseModel):
+    """Driver journal entry."""
+
+    id: int
+    vehicle_id: Optional[int]
+    checklist_run_id: Optional[int]
+    event_type: str
+    title: str
+    description: Optional[str]
+    status: str
+    happened_at_utc: datetime
+    metadata_json: Optional[dict] = None
+
+
 class DriverDashboardResponse(BaseModel):
     """Driver dashboard summary."""
 
@@ -339,6 +353,7 @@ class DriverDashboardResponse(BaseModel):
     vehicles: List[DriverVehicleSummaryResponse]
     expenses: List[DriverExpenseResponse] = Field(default_factory=list)
     documents: List[DriverDocumentResponse] = Field(default_factory=list)
+    journal: List[DriverJournalEntryResponse] = Field(default_factory=list)
 
 
 class DriverVehiclePresetResponse(BaseModel):
@@ -463,6 +478,16 @@ class DriverDocumentCreateRequest(BaseModel):
 
 class DriverDocumentUpdateRequest(DriverDocumentCreateRequest):
     """Update driver document."""
+
+
+class DriverJournalCreateRequest(BaseModel):
+    """Create manual driver journal entry."""
+
+    title: str = Field(min_length=1, max_length=255)
+    event_type: str = Field(default="note", max_length=80)
+    vehicle_id: Optional[int] = None
+    happened_at_local: Optional[datetime] = None
+    description: Optional[str] = Field(default=None, max_length=2000)
 
 
 def _repeat_rule(value: str) -> RepeatRule:
@@ -685,6 +710,21 @@ def _document_response(document: DriverDocument) -> DriverDocumentResponse:
         note=document.note,
         is_active=document.is_active,
         updated_at=document.updated_at,
+    )
+
+
+def _journal_entry_response(entry) -> DriverJournalEntryResponse:
+    """Serialize driver journal entry."""
+    return DriverJournalEntryResponse(
+        id=entry.id,
+        vehicle_id=entry.vehicle_id,
+        checklist_run_id=entry.checklist_run_id,
+        event_type=entry.event_type,
+        title=entry.title,
+        description=entry.description,
+        status=entry.status,
+        happened_at_utc=entry.happened_at_utc,
+        metadata_json=entry.metadata_json,
     )
 
 
@@ -1440,11 +1480,13 @@ async def get_my_driver_dashboard(
     vehicles = vehicles_result.scalars().all()
     expenses = await driver_service.get_expenses(current_user.id, limit=20)
     documents = await driver_service.get_documents(current_user.id, active_only=False, limit=50)
+    journal = await driver_service.get_journal_entries(current_user.id, limit=20)
     return DriverDashboardResponse(
         overview=overview,
         vehicles=[await _vehicle_response(item, current_user.id, driver_service) for item in vehicles],
         expenses=[_expense_response(item) for item in expenses],
         documents=[_document_response(item) for item in documents],
+        journal=[_journal_entry_response(item) for item in journal],
     )
 
 
@@ -1602,6 +1644,58 @@ async def get_my_driver_fuel_entries(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     entries = await service.get_fuel_entries(current_user.id, vehicle_id=vehicle_id, limit=limit)
     return [_fuel_entry_response(item) for item in entries]
+
+
+@router.get("/me/driver/journal", response_model=List[DriverJournalEntryResponse])
+async def get_my_driver_journal(
+    vehicle_id: Optional[int] = Query(default=None, ge=1),
+    event_type: Optional[str] = Query(default=None, max_length=80),
+    from_local: Optional[datetime] = Query(default=None),
+    to_local: Optional[datetime] = Query(default=None),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[DriverJournalEntryResponse]:
+    """Return driver journal entries with lightweight filters."""
+    service = DriverService(db)
+    if vehicle_id is not None and not await service.get_vehicle(vehicle_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    entries = await service.get_journal_entries(
+        current_user.id,
+        limit=limit,
+        event_type=event_type,
+        vehicle_id=vehicle_id,
+        since_utc=_local_datetime_to_utc(from_local, current_user.timezone) if from_local else None,
+        until_utc=_local_datetime_to_utc(to_local, current_user.timezone) if to_local else None,
+    )
+    return [_journal_entry_response(item) for item in entries]
+
+
+@router.post("/me/driver/journal", response_model=DriverJournalEntryResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_driver_journal_entry(
+    payload: DriverJournalCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> DriverJournalEntryResponse:
+    """Create manual driver journal entry."""
+    service = DriverService(db)
+    entry = await service.create_journal_entry(
+        user_id=current_user.id,
+        vehicle_id=payload.vehicle_id,
+        event_type=payload.event_type or "note",
+        title=payload.title,
+        description=payload.description,
+        status="note",
+        happened_at_utc=_local_datetime_to_utc(payload.happened_at_local, current_user.timezone)
+        if payload.happened_at_local
+        else None,
+        metadata={"manual": True},
+    )
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    await db.commit()
+    await db.refresh(entry)
+    return _journal_entry_response(entry)
 
 
 @router.post("/me/driver/vehicles/{vehicle_id}/fuel", response_model=DriverFuelEntryResponse, status_code=status.HTTP_201_CREATED)

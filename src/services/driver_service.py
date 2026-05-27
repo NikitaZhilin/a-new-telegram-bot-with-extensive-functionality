@@ -6,11 +6,14 @@ from typing import Optional
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.db.models import (
+    ChecklistRun,
     DriverDocument,
     DriverExpense,
     DriverFuelEntry,
+    DriverJournalEntry,
     DriverVehicle,
     Reminder,
     ReminderStatus,
@@ -249,6 +252,22 @@ class DriverService:
         await self.db.flush()
         await self._recalculate_vehicle_fuel_stats(user_id, vehicle_id)
         await self._recalculate_vehicle_current_mileage(vehicle)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            event_type="fuel_entry",
+            title="Заправка добавлена",
+            description=f"{mileage_km} км, {liters:.2f} л, {total_cost:.2f} ₽.",
+            happened_at_utc=entry.filled_at_utc,
+            metadata={
+                "fuel_entry_id": entry.id,
+                "mileage_km": mileage_km,
+                "liters": liters,
+                "total_cost": total_cost,
+                "is_full_tank": is_full_tank,
+                "station": station,
+            },
+        )
         await self.db.refresh(entry)
         return entry
 
@@ -320,6 +339,22 @@ class DriverService:
         await self.db.flush()
         await self._recalculate_vehicle_fuel_stats(user_id, entry.vehicle_id)
         await self._recalculate_vehicle_current_mileage(vehicle)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=entry.vehicle_id,
+            event_type="fuel_entry_updated",
+            title="Заправка обновлена",
+            description=f"{mileage_km} км, {liters:.2f} л, {total_cost:.2f} ₽.",
+            happened_at_utc=datetime.now(timezone.utc),
+            metadata={
+                "fuel_entry_id": entry.id,
+                "mileage_km": mileage_km,
+                "liters": liters,
+                "total_cost": total_cost,
+                "is_full_tank": is_full_tank,
+                "station": station,
+            },
+        )
         await self.db.refresh(entry)
         return entry
 
@@ -331,6 +366,20 @@ class DriverService:
 
         vehicle_id = entry.vehicle_id
         vehicle = await self.get_vehicle(vehicle_id, user_id)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            event_type="fuel_entry_deleted",
+            title="Заправка удалена",
+            description=f"{entry.mileage_km} км, {entry.liters:.2f} л, {entry.total_cost:.2f} ₽.",
+            metadata={
+                "fuel_entry_id": entry.id,
+                "mileage_km": entry.mileage_km,
+                "liters": entry.liters,
+                "total_cost": entry.total_cost,
+                "station": entry.station,
+            },
+        )
         await self.db.delete(entry)
         await self.db.flush()
         await self._recalculate_vehicle_fuel_stats(user_id, vehicle_id)
@@ -383,6 +432,21 @@ class DriverService:
         )
         self.db.add(expense)
         await self.db.flush()
+        event_type, title_for_journal = self._expense_journal_event(expense.category, created=True)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            event_type=event_type,
+            title=title_for_journal,
+            description=f"{expense.title}: {amount:.2f} ₽.",
+            happened_at_utc=expense.spent_at_utc,
+            metadata={
+                "expense_id": expense.id,
+                "category": expense.category,
+                "amount": amount,
+                "title": expense.title,
+            },
+        )
         await self.db.refresh(expense)
         return expense
 
@@ -440,6 +504,21 @@ class DriverService:
         expense.note = note
         expense.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
+        event_type, title_for_journal = self._expense_journal_event(expense.category, created=False)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            event_type=event_type,
+            title=title_for_journal,
+            description=f"{expense.title}: {amount:.2f} ₽.",
+            happened_at_utc=expense.updated_at,
+            metadata={
+                "expense_id": expense.id,
+                "category": expense.category,
+                "amount": amount,
+                "title": expense.title,
+            },
+        )
         await self.db.refresh(expense)
         return expense
 
@@ -448,6 +527,19 @@ class DriverService:
         expense = await self.get_expense(expense_id, user_id)
         if not expense:
             return False
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=expense.vehicle_id,
+            event_type="expense_deleted",
+            title="Расход удалён",
+            description=f"{expense.title}: {expense.amount:.2f} ₽.",
+            metadata={
+                "expense_id": expense.id,
+                "category": expense.category,
+                "amount": expense.amount,
+                "title": expense.title,
+            },
+        )
         await self.db.delete(expense)
         await self.db.flush()
         return True
@@ -496,6 +588,21 @@ class DriverService:
         self.db.add(document)
         await self.db.flush()
         await self._sync_document_reminder(document)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            event_type="document",
+            title="Документ добавлен",
+            description=document.title,
+            happened_at_utc=datetime.now(timezone.utc),
+            metadata={
+                "document_id": document.id,
+                "document_type": document.document_type,
+                "title": document.title,
+                "expires_at_utc": _iso_or_none(document.expires_at_utc),
+                "is_active": document.is_active,
+            },
+        )
         await self.db.refresh(document)
         return document
 
@@ -564,6 +671,21 @@ class DriverService:
         document.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         await self._sync_document_reminder(document)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            event_type="document_updated",
+            title="Документ обновлён",
+            description=document.title,
+            happened_at_utc=document.updated_at,
+            metadata={
+                "document_id": document.id,
+                "document_type": document.document_type,
+                "title": document.title,
+                "expires_at_utc": _iso_or_none(document.expires_at_utc),
+                "is_active": document.is_active,
+            },
+        )
         await self.db.refresh(document)
         return document
 
@@ -573,6 +695,20 @@ class DriverService:
         if not document:
             return False
         await self._cancel_document_reminders(document_id, user_id)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=document.vehicle_id,
+            event_type="document_deleted",
+            title="Документ удалён",
+            description=document.title,
+            metadata={
+                "document_id": document.id,
+                "document_type": document.document_type,
+                "title": document.title,
+                "expires_at_utc": _iso_or_none(document.expires_at_utc),
+                "is_active": document.is_active,
+            },
+        )
         await self.db.delete(document)
         await self.db.flush()
         return True
@@ -681,6 +817,127 @@ class DriverService:
             "expiring_soon_count": expiring_soon_count,
         }
 
+    async def create_journal_entry(
+        self,
+        user_id: int,
+        title: str,
+        event_type: str = "note",
+        vehicle_id: Optional[int] = None,
+        checklist_run_id: Optional[int] = None,
+        description: Optional[str] = None,
+        status: str = "completed",
+        happened_at_utc: Optional[datetime] = None,
+        metadata: Optional[dict] = None,
+    ) -> Optional[DriverJournalEntry]:
+        """Create a driver journal entry with ownership checks."""
+        if vehicle_id is not None and not await self.get_vehicle(vehicle_id, user_id):
+            return None
+
+        if checklist_run_id is not None:
+            run = await self._get_checklist_run(checklist_run_id, user_id)
+            if not run:
+                return None
+            existing = await self._get_journal_entry_by_checklist_run(checklist_run_id, user_id)
+            if existing:
+                return existing
+
+        entry = DriverJournalEntry(
+            user_id=user_id,
+            vehicle_id=vehicle_id,
+            checklist_run_id=checklist_run_id,
+            event_type=event_type,
+            title=title.strip()[:255],
+            description=description,
+            status=status,
+            happened_at_utc=happened_at_utc or datetime.now(timezone.utc),
+            metadata_json=metadata,
+        )
+        self.db.add(entry)
+        await self.db.flush()
+        await self.db.refresh(entry)
+        return entry
+
+    async def record_checklist_completion(
+        self,
+        checklist_run_id: int,
+        user_id: int,
+    ) -> Optional[DriverJournalEntry]:
+        """Record completed driver checklist run in the autonomous driver journal."""
+        run = await self._get_checklist_run(checklist_run_id, user_id)
+        if not run or run.status != "completed":
+            return None
+
+        source_list = getattr(run, "source_list", None)
+        if not source_list or source_list.source_module != "driver":
+            return None
+
+        existing = await self._get_journal_entry_by_checklist_run(run.id, user_id)
+        if existing:
+            return existing
+
+        checked = sum(1 for item in run.items if item.checked)
+        total = len(run.items)
+        event_type, title = self._driver_checklist_event(run.title_snapshot)
+        item_names = [item.text_snapshot for item in sorted(run.items, key=lambda item: item.position)]
+
+        return await self.create_journal_entry(
+            user_id=user_id,
+            title=title,
+            event_type=event_type,
+            vehicle_id=run.driver_vehicle_id,
+            checklist_run_id=run.id,
+            description=f"Выполнено {checked}/{total} пунктов.",
+            happened_at_utc=run.completed_at or datetime.now(timezone.utc),
+            metadata={
+                "source_list_id": run.source_list_id,
+                "source_title": run.title_snapshot,
+                "checked_count": checked,
+                "total_count": total,
+                "items": item_names,
+            },
+        )
+
+    async def get_journal_entries(
+        self,
+        user_id: int,
+        limit: int = 20,
+        offset: int = 0,
+        event_type: Optional[str] = None,
+        vehicle_id: Optional[int] = None,
+        since_utc: Optional[datetime] = None,
+        until_utc: Optional[datetime] = None,
+    ) -> list[DriverJournalEntry]:
+        """Return recent driver journal entries."""
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+        query = (
+            select(DriverJournalEntry)
+            .options(selectinload(DriverJournalEntry.vehicle), selectinload(DriverJournalEntry.checklist_run))
+            .where(DriverJournalEntry.user_id == user_id)
+            .order_by(DriverJournalEntry.happened_at_utc.desc(), DriverJournalEntry.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if event_type:
+            query = query.where(DriverJournalEntry.event_type == event_type)
+        if vehicle_id is not None:
+            if not await self.get_vehicle(vehicle_id, user_id):
+                return []
+            query = query.where(DriverJournalEntry.vehicle_id == vehicle_id)
+        if since_utc is not None:
+            query = query.where(DriverJournalEntry.happened_at_utc >= _as_utc(since_utc))
+        if until_utc is not None:
+            query = query.where(DriverJournalEntry.happened_at_utc <= _as_utc(until_utc))
+        result = await self.db.execute(query)
+        return list(result.scalars().unique().all())
+
+    async def count_journal_entries(self, user_id: int) -> int:
+        """Return number of driver journal entries for a user."""
+        result = await self.db.execute(
+            select(func.count(DriverJournalEntry.id)).where(DriverJournalEntry.user_id == user_id)
+        )
+        return int(result.scalar() or 0)
+
     async def get_user_overview(self, user_id: int) -> dict:
         """Return compact driver overview for settings/admin screens."""
         vehicles_result = await self.db.execute(
@@ -693,6 +950,7 @@ class DriverService:
         fuel_summary = await self.get_fuel_summary(user_id)
         expense_summary = await self.get_expense_summary(user_id)
         document_summary = await self.get_document_summary(user_id)
+        journal_entries_count = await self.count_journal_entries(user_id)
         return {
             "vehicles_count": int(vehicles_count or 0),
             "fuel_entries_count": fuel_summary["count"],
@@ -703,6 +961,7 @@ class DriverService:
             "documents_active_count": document_summary["active_count"],
             "documents_expiring_soon_count": document_summary["expiring_soon_count"],
             "documents_expired_count": document_summary["expired_count"],
+            "journal_entries_count": journal_entries_count,
             "avg_consumption": fuel_summary["avg_consumption"],
             "avg_cost_per_km": fuel_summary["avg_cost_per_km"],
             "max_mileage_km": int(max_mileage or 0),
@@ -728,8 +987,67 @@ class DriverService:
         vehicle.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         await self._recalculate_vehicle_current_mileage(vehicle)
+        await self.create_journal_entry(
+            user_id=user_id,
+            vehicle_id=vehicle.id,
+            event_type="service_done",
+            title="ТО выполнено",
+            description=f"Пробег: {service_mileage_km} км.",
+            happened_at_utc=vehicle.last_service_at_utc,
+            metadata={
+                "vehicle_title": vehicle.title,
+                "service_mileage_km": service_mileage_km,
+            },
+        )
         await self.db.refresh(vehicle)
         return vehicle
+
+    async def _get_checklist_run(self, run_id: int, user_id: int) -> Optional[ChecklistRun]:
+        """Return checklist run with source list and items for journal checks."""
+        result = await self.db.execute(
+            select(ChecklistRun)
+            .options(selectinload(ChecklistRun.items), selectinload(ChecklistRun.source_list))
+            .where(ChecklistRun.id == run_id, ChecklistRun.user_id == user_id)
+        )
+        return result.scalars().unique().one_or_none()
+
+    async def _get_journal_entry_by_checklist_run(
+        self,
+        checklist_run_id: int,
+        user_id: int,
+    ) -> Optional[DriverJournalEntry]:
+        """Return existing journal entry for a checklist run."""
+        result = await self.db.execute(
+            select(DriverJournalEntry).where(
+                DriverJournalEntry.user_id == user_id,
+                DriverJournalEntry.checklist_run_id == checklist_run_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    def _driver_checklist_event(title: str) -> tuple[str, str]:
+        """Classify driver checklist title into a journal event."""
+        normalized = title.lower()
+        if "жидк" in normalized:
+            return "fluids_check", "Проверка жидкостей пройдена"
+        if "поезд" in normalized:
+            return "trip_check", "Проверка перед поездкой пройдена"
+        if "запчаст" in normalized:
+            return "parts_check", "Список запчастей пройден"
+        return "driver_checklist", "Чек-лист авто пройден"
+
+    @staticmethod
+    def _expense_journal_event(category: str, created: bool) -> tuple[str, str]:
+        """Return event type/title for expense journal entries."""
+        category = (category or "other").strip()
+        if category == "wash":
+            return "wash", "Мойка зафиксирована" if created else "Мойка обновлена"
+        if category == "service":
+            return "service_expense", "Расход на ТО добавлен" if created else "Расход на ТО обновлён"
+        if category == "parts":
+            return "parts_expense", "Расход на запчасти добавлен" if created else "Расход на запчасти обновлён"
+        return "expense", "Расход добавлен" if created else "Расход обновлён"
 
     def _validate_mileage(self, mileage_km: int) -> None:
         """Reject invalid odometer values at the service boundary."""
@@ -952,3 +1270,15 @@ def _add_months(value: datetime, months: int) -> datetime:
     month = month_index % 12 + 1
     day = min(value.day, monthrange(year, month)[1])
     return value.replace(year=year, month=month, day=day)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize datetime to UTC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _iso_or_none(value: Optional[datetime]) -> Optional[str]:
+    """Serialize optional datetime for journal metadata."""
+    return _as_utc(value).isoformat() if value else None

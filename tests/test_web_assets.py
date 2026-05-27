@@ -34,3 +34,16 @@ def test_web_dashboard_has_release_info_block():
     assert "user_changes" in script
     assert "technical_changes" in script
     assert "release_history" in script
+
+
+def test_web_driver_journal_has_forms_and_filters():
+    """Driver journal should be visible in web and use inline forms."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert 'id="journalCreateForm"' in html
+    assert 'id="driverJournalFilterForm"' in html
+    assert 'id="journalContainer"' in html
+    assert "handleJournalCreate" in script
+    assert "handleJournalFilter" in script
+    assert '"/me/driver/journal"' in script

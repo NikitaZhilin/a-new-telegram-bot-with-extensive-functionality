@@ -37,6 +37,7 @@ from src.bot.keyboards import (
 from src.bot.states import ReminderStates
 from src.config import settings
 from src.db.session import async_session_maker
+from src.services.driver_service import DriverService
 from src.services.list_service import ListService
 from src.services.reminder_service import ReminderService
 from src.repositories.user_repo import UserRepository
@@ -162,6 +163,17 @@ def _build_driver_reminder_template_text(template_key: str, reminder_text: str) 
         ])
     lines.extend(["", "Выберите периодичность:"])
     return "\n".join(lines)
+
+
+def _driver_reminder_journal_title(template_key: str) -> str:
+    """Return journal title for driver reminder templates."""
+    return {
+        "oil": "Напоминание о замене масла настроено",
+        "fluids": "Напоминание о проверке жидкостей настроено",
+        "wash": "Напоминание о мойке настроено",
+        "tire_pressure": "Напоминание о давлении шин настроено",
+        "service": "Напоминание о ТО настроено",
+    }.get(template_key, "Авто-напоминание настроено")
 
 
 def _selected_date(context: ContextTypes.DEFAULT_TYPE, tz_name: str) -> date:
@@ -739,6 +751,21 @@ async def _create_reminder_from_context(
             )
             context.user_data.clear()
             return ConversationHandler.END
+        driver_template = context.user_data.get("driver_reminder_template")
+        if source_module == "driver" and driver_template:
+            await DriverService(session).create_journal_entry(
+                user_id=user.id if user else user_id,
+                event_type=f"{driver_template}_reminder",
+                title=_driver_reminder_journal_title(driver_template),
+                description=f"Напоминание: {text}",
+                happened_at_utc=datetime.now(timezone.utc),
+                metadata={
+                    "reminder_id": reminder.id,
+                    "template": driver_template,
+                    "remind_at_utc": reminder.remind_at_utc.isoformat(),
+                    "repeat_rule": reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else str(reminder.repeat_rule),
+                },
+            )
         await session.commit()
 
     await _show_reminder_message(
