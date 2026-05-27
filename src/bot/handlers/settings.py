@@ -446,9 +446,6 @@ async def settings_technical_status_callback(update: Update, context: ContextTyp
             logger.exception("Technical status DB check failed")
 
     info = app_info(settings)
-    technical_changes = "\n".join(
-        f"• {item}" for item in info.get("technical_changes", [])
-    ) or "• Технические изменения для этой версии не указаны."
     api_url = settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "не настроен"
     text_body = (
         "🔧 Технический статус\n\n"
@@ -463,8 +460,7 @@ async def settings_technical_status_callback(update: Update, context: ContextTyp
         "Режимы уведомлений:\n"
         f"• пользователям: {info['startup_announce_mode']}\n"
         f"• админам: {info['startup_admin_announce_mode']}\n\n"
-        "Технические изменения:\n"
-        f"{technical_changes}"
+        "История изменений доступна в разделе «История версий»."
     )
 
     await query.edit_message_text(

@@ -92,14 +92,14 @@ def test_admin_startup_notice_text_is_explicitly_admin_only():
             "started_timezone": "Europe/Moscow",
             "startup_announce_mode": "off",
             "startup_admin_announce_mode": "once_per_version",
-        },
-        "- Техническая правка",
+        }
     )
 
-    assert "только администраторам бота" in text
-    assert "Обычные пользователи его не получают" in text
-    assert "Пользовательские релизные сообщения: off" in text
-    assert "- Техническая правка" in text
+    assert "только администраторам" in text
+    assert "Версия:" in text
+    assert "Технические изменения:" not in text
+    assert "Пользовательские релизные сообщения" not in text
+    assert "Служебные admin-уведомления" not in text
 
 
 def test_optional_technical_changes_are_empty_when_not_configured():
