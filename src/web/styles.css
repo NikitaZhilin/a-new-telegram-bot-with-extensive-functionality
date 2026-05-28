@@ -492,6 +492,14 @@ h3 {
   margin-bottom: 12px;
 }
 
+.panel-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .panel-heading h2 {
   margin-bottom: 4px;
 }
@@ -829,6 +837,13 @@ details[open] > summary::after {
 .accordion-panel > :not(summary) {
   margin-left: 14px;
   margin-right: 14px;
+}
+
+.accordion-panel > .item-actions {
+  margin-top: 12px;
+  padding-top: 0;
+  padding-bottom: 12px;
+  border-top: 0;
 }
 
 .accordion-panel > :last-child {

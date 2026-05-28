@@ -6,8 +6,9 @@ Inline keyboards are used for all CRUD operations.
 """
 
 from typing import List, Optional
-from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
+from src.config import settings
 from src.utils.text import truncate
 
 
@@ -23,6 +24,30 @@ def _plural_ru(count: int, one: str, few: str, many: str) -> str:
 # =============================================================================
 # Reply Keyboards (Main Menu Only)
 # =============================================================================
+
+def _web_app_url() -> Optional[str]:
+    """Return HTTPS web app URL suitable for Telegram web app buttons."""
+    base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip().rstrip("/")
+    if not base_url.startswith("https://"):
+        return None
+    return f"{base_url}/web"
+
+
+def _web_app_reply_button() -> str | KeyboardButton:
+    """Return a direct Telegram web app button when a public HTTPS URL exists."""
+    web_url = _web_app_url()
+    if not web_url:
+        return "🌐 Web-версия"
+    return KeyboardButton("🌐 Web-версия", web_app=WebAppInfo(url=web_url))
+
+
+def _web_app_inline_button() -> InlineKeyboardButton:
+    """Return a direct web app inline button with callback fallback."""
+    web_url = _web_app_url()
+    if not web_url:
+        return InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login")
+    return InlineKeyboardButton("🌐 Web-версия", web_app=WebAppInfo(url=web_url))
+
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     """Keyboard with cancel button for FSM states."""
@@ -45,7 +70,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         ["📋 Списки", "💊 Лекарства"],
         ["⏰ Напоминания", "🚗 Водитель"],
-        ["⚙️ Настройки", "🌐 Web-версия"],
+        ["⚙️ Настройки", _web_app_reply_button()],
         ["👥 Поделиться ботом"],
         ["⌨️ Скрыть меню"],
         ["❓ Помощь"],
@@ -71,7 +96,7 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
-            InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login"),
+            _web_app_inline_button(),
         ],
         [
             InlineKeyboardButton("👥 Поделиться ботом", callback_data="share_bot"),
@@ -831,6 +856,18 @@ def get_settings_back_home_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ]
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_web_login_keyboard(url: Optional[str]) -> InlineKeyboardMarkup:
+    """Web login actions with a direct URL button when available."""
+    keyboard = []
+    if url:
+        keyboard.append([InlineKeyboardButton("🌐 Открыть web-версию", url=url)])
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Настройки", callback_data="settings_menu"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 

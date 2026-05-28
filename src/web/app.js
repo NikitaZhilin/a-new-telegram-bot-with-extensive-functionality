@@ -169,6 +169,10 @@ function updateAuthUi() {
 }
 
 function setSection(section) {
+  switchSection(section).catch((error) => showMessage(error.message, true));
+}
+
+async function switchSection(section) {
   state.section = section;
   $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.section === section));
   $$(".section").forEach((node) => node.classList.toggle("active", node.id === section));
@@ -177,7 +181,7 @@ function setSection(section) {
   $("#sectionSubtitle").textContent = subtitle;
   closeMobileMenu();
   if (state.user) {
-    loadSection(section).catch((error) => showMessage(error.message, true));
+    await loadSection(section);
   }
 }
 
@@ -637,6 +641,45 @@ const importanceChoices = [
   { value: "critical", label: "Критичное" },
 ];
 
+function renderReminderListOptions(selectedId = "") {
+  const current = selectedId ? String(selectedId) : "";
+  return [
+    `<option value="" ${current ? "" : "selected"}>Без привязки к списку</option>`,
+    ...state.lists.map((item) => `
+      <option value="${item.id}" ${String(item.id) === current ? "selected" : ""}>
+        Список: ${escapeHtml(item.title)}
+      </option>
+    `),
+  ].join("");
+}
+
+function updateReminderListSelects() {
+  $$("select[name='list_id']").forEach((select) => {
+    const current = select.value;
+    select.innerHTML = renderReminderListOptions(current);
+  });
+}
+
+function reminderListTitle(listId) {
+  if (!listId) return "";
+  const item = state.lists.find((listItem) => Number(listItem.id) === Number(listId));
+  return item?.title || `список #${listId}`;
+}
+
+function prefillReminderFromList(listId) {
+  const form = $("#reminderCreateForm");
+  if (!form) return;
+  const title = reminderListTitle(listId);
+  form.list_id.value = String(listId);
+  if (!form.title.value.trim()) {
+    form.title.value = `Список: ${title}`;
+  }
+  if (!form.text.value.trim()) {
+    form.text.value = `Напомнить про список: ${title}`;
+  }
+  form.remind_at_local.focus();
+}
+
 function renderMedicationEditForm(item) {
   return `
     <form class="stack inline-edit-form medication-edit-form" data-id="${item.id}">
@@ -658,6 +701,7 @@ function renderReminderEditForm(item) {
     <form class="stack inline-edit-form reminder-edit-form" data-id="${item.id}">
       <input name="title" type="text" value="${escapeHtml(item.title || "")}" placeholder="Заголовок">
       <textarea name="text" rows="3" placeholder="Текст напоминания" required>${escapeHtml(item.text || "")}</textarea>
+      <select name="list_id">${renderReminderListOptions(item.list_id || "")}</select>
       <input name="remind_at_local" type="text" inputmode="numeric" value="${escapeHtml(formatLocalDatetimeText(item.remind_at_utc))}" placeholder="28.05.2026 12:00" required>
       ${renderChoiceGroup("repeat_rule", item.repeat_rule || "none", repeatChoices, "Повтор напоминания")}
       <div class="button-row">
@@ -886,7 +930,10 @@ async function openList(listId) {
         <h2>${escapeHtml(detail.title)}</h2>
         <div class="item-meta">${detail.items_total} ${pluralRu(detail.items_total, "пункт", "пункта", "пунктов")} · ${formatRole(detail.access_role)}</div>
       </div>
-      ${!checklistRun && detail.items.length ? `<button class="small action-done" data-action="start-checklist-run" data-id="${detail.id}">Начать проверку</button>` : ""}
+      <div class="panel-heading-actions">
+        <button class="secondary small action-open" data-action="remind-list" data-id="${detail.id}">Напомнить</button>
+        ${!checklistRun && detail.items.length ? `<button class="small action-done" data-action="start-checklist-run" data-id="${detail.id}">Начать проверку</button>` : ""}
+      </div>
     </div>
     ${checklistPanel}
     ${canManage ? `
@@ -1033,6 +1080,8 @@ function renderListMembersPanel(members) {
 }
 
 async function loadReminders() {
+  state.lists = await api("/me/lists");
+  updateReminderListSelects();
   state.reminders = await api("/me/reminders?active_only=false");
   $("#remindersContainer").innerHTML = state.reminders.length
     ? state.reminders.map((item) => `
@@ -1041,6 +1090,7 @@ async function loadReminders() {
           <div>
             <div class="item-title">${escapeHtml(item.title || "Напоминание")}</div>
             <div class="item-meta">${formatDate(item.remind_at_utc)} · ${formatRepeat(item.repeat_rule)} · ${formatReminderStatus(item.status)}</div>
+            ${item.list_id ? `<div class="item-meta">Список: ${escapeHtml(reminderListTitle(item.list_id))}</div>` : ""}
           </div>
         </div>
         <details>
@@ -1048,6 +1098,7 @@ async function loadReminders() {
           <div class="item-text">${escapeHtml(item.text)}</div>
           ${state.editingReminderId === item.id ? renderReminderEditForm(item) : `
             <div class="item-actions">
+              ${item.list_id ? `<button class="secondary small action-open" data-action="open-reminder-list" data-id="${item.list_id}">Открыть список</button>` : ""}
               <button class="small action-done" data-action="done-reminder" data-id="${item.id}">Выполнено</button>
               <button class="secondary small action-edit" data-action="edit-reminder" data-id="${item.id}">Изменить</button>
               <button class="secondary small action-cancel" data-action="cancel-reminder" data-id="${item.id}">Отменить</button>
@@ -1552,6 +1603,7 @@ async function handleReminderCreate(event) {
     body: JSON.stringify({
       title: form.title.value,
       text: form.text.value,
+      list_id: form.list_id.value ? Number(form.list_id.value) : null,
       remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
     }),
@@ -1571,6 +1623,7 @@ async function handleReminderUpdate(event) {
     body: JSON.stringify({
       title: form.title.value,
       text: form.text.value,
+      list_id: form.list_id.value ? Number(form.list_id.value) : null,
       remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
     }),
@@ -1906,6 +1959,13 @@ async function handleAction(event) {
   }
   try {
     if (action === "open-list") {
+      await openList(id);
+    } else if (action === "remind-list") {
+      await switchSection("reminders");
+      prefillReminderFromList(id);
+      showMessage("Выберите дату и время напоминания по списку.");
+    } else if (action === "open-reminder-list") {
+      await switchSection("lists");
       await openList(id);
     } else if (action === "start-checklist-run") {
       state.activeChecklistRun = await api(`/me/lists/${id}/checklist-runs`, { method: "POST" });

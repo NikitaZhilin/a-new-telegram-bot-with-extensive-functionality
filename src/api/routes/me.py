@@ -176,6 +176,7 @@ class ReminderSummaryResponse(BaseModel):
     id: int
     title: Optional[str]
     text: str
+    list_id: Optional[int] = None
     source_module: str
     status: str
     remind_at_utc: datetime
@@ -189,6 +190,7 @@ class ReminderCreateRequest(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
     remind_at_local: datetime
     repeat_rule: str = "none"
+    list_id: Optional[int] = None
 
 
 class ReminderUpdateRequest(BaseModel):
@@ -198,6 +200,7 @@ class ReminderUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
     remind_at_local: Optional[datetime] = None
     repeat_rule: Optional[str] = None
+    list_id: Optional[int] = None
 
 
 class MedicationTodaySlotResponse(BaseModel):
@@ -615,11 +618,31 @@ def _reminder_response(reminder: Reminder) -> ReminderSummaryResponse:
         id=reminder.id,
         title=reminder.title,
         text=reminder.text,
+        list_id=reminder.list_id,
         source_module=reminder.source_module,
         status=reminder.status.value if hasattr(reminder.status, "value") else reminder.status,
         remind_at_utc=reminder.remind_at_utc,
         repeat_rule=reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule,
     )
+
+
+def _is_web_reminder(reminder: Reminder) -> bool:
+    """Return whether a reminder belongs to the standalone web reminders UI."""
+    return reminder.source_module in {"general", "list"}
+
+
+async def _validate_web_reminder_list_id(
+    db: AsyncSession,
+    user_id: int,
+    list_id: Optional[int],
+) -> Optional[int]:
+    """Validate that a web reminder can be linked only to an accessible general list."""
+    if list_id is None:
+        return None
+    list_obj = await ListService(db).get_list(list_id, user_id, source_module="general")
+    if not list_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+    return list_obj.id
 
 
 def _service_plan_payload(plan: Optional[dict]) -> Optional[dict]:
@@ -1218,10 +1241,10 @@ async def get_my_reminders(
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[ReminderSummaryResponse]:
-    """Return current user's generic reminders."""
+    """Return current user's web-visible reminders."""
     conditions = [
         Reminder.user_id == current_user.id,
-        Reminder.source_module == "general",
+        Reminder.source_module.in_(["general", "list"]),
     ]
     if active_only:
         conditions.append(Reminder.status == ReminderStatus.ACTIVE)
@@ -1237,6 +1260,7 @@ async def get_my_reminders(
             id=item.id,
             title=item.title,
             text=item.text,
+            list_id=item.list_id,
             source_module=item.source_module,
             status=item.status.value if hasattr(item.status, "value") else item.status,
             remind_at_utc=item.remind_at_utc,
@@ -1252,15 +1276,17 @@ async def create_my_reminder(
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> ReminderSummaryResponse:
-    """Create a generic reminder from web UI."""
+    """Create a web reminder, optionally linked to a general list."""
     service = ReminderService(db)
+    list_id = await _validate_web_reminder_list_id(db, current_user.id, payload.list_id)
     reminder = await service.create_reminder(
         user_id=current_user.id,
         text=payload.text.strip(),
         title=payload.title.strip() if payload.title else None,
         remind_at_utc=_local_datetime_to_utc(payload.remind_at_local, current_user.timezone),
         repeat_rule=_repeat_rule(payload.repeat_rule),
-        source_module="general",
+        list_id=list_id,
+        source_module="list" if list_id is not None else "general",
     )
     if not reminder:
         raise HTTPException(status_code=400, detail="Reminder was not created")
@@ -1276,10 +1302,10 @@ async def update_my_reminder(
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> ReminderSummaryResponse:
-    """Update a generic reminder from web UI."""
+    """Update a web reminder from web UI."""
     service = ReminderService(db)
     reminder = await service.get_reminder(reminder_id, current_user.id)
-    if not reminder or reminder.source_module != "general":
+    if not reminder or not _is_web_reminder(reminder):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
 
     if payload.text is not None:
@@ -1294,6 +1320,10 @@ async def update_my_reminder(
         reminder = await service.update_reminder_repeat(reminder_id, current_user.id, _repeat_rule(payload.repeat_rule))
     if payload.title is not None and reminder is not None:
         reminder.title = payload.title.strip() or None
+    if "list_id" in payload.model_fields_set and reminder is not None:
+        list_id = await _validate_web_reminder_list_id(db, current_user.id, payload.list_id)
+        reminder.list_id = list_id
+        reminder.source_module = "list" if list_id is not None else "general"
 
     if not reminder:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
@@ -1311,7 +1341,7 @@ async def mark_my_reminder_done(
     """Mark reminder as done."""
     service = ReminderService(db)
     existing = await service.get_reminder(reminder_id, current_user.id)
-    if not existing or existing.source_module != "general":
+    if not existing or not _is_web_reminder(existing):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     reminder = await service.mark_reminder_done(reminder_id, current_user.id)
     if not reminder:
@@ -1330,7 +1360,7 @@ async def cancel_my_reminder(
     """Mark reminder as canceled."""
     service = ReminderService(db)
     existing = await service.get_reminder(reminder_id, current_user.id)
-    if not existing or existing.source_module != "general":
+    if not existing or not _is_web_reminder(existing):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     reminder = await service.mark_reminder_canceled(reminder_id, current_user.id)
     if not reminder:
@@ -1346,10 +1376,10 @@ async def delete_my_reminder(
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> MutationResponse:
-    """Delete a generic reminder."""
+    """Delete a web reminder."""
     service = ReminderService(db)
     reminder = await service.get_reminder(reminder_id, current_user.id)
-    if not reminder or reminder.source_module != "general":
+    if not reminder or not _is_web_reminder(reminder):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     ok = await service.delete_reminder(reminder_id, current_user.id)
     await db.commit()

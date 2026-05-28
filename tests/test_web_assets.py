@@ -120,3 +120,16 @@ def test_web_design_system_styles_cards_forms_and_metrics():
     assert ".metric::before" in styles
     assert ".metric-accent-4" in styles
     assert 'class="metric metric-accent-${(index % 4) + 1}"' in script
+
+
+def test_web_reminders_can_link_general_lists():
+    """Web reminder UI should expose list linking and list-to-reminder navigation."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert '<select name="list_id">' in html
+    assert "renderReminderListOptions" in script
+    assert "prefillReminderFromList" in script
+    assert 'data-action="remind-list"' in script
+    assert 'data-action="open-reminder-list"' in script
+    assert "list_id: form.list_id.value ? Number(form.list_id.value) : null" in script

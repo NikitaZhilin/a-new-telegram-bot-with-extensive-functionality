@@ -24,6 +24,7 @@ from src.bot.keyboards import (
     get_timezone_keyboard,
     get_back_home_inline_keyboard,
     get_settings_back_home_keyboard,
+    get_web_login_keyboard,
     get_cancel_keyboard,
     get_cancel_inline_keyboard,
 )
@@ -519,14 +520,14 @@ async def settings_web_login_callback(update: Update, context: ContextTypes.DEFA
     if query:
         await query.edit_message_text(
             text,
-            reply_markup=get_settings_back_home_keyboard(),
+            reply_markup=get_web_login_keyboard(login_key.url),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
     else:
         await update.message.reply_text(
             text,
-            reply_markup=get_settings_back_home_keyboard(),
+            reply_markup=get_web_login_keyboard(login_key.url),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )

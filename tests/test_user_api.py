@@ -180,6 +180,70 @@ async def test_web_login_key_rotation_disables_previous_key(db_session):
 
 
 @pytest.mark.asyncio
+async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
+    """Web reminders should support accessible general lists but reject hidden domains."""
+    user = User(telegram_id=93601, username="web_list_reminder", first_name="ListReminder", timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    list_service = ListService(db_session)
+    general_list = await list_service.create_list(user.id, "Покупки")
+    driver_list = await list_service.create_list(user.id, "Проверка авто", source_module="driver")
+    await db_session.commit()
+
+    app = create_application()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    headers = {
+        "X-Admin-Token": settings.ADMIN_TOKEN,
+        "X-Web-Test-Telegram-Id": str(user.telegram_id),
+        "X-Web-Test-First-Name": user.first_name,
+    }
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created_response = await client.post(
+            "/me/reminders",
+            headers=headers,
+            json={
+                "text": "Напомнить про список",
+                "title": "Список",
+                "remind_at_local": "2026-05-25T10:00:00",
+                "repeat_rule": "none",
+                "list_id": general_list.id,
+            },
+        )
+        reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
+        reminder_id = created_response.json()["id"]
+        unlinked_response = await client.patch(
+            f"/me/reminders/{reminder_id}",
+            headers=headers,
+            json={"list_id": None},
+        )
+        rejected_response = await client.post(
+            "/me/reminders",
+            headers=headers,
+            json={
+                "text": "Driver list must stay hidden",
+                "remind_at_local": "2026-05-25T10:00:00",
+                "list_id": driver_list.id,
+            },
+        )
+
+    assert created_response.status_code == 201
+    assert created_response.json()["source_module"] == "list"
+    assert created_response.json()["list_id"] == general_list.id
+    assert any(item["list_id"] == general_list.id for item in reminders_response.json())
+    assert unlinked_response.status_code == 200
+    assert unlinked_response.json()["source_module"] == "general"
+    assert unlinked_response.json()["list_id"] is None
+    assert rejected_response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_web_ui_page_and_test_user_crud_api(db_session):
     """Web UI should load and perform core user-scoped mutations through services."""
     app = create_application()
