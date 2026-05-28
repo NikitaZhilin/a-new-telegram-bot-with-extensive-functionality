@@ -43,6 +43,11 @@ const state = {
     days: 7,
     userId: "",
   },
+  telegram: {
+    webApp: null,
+    isMiniApp: false,
+    backButtonBound: false,
+  },
 };
 
 const titles = {
@@ -56,6 +61,10 @@ const titles = {
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+function isTelegramMiniApp() {
+  return Boolean(state.telegram.isMiniApp && state.auth.initData);
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -74,6 +83,99 @@ function showMessage(text, isError = false) {
   node.style.color = isError ? "var(--danger)" : "var(--text)";
   window.clearTimeout(showMessage.timer);
   showMessage.timer = window.setTimeout(() => node.classList.add("hidden"), 4500);
+}
+
+function setCssColor(name, value) {
+  if (value) {
+    document.documentElement.style.setProperty(name, value);
+  }
+}
+
+function setCssPx(name, value) {
+  const number = Number(value);
+  document.documentElement.style.setProperty(name, `${Number.isFinite(number) ? number : 0}px`);
+}
+
+function themeParam(params, ...keys) {
+  return keys.map((key) => params?.[key]).find(Boolean);
+}
+
+function applyTelegramTheme(telegram = state.telegram.webApp) {
+  if (!telegram || !isTelegramMiniApp()) return;
+  document.documentElement.dataset.theme = telegram.colorScheme === "dark" ? "dark" : "light";
+  const params = telegram.themeParams || {};
+  setCssColor("--bg", themeParam(params, "bg_color", "bgColor"));
+  setCssColor("--surface", themeParam(params, "secondary_bg_color", "secondaryBgColor", "section_bg_color", "sectionBgColor"));
+  setCssColor("--surface-raised", themeParam(params, "section_bg_color", "sectionBgColor", "secondary_bg_color", "secondaryBgColor"));
+  setCssColor("--field-bg", themeParam(params, "section_bg_color", "sectionBgColor", "secondary_bg_color", "secondaryBgColor"));
+  setCssColor("--text", themeParam(params, "text_color", "textColor"));
+  setCssColor("--muted", themeParam(params, "hint_color", "hintColor", "subtitle_text_color", "subtitleTextColor"));
+  setCssColor("--line", themeParam(params, "section_separator_color", "sectionSeparatorColor"));
+  setCssColor("--accent", themeParam(params, "button_color", "buttonColor", "link_color", "linkColor"));
+  setCssColor("--btn-open-bg", themeParam(params, "button_color", "buttonColor"));
+  setCssColor("--btn-open-text", themeParam(params, "button_text_color", "buttonTextColor"));
+  try {
+    telegram.setHeaderColor?.(themeParam(params, "bg_color", "bgColor") || telegram.backgroundColor);
+    telegram.setBackgroundColor?.(themeParam(params, "bg_color", "bgColor") || telegram.backgroundColor);
+  } catch {
+    // Older Telegram clients may reject custom colors.
+  }
+}
+
+function applyTelegramViewport(telegram = state.telegram.webApp) {
+  if (!telegram || !isTelegramMiniApp()) return;
+  const stableHeight = telegram.viewportStableHeight || telegram.viewportHeight || window.innerHeight;
+  document.documentElement.style.setProperty("--app-height", `${Math.max(0, Number(stableHeight) || 0)}px`);
+  const safe = telegram.safeAreaInset || {};
+  const contentSafe = telegram.contentSafeAreaInset || {};
+  setCssPx("--safe-area-top", Math.max(Number(safe.top || 0), Number(contentSafe.top || 0)));
+  setCssPx("--safe-area-right", Math.max(Number(safe.right || 0), Number(contentSafe.right || 0)));
+  setCssPx("--safe-area-bottom", Math.max(Number(safe.bottom || 0), Number(contentSafe.bottom || 0)));
+  setCssPx("--safe-area-left", Math.max(Number(safe.left || 0), Number(contentSafe.left || 0)));
+}
+
+function syncTelegramBackButton() {
+  const backButton = state.telegram.webApp?.BackButton;
+  if (!backButton || !isTelegramMiniApp()) return;
+  if (!state.telegram.backButtonBound) {
+    backButton.onClick?.(() => setSection("dashboard"));
+    state.telegram.backButtonBound = true;
+  }
+  if (state.section === "dashboard") {
+    backButton.hide?.();
+  } else {
+    backButton.show?.();
+  }
+}
+
+function initTelegramRuntime() {
+  const telegram = window.Telegram?.WebApp;
+  if (!telegram?.initData) return null;
+  state.telegram.webApp = telegram;
+  state.telegram.isMiniApp = true;
+  state.auth.initData = telegram.initData;
+  document.documentElement.dataset.telegramMiniApp = "true";
+  document.body.classList.add("telegram-mini-app");
+  applyTelegramTheme(telegram);
+  applyTelegramViewport(telegram);
+  telegram.onEvent?.("themeChanged", () => applyTelegramTheme(telegram));
+  telegram.onEvent?.("viewportChanged", () => applyTelegramViewport(telegram));
+  telegram.onEvent?.("safeAreaChanged", () => applyTelegramViewport(telegram));
+  telegram.onEvent?.("contentSafeAreaChanged", () => applyTelegramViewport(telegram));
+  try {
+    telegram.expand?.();
+  } catch {
+    // Expansion is advisory and may be unavailable in older clients.
+  }
+  return telegram;
+}
+
+function applyStandaloneTheme() {
+  if (isTelegramMiniApp()) {
+    applyTelegramTheme();
+    return;
+  }
+  document.documentElement.dataset.theme = localStorage.getItem("rememberme.theme") || "light";
 }
 
 function authHeaders() {
@@ -160,12 +262,13 @@ function updateAuthUi() {
   $("#adminTokenInput").value = state.auth.adminToken;
   $("#telegramIdInput").value = state.auth.telegramId;
   $("#firstNameInput").value = state.auth.firstName;
-  $("#loginPanel").classList.toggle("hidden", Boolean(state.user));
-  $("#logoutButton").classList.toggle("hidden", !state.user);
+  $("#loginPanel").classList.toggle("hidden", Boolean(state.user) || isTelegramMiniApp());
+  $("#logoutButton").classList.toggle("hidden", !state.user || isTelegramMiniApp());
   $("#authStatus").textContent = state.user
     ? `${state.user.first_name || state.user.username || "user"} · ${state.user.telegram_id}`
-    : "не подключено";
+    : isTelegramMiniApp() ? "Telegram Mini App" : "не подключено";
   $("#authStatus").classList.toggle("muted", !state.user);
+  $$('[data-section="admin"]').forEach((button) => button.classList.toggle("hidden", isTelegramMiniApp()));
 }
 
 function setSection(section) {
@@ -173,6 +276,9 @@ function setSection(section) {
 }
 
 async function switchSection(section) {
+  if (section === "admin" && isTelegramMiniApp()) {
+    section = "dashboard";
+  }
   state.section = section;
   $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.section === section));
   $$(".section").forEach((node) => node.classList.toggle("active", node.id === section));
@@ -183,24 +289,36 @@ async function switchSection(section) {
   if (state.user) {
     await loadSection(section);
   }
+  syncTelegramBackButton();
 }
 
 function openMobileMenu() {
-  $(".sidebar").classList.add("open");
+  const sidebar = $(".sidebar");
+  if (!sidebar) return;
+  sidebar.classList.add("open");
   $("#menuBackdrop").classList.add("open");
   $("#menuBackdrop").hidden = false;
   $("#menuToggle").setAttribute("aria-expanded", "true");
 }
 
 function closeMobileMenu() {
-  $(".sidebar").classList.remove("open");
+  const sidebar = $(".sidebar");
+  if (!sidebar) {
+    $("#menuBackdrop").classList.remove("open");
+    $("#menuBackdrop").hidden = true;
+    $("#menuToggle").setAttribute("aria-expanded", "false");
+    return;
+  }
+  sidebar.classList.remove("open");
   $("#menuBackdrop").classList.remove("open");
   $("#menuBackdrop").hidden = true;
   $("#menuToggle").setAttribute("aria-expanded", "false");
 }
 
 function toggleMobileMenu() {
-  if ($(".sidebar").classList.contains("open")) {
+  const sidebar = $(".sidebar");
+  if (!sidebar) return;
+  if (sidebar.classList.contains("open")) {
     closeMobileMenu();
   } else {
     openMobileMenu();
@@ -2157,6 +2275,11 @@ function bindEvents() {
   $("#menuBackdrop").addEventListener("click", closeMobileMenu);
   $$(".nav-button").forEach((button) => button.addEventListener("click", () => setSection(button.dataset.section)));
   $("#themeToggle").addEventListener("click", () => {
+    if (isTelegramMiniApp()) {
+      applyTelegramTheme();
+      showMessage("Тема синхронизируется с Telegram.");
+      return;
+    }
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
     localStorage.setItem("rememberme.theme", next);
@@ -2188,7 +2311,8 @@ function bindEvents() {
 }
 
 async function boot() {
-  document.documentElement.dataset.theme = localStorage.getItem("rememberme.theme") || "light";
+  initTelegramRuntime();
+  applyStandaloneTheme();
   $("#reminderCreateForm input[name='remind_at_local']").value = defaultReminderTime();
   $("#expenseCreateForm input[name='spent_at_local']").value = toDatetimeLocal(new Date());
   $("#journalCreateForm input[name='happened_at_local']").value = toDatetimeLocal(new Date());
@@ -2200,13 +2324,13 @@ async function boot() {
     url.searchParams.delete("token");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
-  const telegram = window.Telegram?.WebApp;
-  if (telegram?.initData) {
-    state.auth.initData = telegram.initData;
-    telegram.ready?.();
-  }
   bindEvents();
   updateAuthUi();
+  const telegram = state.telegram.webApp;
+  if (telegram?.ready) {
+    telegram.ready();
+  }
+  syncTelegramBackButton();
   await loadAppInfo().catch(() => renderReleaseInfo());
   if (state.auth.initData || state.auth.webLoginToken || (state.auth.adminToken && state.auth.telegramId)) {
     try {

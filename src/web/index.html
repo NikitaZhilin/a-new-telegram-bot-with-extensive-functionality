@@ -4,31 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RememberMe Web</title>
+  <script src="https://telegram.org/js/telegram-web-app.js?62"></script>
   <link rel="stylesheet" href="/web/assets/styles.css">
 </head>
 <body>
   <div id="menuBackdrop" class="menu-backdrop" hidden></div>
   <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">R</div>
-        <div>
-          <div class="brand-title">RememberMe</div>
-          <div class="brand-subtitle">web</div>
-        </div>
-      </div>
-
-      <nav id="mobileNav" class="nav" aria-label="Основные разделы">
-        <button class="nav-button active" data-section="dashboard">Сводка</button>
-        <button class="nav-button" data-section="lists">Списки</button>
-        <button class="nav-button" data-section="reminders">Напоминания</button>
-        <button class="nav-button" data-section="medications">Лекарства</button>
-        <button class="nav-button" data-section="driver">Водитель</button>
-        <button class="nav-button" data-section="admin">Админ-панель</button>
-      </nav>
-
-    </aside>
-
     <main class="content">
       <header class="topbar">
         <button id="menuToggle" class="menu-toggle" type="button" aria-controls="mobileNav" aria-expanded="false">☰ Меню</button>
@@ -44,6 +25,15 @@
           <button id="logoutButton" class="secondary small action-cancel" type="button">Выйти</button>
         </div>
       </header>
+
+      <nav id="mobileNav" class="nav nav-tabs" aria-label="Основные разделы">
+        <button class="nav-button active" data-section="dashboard">Сводка</button>
+        <button class="nav-button" data-section="lists">Списки</button>
+        <button class="nav-button" data-section="reminders">Напоминания</button>
+        <button class="nav-button" data-section="medications">Лекарства</button>
+        <button class="nav-button" data-section="driver">Водитель</button>
+        <button class="nav-button" data-section="admin">Админ-панель</button>
+      </nav>
 
       <section id="loginPanel" class="panel">
         <h2>Вход</h2>
