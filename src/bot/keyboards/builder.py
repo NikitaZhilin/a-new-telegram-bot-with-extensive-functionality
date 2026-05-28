@@ -6,7 +6,7 @@ Inline keyboards are used for all CRUD operations.
 """
 
 from typing import List, Optional
-from telegram import KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from src.config import settings
 from src.utils.text import truncate
@@ -25,28 +25,39 @@ def _plural_ru(count: int, one: str, few: str, many: str) -> str:
 # Reply Keyboards (Main Menu Only)
 # =============================================================================
 
-def _web_app_url() -> Optional[str]:
-    """Return HTTPS web app URL suitable for Telegram web app buttons."""
+def _public_base_url() -> Optional[str]:
+    """Return the configured public HTTPS base URL."""
     base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip().rstrip("/")
     if not base_url.startswith("https://"):
         return None
-    return f"{base_url}/web"
+    return base_url
 
 
-def _web_app_reply_button() -> str | KeyboardButton:
-    """Return a direct Telegram web app button when a public HTTPS URL exists."""
-    web_url = _web_app_url()
-    if not web_url:
-        return "🌐 Web-версия"
-    return KeyboardButton("🌐 Web-версия", web_app=WebAppInfo(url=web_url))
+def _mini_app_url() -> Optional[str]:
+    """Return HTTPS Mini App URL suitable for Telegram web_app buttons."""
+    base_url = _public_base_url()
+    if not base_url:
+        return None
+    return f"{base_url}/miniapp"
 
 
-def _web_app_inline_button() -> InlineKeyboardButton:
-    """Return a direct web app inline button with callback fallback."""
-    web_url = _web_app_url()
-    if not web_url:
-        return InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login")
-    return InlineKeyboardButton("🌐 Web-версия", web_app=WebAppInfo(url=web_url))
+def get_web_entry_keyboard() -> InlineKeyboardMarkup:
+    """Let the user choose between Telegram Mini App and standalone web login."""
+    keyboard = []
+    mini_app_url = _mini_app_url()
+    if mini_app_url:
+        keyboard.append([InlineKeyboardButton("📱 Открыть приложение", web_app=WebAppInfo(url=mini_app_url))])
+    keyboard.append([InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login")])
+    keyboard.append([
+        InlineKeyboardButton("⬅️ Назад", callback_data="home"),
+        InlineKeyboardButton("🏠 В меню", callback_data="home"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _web_entry_inline_button() -> InlineKeyboardButton:
+    """Return a chooser button instead of opening either web surface directly."""
+    return InlineKeyboardButton("🌐 Web / приложение", callback_data="web_entry")
 
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
@@ -70,7 +81,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         ["📋 Списки", "💊 Лекарства"],
         ["⏰ Напоминания", "🚗 Водитель"],
-        ["⚙️ Настройки", _web_app_reply_button()],
+        ["⚙️ Настройки", "🌐 Web / приложение"],
         ["👥 Поделиться ботом"],
         ["⌨️ Скрыть меню"],
         ["❓ Помощь"],
@@ -96,7 +107,7 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
-            _web_app_inline_button(),
+            _web_entry_inline_button(),
         ],
         [
             InlineKeyboardButton("👥 Поделиться ботом", callback_data="share_bot"),
@@ -190,7 +201,7 @@ def get_driver_section_keyboard(section_key: Optional[str] = None) -> InlineKeyb
             InlineKeyboardButton("⚡ Шаблоны водителя", callback_data="driver_section:templates"),
         ],
         [
-            InlineKeyboardButton("🌐 Открыть web-версию", callback_data="settings_web_login"),
+            _web_entry_inline_button(),
         ],
         [
             InlineKeyboardButton("⬅️ Назад", callback_data="driver_menu"),
@@ -1793,7 +1804,7 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("ℹ️ О боте", callback_data="settings_about"),
         ],
         [
-            InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login"),
+            _web_entry_inline_button(),
         ],
         [
             InlineKeyboardButton("🏠 В меню", callback_data="home"),

@@ -18,6 +18,7 @@ from src.bot.keyboards import (
     get_home_inline_keyboard,
     get_main_menu_inline_keyboard,
     get_main_menu_keyboard,
+    get_web_entry_keyboard,
 )
 from src.config import settings
 from src.repositories.user_repo import UserRepository
@@ -148,8 +149,8 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if text == "⚙️ Настройки":
         await show_settings_menu(update, context)
         return
-    if text == "🌐 Web-версия":
-        await show_web_login(update, context)
+    if text in {"🌐 Web-версия", "🌐 Web / приложение"}:
+        await show_web_entry(update, context)
         return
     if text == "❓ Помощь":
         await help_command(update, context)
@@ -194,6 +195,30 @@ async def show_web_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Issue a web login link from the reply main menu."""
     from src.bot.handlers.settings import settings_web_login_callback
     await settings_web_login_callback(update, context)
+
+
+async def show_web_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the chooser for standalone web and Telegram Mini App."""
+    text = (
+        "🌐 Web и приложение\n\n"
+        "Выберите, что открыть:\n\n"
+        "📱 Приложение - открывается внутри Telegram и входит через Telegram.\n"
+        "🌐 Web-версия - обычная web-ссылка с персональным ключом."
+    )
+    await update.message.reply_text(text, reply_markup=get_web_entry_keyboard())
+
+
+async def web_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the web/app chooser from inline menus."""
+    query = update.callback_query
+    await query.answer()
+    text = (
+        "🌐 Web и приложение\n\n"
+        "Выберите, что открыть:\n\n"
+        "📱 Приложение - открывается внутри Telegram и входит через Telegram.\n"
+        "🌐 Web-версия - обычная web-ссылка с персональным ключом."
+    )
+    await query.edit_message_text(text, reply_markup=get_web_entry_keyboard())
 
 
 def _share_bot_text() -> str:

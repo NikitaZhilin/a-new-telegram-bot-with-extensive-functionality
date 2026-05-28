@@ -69,6 +69,7 @@ from src.bot.keyboards import (
     get_reminder_view_keyboard,
     get_settings_keyboard,
     get_settings_back_home_keyboard,
+    get_web_entry_keyboard,
     get_about_keyboard,
 )
 from src.db.models import User
@@ -184,6 +185,7 @@ def test_important_callback_patterns_are_registered():
         "^settings_technical_status$",
         "^settings_subscription$",
         "^settings_web_login$",
+        "^web_entry$",
         "^tz_custom$",
         "^driver_menu$",
         "^driver_section:",
@@ -379,7 +381,7 @@ def test_main_menus_expose_active_sections_only():
         "⏰ Напоминания",
         "🚗 Водитель",
         "⚙️ Настройки",
-        "🌐 Web-версия",
+        "🌐 Web / приложение",
         "👥 Поделиться ботом",
         "⌨️ Скрыть меню",
         "❓ Помощь",
@@ -399,56 +401,54 @@ def test_main_menus_expose_active_sections_only():
         "⏰ Напоминания",
         "🚗 Водитель",
         "⚙️ Настройки",
-        "🌐 Web-версия",
+        "🌐 Web / приложение",
         "👥 Поделиться ботом",
     }
 
 
-def test_web_app_buttons_use_telegram_web_app_only_for_https(monkeypatch):
-    """Telegram web_app launch buttons require a public HTTPS URL."""
+def test_web_entry_chooser_offers_mini_app_and_web_login(monkeypatch):
+    """Main menu opens a chooser; Mini App button appears only with HTTPS URL."""
     monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "https://bot.example.com")
     monkeypatch.setattr(settings, "APP_BASE_URL", None)
 
     reply_markup = get_main_menu_keyboard().to_dict()
     inline_markup = get_main_menu_inline_keyboard().to_dict()
 
-    reply_web_button = [
+    reply_entry_button = [
         button
         for row in reply_markup["keyboard"]
         for button in row
-        if button["text"] == "🌐 Web-версия"
+        if button["text"] == "🌐 Web / приложение"
     ][0]
-    inline_web_button = [
+    inline_entry_button = [
         button
         for row in inline_markup["inline_keyboard"]
         for button in row
-        if button["text"] == "🌐 Web-версия"
+        if button["text"] == "🌐 Web / приложение"
     ][0]
+    entry_markup = get_web_entry_keyboard().to_dict()
+    entry_buttons = [
+        button
+        for row in entry_markup["inline_keyboard"]
+        for button in row
+    ]
 
-    assert reply_web_button["web_app"]["url"] == "https://bot.example.com/web"
-    assert inline_web_button["web_app"]["url"] == "https://bot.example.com/web"
-    assert "callback_data" not in inline_web_button
+    assert "web_app" not in reply_entry_button
+    assert inline_entry_button["callback_data"] == "web_entry"
+    assert any(button.get("web_app", {}).get("url") == "https://bot.example.com/miniapp" for button in entry_buttons)
+    assert any(button.get("callback_data") == "settings_web_login" for button in entry_buttons)
 
     monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "http://127.0.0.1:8000")
 
-    reply_markup = get_main_menu_keyboard().to_dict()
-    inline_markup = get_main_menu_inline_keyboard().to_dict()
-    reply_web_button = [
+    entry_markup = get_web_entry_keyboard().to_dict()
+    entry_buttons = [
         button
-        for row in reply_markup["keyboard"]
+        for row in entry_markup["inline_keyboard"]
         for button in row
-        if button["text"] == "🌐 Web-версия"
-    ][0]
-    inline_web_button = [
-        button
-        for row in inline_markup["inline_keyboard"]
-        for button in row
-        if button["text"] == "🌐 Web-версия"
-    ][0]
+    ]
 
-    assert "web_app" not in reply_web_button
-    assert inline_web_button["callback_data"] == "settings_web_login"
-    assert "web_app" not in inline_web_button
+    assert all("web_app" not in button for button in entry_buttons)
+    assert any(button.get("callback_data") == "settings_web_login" for button in entry_buttons)
 
 
 def test_driver_keyboards_have_registered_callbacks():

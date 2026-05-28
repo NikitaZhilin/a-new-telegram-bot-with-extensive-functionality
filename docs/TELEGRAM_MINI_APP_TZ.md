@@ -24,7 +24,8 @@
 
 В проекте уже реализована web-версия:
 
-- `GET /web` - static web shell;
+- `GET /web` - static web shell for standalone web login;
+- `GET /miniapp` - the same user shell as Telegram Mini App entrypoint;
 - `GET /app/info` - публичная информация о версии;
 - `/web/assets/app.js`, `/web/assets/styles.css` - клиентские ассеты;
 - `/me/...` - user-scoped API для списков, напоминаний, лекарств, водительского раздела;
@@ -38,7 +39,7 @@
 ## Термины
 
 - Bot - существующий Telegram-бот.
-- Mini App - web-клиент `/web`, открываемый внутри Telegram через `web_app` кнопку, menu button, main mini app или прямую ссылку.
+- Mini App - web-клиент `/miniapp`, открываемый внутри Telegram через `web_app` кнопку, menu button, main mini app или прямую ссылку. Обычная web-версия остается на `/web`.
 - User API - маршруты `/me/...`, доступные только текущему пользователю.
 - Admin API - маршруты `/admin/...`, недоступные из пользовательского Mini App.
 - MVP - первая production-ready версия Mini App без переписывания frontend-стека.
@@ -108,16 +109,16 @@ Admin UI не входит в пользовательский Mini App. Адм�
 ### MVP
 
 1. Reply keyboard button `Web-версия`
-   - если публичный URL HTTPS настроен, кнопка открывает Mini App через `web_app`;
-   - если HTTPS не настроен, кнопка остается fallback-текстом и выдает web-ключ.
+   - если публичный URL HTTPS настроен, кнопка открывает Mini App через `web_app` напрямую;
+   - если HTTPS не настроен, кнопка остается fallback-текстом и выдает web-ключ для `/web`.
 
 2. Inline button `Web-версия`
-   - если публичный URL HTTPS настроен, кнопка открывает Mini App через `web_app`;
+   - если публичный URL HTTPS настроен, кнопка открывает Mini App через `web_app` напрямую;
    - иначе вызывает текущий сценарий выдачи web-ключа.
 
 3. Menu button
    - настроить через BotFather или Bot API `setChatMenuButton`;
-   - URL: `{WEB_PUBLIC_URL}/web`;
+   - URL: `{WEB_PUBLIC_URL}/miniapp`;
    - текст: `RememberMe` или `Web-версия`.
 
 4. Прямая ссылка из бота
@@ -323,16 +324,17 @@ Admin UI не входит в пользовательский Mini App. Адм�
 
 Статус: выполнено.
 
-- Проверить web_app reply/inline buttons при HTTPS.
+- Проверить chooser `Web / приложение` и web_app-вариант при HTTPS.
 - Добавить menu button setup в deployment.
 - Проверить fallback при HTTP/local.
 - Подготовить BotFather checklist.
 
 Реализация:
 
-- reply/inline `Web-версия` используют Telegram `web_app` только при HTTPS `WEB_PUBLIC_URL` или `APP_BASE_URL`;
+- reply/inline `Web / приложение` открывают chooser;
+- chooser показывает `web_app` вариант Mini App только при HTTPS `WEB_PUBLIC_URL` или `APP_BASE_URL`;
 - при HTTP/local остается fallback через персональный web-ключ;
-- `python -B -m src.main menu-button --dry-run` проверяет итоговый `{WEB_PUBLIC_URL}/web`;
+- `python -B -m src.main menu-button --dry-run` проверяет итоговый `{WEB_PUBLIC_URL}/miniapp`;
 - `python -B -m src.main menu-button` настраивает Telegram chat menu button через Bot API;
 - BotFather/Main Mini App checklist описан в [Deployment](DEPLOYMENT.md).
 
@@ -382,7 +384,7 @@ Admin UI не входит в пользовательский Mini App. Адм�
 Реализация:
 
 - добавлена команда `python -B -m src.main production-check`;
-- команда валидирует HTTPS public URL, отсутствие `/web` в base URL, strict CORS, выключенные API docs и test-login;
+- команда валидирует HTTPS public URL, отсутствие `/web` и `/miniapp` в base URL, strict CORS, выключенные API docs и test-login;
 - команда проверяет допустимый TTL `USER_AUTH_MAX_AGE_SECONDS` и текст Telegram menu button;
 - `Deployment` и `Technical Guide` обновлены production-check шагом;
 - Mini App launch, menu button и domain smoke закреплены автоматическими тестами.
@@ -401,8 +403,8 @@ python -B -m src.main production-check
 
 Ручные проверки:
 
-- открыть Mini App из reply keyboard;
-- открыть Mini App из inline button;
+- открыть Mini App напрямую из reply keyboard;
+- открыть Mini App напрямую из inline button;
 - открыть `/web` вне Telegram с web-ключом;
 - проверить invalid/expired auth;
 - проверить мобильный viewport 360px;
@@ -437,7 +439,7 @@ python -B -m src.main production-check
 
 ## Решение На Текущий Момент
 
-Для этого проекта рациональный путь - не создавать отдельное приложение, а довести существующий `/web` до Telegram Mini App:
+Для этого проекта рациональный путь - не создавать отдельное native-приложение, а использовать существующий web shell как Telegram Mini App на `/miniapp`, сохранив `/web` как обычную web-версию:
 
 - MVP без смены frontend-стека;
 - Telegram `initData` как основной вход;

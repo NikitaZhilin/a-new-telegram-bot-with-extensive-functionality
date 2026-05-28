@@ -156,6 +156,7 @@ from src.bot.handlers.driver import (
     driver_vehicle_view_callback,
 )
 from src.bot.handlers.navigation import menu_button_handler
+from src.bot.handlers.navigation import web_entry_callback
 from src.bot.handlers.navigation import removed_notes_callback, share_bot_callback
 from src.bot.handlers.activity import activity_event_handler
 
@@ -290,6 +291,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(settings_stats_callback, pattern="^settings_stats$"))
     application.add_handler(CallbackQueryHandler(settings_subscription_callback, pattern="^settings_subscription$"))
     application.add_handler(CallbackQueryHandler(settings_web_login_callback, pattern="^settings_web_login$"))
+    application.add_handler(CallbackQueryHandler(web_entry_callback, pattern="^web_entry$"))
 
     # Driver callbacks
     application.add_handler(CallbackQueryHandler(driver_menu_callback, pattern="^driver_menu$"))

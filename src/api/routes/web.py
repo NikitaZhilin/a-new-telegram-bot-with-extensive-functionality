@@ -48,6 +48,12 @@ async def web_index() -> FileResponse:
     return FileResponse(WEB_DIR / "index.html")
 
 
+@router.get("/miniapp", include_in_schema=False)
+async def miniapp_index() -> FileResponse:
+    """Return the Telegram Mini App shell."""
+    return FileResponse(WEB_DIR / "index.html")
+
+
 @router.get("/app/info", response_model=AppInfoResponse)
 async def app_release_info() -> AppInfoResponse:
     """Return public app version and release metadata."""

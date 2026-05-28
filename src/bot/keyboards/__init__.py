@@ -15,6 +15,7 @@ from src.bot.keyboards.builder import (
     get_home_inline_keyboard,
     get_back_home_inline_keyboard,
     get_settings_back_home_keyboard,
+    get_web_entry_keyboard,
     get_web_login_keyboard,
     # Lists
     get_lists_list_keyboard,
@@ -102,6 +103,7 @@ __all__ = [
     "get_home_inline_keyboard",
     "get_back_home_inline_keyboard",
     "get_settings_back_home_keyboard",
+    "get_web_entry_keyboard",
     "get_web_login_keyboard",
     # Lists
     "get_lists_list_keyboard",

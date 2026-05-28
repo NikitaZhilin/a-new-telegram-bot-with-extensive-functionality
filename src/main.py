@@ -528,7 +528,7 @@ def build_mini_app_web_url() -> str | None:
     base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip().rstrip("/")
     if not base_url.startswith("https://"):
         return None
-    return f"{base_url}/web"
+    return f"{base_url}/miniapp"
 
 
 async def configure_menu_button(dry_run: bool = False) -> dict[str, str]:
@@ -568,8 +568,8 @@ def production_readiness_errors() -> list[str]:
         errors.append("WEB_PUBLIC_URL or APP_BASE_URL must be an HTTPS URL")
     if raw_base_url.endswith("/"):
         errors.append("WEB_PUBLIC_URL/APP_BASE_URL must not have a trailing slash")
-    if raw_base_url.endswith("/web"):
-        errors.append("WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web URL")
+    if raw_base_url.endswith("/web") or raw_base_url.endswith("/miniapp"):
+        errors.append("WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web or /miniapp URL")
     if settings.API_DOCS_ENABLED:
         errors.append("API_DOCS_ENABLED must be false in production")
     if settings.WEB_TEST_LOGIN_ENABLED:

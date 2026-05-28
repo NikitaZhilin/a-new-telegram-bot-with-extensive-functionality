@@ -353,6 +353,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         web_response = await client.get("/web")
+        miniapp_response = await client.get("/miniapp")
         summary_response = await client.get("/me/summary", headers=headers)
 
         list_response = await client.post("/me/lists", headers=headers, json={"title": "Web CRUD"})
@@ -600,6 +601,8 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
 
     assert web_response.status_code == 200
     assert "RememberMe Web" in web_response.text
+    assert miniapp_response.status_code == 200
+    assert "RememberMe Web" in miniapp_response.text
     assert summary_response.status_code == 200
     assert list_response.status_code == 201
     assert item_response.status_code == 201

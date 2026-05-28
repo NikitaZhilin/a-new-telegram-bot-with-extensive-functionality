@@ -176,8 +176,9 @@ WEB_PUBLIC_URL=https://bot.example.com
 MINI_APP_MENU_BUTTON_TEXT=RememberMe
 ```
 
-`WEB_PUBLIC_URL` must not include `/web`; the application appends `/web` for
-Telegram launch surfaces and personal fallback links.
+`WEB_PUBLIC_URL` must not include `/web` or `/miniapp`. The application appends
+`/miniapp` for Telegram launch surfaces and `/web?token=...` for personal
+fallback links outside Telegram.
 
 Before configuring Telegram, validate the URL without calling Telegram:
 
@@ -192,15 +193,15 @@ Then configure the chat menu button through the Bot API:
 python -B -m src.main menu-button
 ```
 
-This sets the bot's menu button to open `{WEB_PUBLIC_URL}/web`. The command
-refuses non-HTTPS URLs. In local development with `http://127.0.0.1:8000`, the
-reply and inline `Web-версия` buttons intentionally fall back to the current
-personal web-key flow.
+This sets the bot's menu button to open `{WEB_PUBLIC_URL}/miniapp`. The command
+refuses non-HTTPS URLs. In the bot menus, `Web-версия` opens the Mini App
+directly when HTTPS is configured. In local development without HTTPS, it falls
+back to the personal web-key flow for `/web`.
 
 `production-check` fails validation if:
 
 - `WEB_PUBLIC_URL`/`APP_BASE_URL` is not HTTPS;
-- the public URL includes `/web` or has a trailing slash;
+- the public URL includes `/web`, `/miniapp`, or has a trailing slash;
 - `API_DOCS_ENABLED=true`;
 - `WEB_TEST_LOGIN_ENABLED=true`;
 - `CORS_ORIGINS` contains `*` or non-HTTPS origins;
@@ -209,9 +210,9 @@ personal web-key flow.
 
 BotFather checklist for public Mini App profile:
 
-- Bot Settings -> Menu Button: set the same HTTPS `/web` URL if not using the CLI.
+- Bot Settings -> Menu Button: set the same HTTPS `/miniapp` URL if not using the CLI.
 - Bot Settings -> Configure Mini App -> Enable Mini App.
-- Use the public app URL `{WEB_PUBLIC_URL}/web`.
+- Use the public app URL `{WEB_PUBLIC_URL}/miniapp`.
 - Upload app icon, screenshots, and video previews after the MVP smoke-tests pass.
 - Keep Attachment Menu disabled for MVP unless a separate rollout plan is approved.
 

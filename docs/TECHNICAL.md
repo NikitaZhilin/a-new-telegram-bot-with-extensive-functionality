@@ -204,6 +204,7 @@ Web:
 ```text
 GET /
 GET /web
+GET /miniapp
 GET /app/info
 GET /web/assets/{asset_name}
 ```

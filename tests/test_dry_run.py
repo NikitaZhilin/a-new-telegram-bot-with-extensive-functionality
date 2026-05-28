@@ -79,7 +79,7 @@ def test_build_mini_app_web_url_requires_https(monkeypatch):
 
     monkeypatch.setattr(main.settings, "WEB_PUBLIC_URL", "https://bot.example.com/")
 
-    assert main.build_mini_app_web_url() == "https://bot.example.com/web"
+    assert main.build_mini_app_web_url() == "https://bot.example.com/miniapp"
 
 
 @pytest.mark.asyncio
@@ -92,7 +92,7 @@ async def test_configure_menu_button_dry_run_uses_https_url_without_network(monk
 
     assert result == {
         "text": "RememberMe",
-        "url": "https://bot.example.com/web",
+        "url": "https://bot.example.com/miniapp",
         "mode": "dry-run",
     }
 
@@ -108,7 +108,7 @@ def test_production_readiness_check_accepts_strict_mini_app_settings(monkeypatch
 
     assert main.production_readiness_errors() == []
     assert main.run_production_check() == {
-        "url": "https://bot.example.com/web",
+        "url": "https://bot.example.com/miniapp",
         "status": "ok",
     }
 
@@ -125,7 +125,7 @@ def test_production_readiness_check_rejects_insecure_settings(monkeypatch):
     errors = main.production_readiness_errors()
 
     assert "WEB_PUBLIC_URL or APP_BASE_URL must be an HTTPS URL" in errors
-    assert "WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web URL" in errors
+    assert "WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web or /miniapp URL" in errors
     assert "API_DOCS_ENABLED must be false in production" in errors
     assert "WEB_TEST_LOGIN_ENABLED must be false in production" in errors
     assert "CORS_ORIGINS must not contain * in production" in errors
