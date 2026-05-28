@@ -144,13 +144,40 @@ def test_web_initializes_telegram_mini_app_runtime():
 
 def test_web_hides_manual_login_and_admin_nav_in_telegram_mode():
     """Mini App launch should rely on initData and keep admin UI out of the user shell."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
     script = Path("src/web/app.js").read_text(encoding="utf-8")
     styles = Path("src/web/styles.css").read_text(encoding="utf-8")
 
     assert 'Boolean(state.user) || isTelegramMiniApp()' in script
-    assert 'section === "admin" && isTelegramMiniApp()' in script
+    assert 'section === "admin"' in script
+    assert 'data-section="admin"' not in html
     assert '.telegram-mini-app #loginPanel' in styles
-    assert '.telegram-mini-app [data-section="admin"]' in styles
+
+
+def test_web_uses_tab_navigation_without_dead_mobile_sidebar_button():
+    """The web shell should use direct tabs and avoid a dead mobile sidebar toggle."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert 'id="menuToggle"' not in html
+    assert 'id="menuBackdrop"' not in html
+    assert '<nav id="mobileNav" class="nav nav-tabs"' in html
+    assert '?.addEventListener("click", toggleMobileMenu)' in script
+
+
+def test_web_login_and_reload_have_loading_states():
+    """Long-running login and reload actions should disable the clicked button."""
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert "withButtonLoading" in script
+    assert "withFormLoading" in script
+    assert "bindFormSubmit" in script
+    assert 'bindFormSubmit("#listCreateForm", handleListCreate' in script
+    assert 'bindFormSubmit("#driverJournalFilterForm", handleJournalFilter' in script
+    assert 'withButtonLoading(event.currentTarget, "Обновление..."' in script
+    assert 'withButtonLoading(event.currentTarget, "Вход..."' in script
+    assert 'form[aria-busy="true"]' in styles
 
 
 def test_web_background_uses_soft_theme_gradient():
@@ -186,3 +213,61 @@ def test_web_reminders_can_link_general_lists():
     assert 'data-action="remind-list"' in script
     assert 'data-action="open-reminder-list"' in script
     assert "list_id: form.list_id.value ? Number(form.list_id.value) : null" in script
+
+
+def test_web_navigation_has_dynamic_badges_and_admin_gate():
+    """Top navigation should be rendered from state with badges and admin gating."""
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert "baseNavSections" in script
+    assert "userCanOpenAdmin" in script
+    assert "navBadge" in script
+    assert "updateNavigation" in script
+    assert "nav-badge" in script
+    assert ".nav-badge" in styles
+    assert 'section === "admin" && !userCanOpenAdmin()' in script
+
+
+def test_web_dashboard_has_today_snapshot_and_quick_actions():
+    """Dashboard should show actionable today data instead of only static metrics."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert 'id="dashboardToday"' in html
+    assert "todaySnapshot" in script
+    assert "renderTodaySnapshot" in script
+    assert "loadTodaySnapshot" in script
+    assert 'data-action="go-section"' in script
+    assert 'data-action="focus-reminder"' in script
+    assert 'data-action="focus-medication"' in script
+    assert ".today-grid" in styles
+    assert ".quick-action" in styles
+
+
+def test_web_driver_uses_subtabs():
+    """Driver web section should split large domains into sub-tabs."""
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert "driverTabs" in script
+    assert "ensureDriverTabs" in script
+    assert "setDriverTab" in script
+    assert 'data-action="driver-tab"' in script
+    assert ".subtabs" in styles
+    assert ".driver-tab-hidden" in styles
+
+
+def test_web_uses_toasts_and_section_busy_state():
+    """Feedback should be app-like and long loads should mark the active section busy."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert 'id="toastStack"' in html
+    assert "toastStack" in script
+    assert "setSectionBusy" in script
+    assert "section-loading" in script
+    assert ".toast-stack" in styles
+    assert ".section-loading" in styles

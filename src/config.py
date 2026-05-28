@@ -146,6 +146,10 @@ class Settings(BaseSettings):
         default=30,
         description="How long Telegram-issued web login keys stay active"
     )
+    MINI_APP_MENU_BUTTON_TEXT: str = Field(
+        default="RememberMe",
+        description="Telegram chat menu button text for opening the Mini App"
+    )
     
     # Worker
     WORKER_INTERVAL: int = Field(default=60, description="Worker check interval in seconds")

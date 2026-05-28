@@ -6,6 +6,8 @@ Usage:
     python -m src.main api       # Run FastAPI API
     python -m src.main worker    # Run reminder worker
     python -m src.main all       # Run all services
+    python -m src.main menu-button  # Configure Telegram Mini App menu button
+    python -m src.main production-check  # Validate production Mini App settings
     python -m src.main bot --dry-run
     python -m src.main worker --dry-run
     python -m src.main all --dry-run
@@ -521,6 +523,87 @@ async def dry_run_all() -> None:
     )
 
 
+def build_mini_app_web_url() -> str | None:
+    """Return the HTTPS Mini App URL accepted by Telegram web_app launch surfaces."""
+    base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip().rstrip("/")
+    if not base_url.startswith("https://"):
+        return None
+    return f"{base_url}/web"
+
+
+async def configure_menu_button(dry_run: bool = False) -> dict[str, str]:
+    """Configure Telegram chat menu button to open the Mini App."""
+    logger = structlog.get_logger(__name__)
+    web_url = build_mini_app_web_url()
+    if not web_url:
+        raise RuntimeError("WEB_PUBLIC_URL or APP_BASE_URL must be an HTTPS URL to configure a Mini App menu button")
+
+    text_value = settings.MINI_APP_MENU_BUTTON_TEXT.strip() or "RememberMe"
+    if dry_run:
+        logger.info("Menu button dry-run completed", text=text_value, url=web_url)
+        return {"text": text_value, "url": web_url, "mode": "dry-run"}
+
+    from telegram import Bot, MenuButtonWebApp, WebAppInfo
+
+    bot = Bot(token=settings.BOT_TOKEN)
+    try:
+        await bot.initialize()
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text=text_value,
+                web_app=WebAppInfo(url=web_url),
+            )
+        )
+        logger.info("Menu button configured", text=text_value, url=web_url)
+        return {"text": text_value, "url": web_url, "mode": "configured"}
+    finally:
+        await bot.shutdown()
+
+
+def production_readiness_errors() -> list[str]:
+    """Return production Mini App configuration problems that must be fixed before launch."""
+    errors: list[str] = []
+    raw_base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip()
+    if not build_mini_app_web_url():
+        errors.append("WEB_PUBLIC_URL or APP_BASE_URL must be an HTTPS URL")
+    if raw_base_url.endswith("/"):
+        errors.append("WEB_PUBLIC_URL/APP_BASE_URL must not have a trailing slash")
+    if raw_base_url.endswith("/web"):
+        errors.append("WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web URL")
+    if settings.API_DOCS_ENABLED:
+        errors.append("API_DOCS_ENABLED must be false in production")
+    if settings.WEB_TEST_LOGIN_ENABLED:
+        errors.append("WEB_TEST_LOGIN_ENABLED must be false in production")
+    if "*" in settings.cors_origin_list:
+        errors.append("CORS_ORIGINS must not contain * in production")
+    insecure_origins = [origin for origin in settings.cors_origin_list if not origin.startswith("https://")]
+    if insecure_origins:
+        errors.append("CORS_ORIGINS must contain only HTTPS origins in production")
+    if settings.USER_AUTH_MAX_AGE_SECONDS <= 0:
+        errors.append("USER_AUTH_MAX_AGE_SECONDS must be positive")
+    if settings.USER_AUTH_MAX_AGE_SECONDS > 86400:
+        errors.append("USER_AUTH_MAX_AGE_SECONDS must not exceed 86400 for Mini App auth")
+    menu_text = settings.MINI_APP_MENU_BUTTON_TEXT.strip()
+    if not menu_text:
+        errors.append("MINI_APP_MENU_BUTTON_TEXT must not be empty")
+    if len(menu_text) > 64:
+        errors.append("MINI_APP_MENU_BUTTON_TEXT must be 64 characters or fewer")
+    return errors
+
+
+def run_production_check() -> dict[str, str]:
+    """Validate production settings and return the Mini App launch target."""
+    logger = structlog.get_logger(__name__)
+    errors = production_readiness_errors()
+    if errors:
+        for error in errors:
+            logger.error("Production readiness check failed", error=error)
+        raise RuntimeError("Production readiness check failed")
+    web_url = build_mini_app_web_url()
+    logger.info("Production readiness check completed", url=web_url)
+    return {"url": web_url or "", "status": "ok"}
+
+
 def _format_admin_startup_notice_text(info: dict) -> str:
     """Build admin-only startup/deploy notice text."""
     return (
@@ -836,12 +919,14 @@ async def run_all() -> None:
 def main() -> None:
     """Main entry point."""
     if len(sys.argv) < 2:
-        print("Usage: python -m src.main [bot|api|worker|all|init-db] [--dry-run]")
+        print("Usage: python -m src.main [bot|api|worker|all|init-db|menu-button|production-check] [--dry-run]")
         print("  bot      - Run Telegram bot")
         print("  api      - Run FastAPI API")
         print("  worker   - Run reminder worker")
         print("  all      - Run all services")
         print("  init-db  - Initialize database tables")
+        print("  menu-button - Configure Telegram chat menu button for the Mini App")
+        print("  production-check - Validate production Mini App settings")
         print("  --dry-run - Validate startup without polling, webhooks, or Telegram API")
         sys.exit(1)
     
@@ -890,10 +975,28 @@ def main() -> None:
         else:
             logger.info("Starting all services...")
             asyncio.run(run_all())
+
+    elif command == "menu-button":
+        if dry_run:
+            logger.info("Starting menu-button dry-run...")
+        else:
+            logger.info("Configuring Mini App menu button...")
+        try:
+            asyncio.run(configure_menu_button(dry_run=dry_run))
+        except RuntimeError as exc:
+            logger.error("Menu button configuration failed", error=str(exc))
+            sys.exit(1)
+
+    elif command == "production-check":
+        try:
+            run_production_check()
+        except RuntimeError as exc:
+            logger.error("Production check failed", error=str(exc))
+            sys.exit(1)
     
     else:
         print(f"Unknown command: {command}")
-        print("Use 'bot', 'api', 'worker', 'all', or 'init-db'")
+        print("Use 'bot', 'api', 'worker', 'all', 'init-db', 'menu-button', or 'production-check'")
         sys.exit(1)
 
 

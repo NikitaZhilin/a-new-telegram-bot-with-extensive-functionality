@@ -8,11 +8,9 @@
   <link rel="stylesheet" href="/web/assets/styles.css">
 </head>
 <body>
-  <div id="menuBackdrop" class="menu-backdrop" hidden></div>
   <div class="app-shell">
     <main class="content">
       <header class="topbar">
-        <button id="menuToggle" class="menu-toggle" type="button" aria-controls="mobileNav" aria-expanded="false">☰ Меню</button>
         <div class="topbar-title">
           <h1 id="sectionTitle">Сводка</h1>
           <p id="sectionSubtitle">Текущие данные бота в web-версии.</p>
@@ -32,7 +30,6 @@
         <button class="nav-button" data-section="reminders">Напоминания</button>
         <button class="nav-button" data-section="medications">Лекарства</button>
         <button class="nav-button" data-section="driver">Водитель</button>
-        <button class="nav-button" data-section="admin">Админ-панель</button>
       </nav>
 
       <section id="loginPanel" class="panel">
@@ -67,9 +64,11 @@
       </section>
 
       <section id="message" class="message hidden"></section>
+      <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
       <section id="dashboard" class="section active">
         <div id="releaseInfo" class="panel release-info"></div>
+        <div id="dashboardToday" class="panel today-panel"></div>
         <div id="dashboardCards" class="metric-grid"></div>
         <div id="dashboardDetails" class="dashboard-details"></div>
       </section>

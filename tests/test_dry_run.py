@@ -69,3 +69,66 @@ async def test_dry_run_all_uses_safe_component_checks(monkeypatch):
     await main.dry_run_all()
 
     assert calls == ["bot", "worker"]
+
+
+def test_build_mini_app_web_url_requires_https(monkeypatch):
+    monkeypatch.setattr(main.settings, "WEB_PUBLIC_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(main.settings, "APP_BASE_URL", None)
+
+    assert main.build_mini_app_web_url() is None
+
+    monkeypatch.setattr(main.settings, "WEB_PUBLIC_URL", "https://bot.example.com/")
+
+    assert main.build_mini_app_web_url() == "https://bot.example.com/web"
+
+
+@pytest.mark.asyncio
+async def test_configure_menu_button_dry_run_uses_https_url_without_network(monkeypatch):
+    monkeypatch.setattr(main.settings, "WEB_PUBLIC_URL", "https://bot.example.com")
+    monkeypatch.setattr(main.settings, "APP_BASE_URL", None)
+    monkeypatch.setattr(main.settings, "MINI_APP_MENU_BUTTON_TEXT", "RememberMe")
+
+    result = await main.configure_menu_button(dry_run=True)
+
+    assert result == {
+        "text": "RememberMe",
+        "url": "https://bot.example.com/web",
+        "mode": "dry-run",
+    }
+
+
+def test_production_readiness_check_accepts_strict_mini_app_settings(monkeypatch):
+    monkeypatch.setattr(main.settings, "WEB_PUBLIC_URL", "https://bot.example.com")
+    monkeypatch.setattr(main.settings, "APP_BASE_URL", None)
+    monkeypatch.setattr(main.settings, "API_DOCS_ENABLED", False)
+    monkeypatch.setattr(main.settings, "WEB_TEST_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main.settings, "CORS_ORIGINS", "https://bot.example.com")
+    monkeypatch.setattr(main.settings, "USER_AUTH_MAX_AGE_SECONDS", 86400)
+    monkeypatch.setattr(main.settings, "MINI_APP_MENU_BUTTON_TEXT", "RememberMe")
+
+    assert main.production_readiness_errors() == []
+    assert main.run_production_check() == {
+        "url": "https://bot.example.com/web",
+        "status": "ok",
+    }
+
+
+def test_production_readiness_check_rejects_insecure_settings(monkeypatch):
+    monkeypatch.setattr(main.settings, "WEB_PUBLIC_URL", "http://127.0.0.1:8000/web")
+    monkeypatch.setattr(main.settings, "APP_BASE_URL", None)
+    monkeypatch.setattr(main.settings, "API_DOCS_ENABLED", True)
+    monkeypatch.setattr(main.settings, "WEB_TEST_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main.settings, "CORS_ORIGINS", "*, http://example.com")
+    monkeypatch.setattr(main.settings, "USER_AUTH_MAX_AGE_SECONDS", 172800)
+    monkeypatch.setattr(main.settings, "MINI_APP_MENU_BUTTON_TEXT", "")
+
+    errors = main.production_readiness_errors()
+
+    assert "WEB_PUBLIC_URL or APP_BASE_URL must be an HTTPS URL" in errors
+    assert "WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web URL" in errors
+    assert "API_DOCS_ENABLED must be false in production" in errors
+    assert "WEB_TEST_LOGIN_ENABLED must be false in production" in errors
+    assert "CORS_ORIGINS must not contain * in production" in errors
+    assert "CORS_ORIGINS must contain only HTTPS origins in production" in errors
+    assert "USER_AUTH_MAX_AGE_SECONDS must not exceed 86400 for Mini App auth" in errors
+    assert "MINI_APP_MENU_BUTTON_TEXT must not be empty" in errors

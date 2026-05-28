@@ -12,7 +12,7 @@ import pytest
 
 from src.api.app import create_application
 from src.config import settings
-from src.db.models import Medication, Reminder, ReminderStatus, RepeatRule, User
+from src.db.models import ListMember, Medication, Reminder, ReminderStatus, RepeatRule, User
 from src.db.session import get_db
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
@@ -241,6 +241,99 @@ async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
     assert unlinked_response.json()["source_module"] == "general"
     assert unlinked_response.json()["list_id"] is None
     assert rejected_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_web_shared_list_roles_control_api_access(db_session):
+    """Mini App list APIs should expose shared lists while enforcing owner/editor/viewer roles."""
+    owner = User(telegram_id=93701, username="owner", first_name="Owner", timezone="UTC")
+    editor = User(telegram_id=93702, username="editor", first_name="Editor", timezone="UTC")
+    viewer = User(telegram_id=93703, username="viewer", first_name="Viewer", timezone="UTC")
+    outsider = User(telegram_id=93704, username="outsider", first_name="Outsider", timezone="UTC")
+    db_session.add_all([owner, editor, viewer, outsider])
+    await db_session.flush()
+
+    service = ListService(db_session)
+    shared_list = await service.create_list(owner.id, "Shared errands")
+    item = await service.add_item(shared_list.id, owner.id, "Milk")
+    db_session.add_all(
+        [
+            ListMember(list_id=shared_list.id, user_id=editor.id, role="editor"),
+            ListMember(list_id=shared_list.id, user_id=viewer.id, role="viewer"),
+        ]
+    )
+    await db_session.commit()
+
+    app = create_application()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    def headers(user: User) -> dict[str, str]:
+        return {
+            "X-Telegram-Init-Data": _telegram_init_data(
+                {
+                    "id": user.telegram_id,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                }
+            )
+        }
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        owner_lists_response = await client.get("/me/lists", headers=headers(owner))
+        editor_lists_response = await client.get("/me/lists", headers=headers(editor))
+        viewer_lists_response = await client.get("/me/lists", headers=headers(viewer))
+        outsider_detail_response = await client.get(f"/me/lists/{shared_list.id}", headers=headers(outsider))
+
+        owner_members_response = await client.get(f"/me/lists/{shared_list.id}/members", headers=headers(owner))
+        viewer_members_response = await client.get(f"/me/lists/{shared_list.id}/members", headers=headers(viewer))
+
+        editor_add_response = await client.post(
+            f"/me/lists/{shared_list.id}/items",
+            headers=headers(editor),
+            json={"text": "Bread"},
+        )
+        viewer_patch_response = await client.patch(
+            f"/me/lists/items/{item.id}",
+            headers=headers(viewer),
+            json={"text": "Tea"},
+        )
+        viewer_checklist_response = await client.post(
+            f"/me/lists/{shared_list.id}/checklist-runs",
+            headers=headers(viewer),
+        )
+        viewer_member_id = next(
+            item["member_id"]
+            for item in owner_members_response.json()
+            if item["role"] == "viewer"
+        )
+        owner_role_update_response = await client.patch(
+            f"/me/lists/{shared_list.id}/members/{viewer_member_id}",
+            headers=headers(owner),
+            json={"role": "editor"},
+        )
+
+    assert owner_lists_response.status_code == 200
+    assert editor_lists_response.status_code == 200
+    assert viewer_lists_response.status_code == 200
+    assert outsider_detail_response.status_code == 404
+    assert owner_lists_response.json()[0]["access_role"] == "owner"
+    assert editor_lists_response.json()[0]["access_role"] == "editor"
+    assert viewer_lists_response.json()[0]["access_role"] == "viewer"
+    assert owner_members_response.status_code == 200
+    assert {item["role"] for item in owner_members_response.json()} == {"owner", "editor", "viewer"}
+    assert viewer_members_response.status_code == 403
+    assert editor_add_response.status_code == 201
+    assert any(item["text"] == "Bread" for item in editor_add_response.json()["items"])
+    assert viewer_patch_response.status_code == 403
+    assert viewer_checklist_response.status_code == 201
+    assert viewer_checklist_response.json()["items_total"] == 2
+    assert owner_role_update_response.status_code == 200
+    assert owner_role_update_response.json()["role"] == "editor"
 
 
 @pytest.mark.asyncio

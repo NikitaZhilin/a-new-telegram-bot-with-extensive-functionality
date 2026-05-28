@@ -86,6 +86,7 @@ ADMIN_TELEGRAM_IDS=
 WEB_PUBLIC_URL=
 WEB_TEST_LOGIN_ENABLED=false
 WEB_LOGIN_TOKEN_TTL_DAYS=30
+MINI_APP_MENU_BUTTON_TEXT=RememberMe
 LOG_LEVEL=INFO
 TIMEZONE_DEFAULT=Europe/Moscow
 APP_VERSION=0.1.0-beta
@@ -151,6 +152,7 @@ ADMIN_TOKEN
 ADMIN_TELEGRAM_IDS
 BOT_USERNAME
 WEB_PUBLIC_URL, if the API/web UI has a public HTTPS URL
+MINI_APP_MENU_BUTTON_TEXT, optional menu button label for Telegram Mini App
 ```
 
 Keep production defaults conservative:
@@ -163,6 +165,55 @@ CORS_ORIGINS=
 ```
 
 The real `.env.prod` is ignored by Git and must not be committed.
+
+## Telegram Mini App launch
+
+Telegram Mini App launch buttons require a public HTTPS URL. For production,
+set:
+
+```env
+WEB_PUBLIC_URL=https://bot.example.com
+MINI_APP_MENU_BUTTON_TEXT=RememberMe
+```
+
+`WEB_PUBLIC_URL` must not include `/web`; the application appends `/web` for
+Telegram launch surfaces and personal fallback links.
+
+Before configuring Telegram, validate the URL without calling Telegram:
+
+```powershell
+python -B -m src.main production-check
+python -B -m src.main menu-button --dry-run
+```
+
+Then configure the chat menu button through the Bot API:
+
+```powershell
+python -B -m src.main menu-button
+```
+
+This sets the bot's menu button to open `{WEB_PUBLIC_URL}/web`. The command
+refuses non-HTTPS URLs. In local development with `http://127.0.0.1:8000`, the
+reply and inline `Web-версия` buttons intentionally fall back to the current
+personal web-key flow.
+
+`production-check` fails validation if:
+
+- `WEB_PUBLIC_URL`/`APP_BASE_URL` is not HTTPS;
+- the public URL includes `/web` or has a trailing slash;
+- `API_DOCS_ENABLED=true`;
+- `WEB_TEST_LOGIN_ENABLED=true`;
+- `CORS_ORIGINS` contains `*` or non-HTTPS origins;
+- `USER_AUTH_MAX_AGE_SECONDS` is invalid or longer than 86400 seconds;
+- `MINI_APP_MENU_BUTTON_TEXT` is empty or too long.
+
+BotFather checklist for public Mini App profile:
+
+- Bot Settings -> Menu Button: set the same HTTPS `/web` URL if not using the CLI.
+- Bot Settings -> Configure Mini App -> Enable Mini App.
+- Use the public app URL `{WEB_PUBLIC_URL}/web`.
+- Upload app icon, screenshots, and video previews after the MVP smoke-tests pass.
+- Keep Attachment Menu disabled for MVP unless a separate rollout plan is approved.
 
 ## Admin status and controlled restart
 

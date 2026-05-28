@@ -93,6 +93,7 @@ jobs:
       WEB_PUBLIC_URL: ${{ vars.WEB_PUBLIC_URL || '' }}
       WEB_TEST_LOGIN_ENABLED: ${{ vars.WEB_TEST_LOGIN_ENABLED || 'false' }}
       WEB_LOGIN_TOKEN_TTL_DAYS: ${{ vars.WEB_LOGIN_TOKEN_TTL_DAYS || '30' }}
+      MINI_APP_MENU_BUTTON_TEXT: ${{ vars.MINI_APP_MENU_BUTTON_TEXT || 'RememberMe' }}
       LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
       TIMEZONE_DEFAULT: ${{ vars.TIMEZONE_DEFAULT || 'Europe/Moscow' }}
       APP_VERSION: ${{ vars.APP_VERSION || format('0.1.{0}-beta', github.run_number) }}
@@ -177,6 +178,9 @@ jobs:
               printf 'TESTING_NOTICE_ENABLED=%s\n' "$TESTING_NOTICE_ENABLED"
               printf 'TESTING_NOTICE_TEXT=%s\n' "$TESTING_NOTICE_TEXT"
               printf 'SEND_STARTUP_MENU_ON_BOOT=%s\n' "$SEND_STARTUP_MENU_ON_BOOT"
+              printf 'WEB_PUBLIC_URL=%s\n' "$WEB_PUBLIC_URL"
+              printf 'WEB_LOGIN_TOKEN_TTL_DAYS=%s\n' "$WEB_LOGIN_TOKEN_TTL_DAYS"
+              printf 'MINI_APP_MENU_BUTTON_TEXT=%s\n' "$MINI_APP_MENU_BUTTON_TEXT"
             } > .env.prod.overrides
             scp -i ~/.ssh/deploy_key -P "$VPS_PORT" .env.prod.overrides "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/.env.prod.overrides"
             rm -f .env.prod.overrides
@@ -222,6 +226,7 @@ jobs:
             printf 'WEB_TEST_LOGIN_ENABLED=%s\n' "$WEB_TEST_LOGIN_ENABLED"
             printf 'WEB_PUBLIC_URL=%s\n' "$WEB_PUBLIC_URL"
             printf 'WEB_LOGIN_TOKEN_TTL_DAYS=%s\n' "$WEB_LOGIN_TOKEN_TTL_DAYS"
+            printf 'MINI_APP_MENU_BUTTON_TEXT=%s\n' "$MINI_APP_MENU_BUTTON_TEXT"
             printf 'LOG_LEVEL=%s\n' "$LOG_LEVEL"
             printf 'TIMEZONE_DEFAULT=%s\n' "$TIMEZONE_DEFAULT"
             printf 'APP_VERSION=%s\n' "$APP_VERSION"

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from telegram.ext import ConversationHandler
 
+from src.config import settings
 from src.bot.app import create_application
 from src.bot.handlers import medications as medication_handlers
 from src.bot.keyboards import (
@@ -401,6 +402,53 @@ def test_main_menus_expose_active_sections_only():
         "🌐 Web-версия",
         "👥 Поделиться ботом",
     }
+
+
+def test_web_app_buttons_use_telegram_web_app_only_for_https(monkeypatch):
+    """Telegram web_app launch buttons require a public HTTPS URL."""
+    monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "https://bot.example.com")
+    monkeypatch.setattr(settings, "APP_BASE_URL", None)
+
+    reply_markup = get_main_menu_keyboard().to_dict()
+    inline_markup = get_main_menu_inline_keyboard().to_dict()
+
+    reply_web_button = [
+        button
+        for row in reply_markup["keyboard"]
+        for button in row
+        if button["text"] == "🌐 Web-версия"
+    ][0]
+    inline_web_button = [
+        button
+        for row in inline_markup["inline_keyboard"]
+        for button in row
+        if button["text"] == "🌐 Web-версия"
+    ][0]
+
+    assert reply_web_button["web_app"]["url"] == "https://bot.example.com/web"
+    assert inline_web_button["web_app"]["url"] == "https://bot.example.com/web"
+    assert "callback_data" not in inline_web_button
+
+    monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "http://127.0.0.1:8000")
+
+    reply_markup = get_main_menu_keyboard().to_dict()
+    inline_markup = get_main_menu_inline_keyboard().to_dict()
+    reply_web_button = [
+        button
+        for row in reply_markup["keyboard"]
+        for button in row
+        if button["text"] == "🌐 Web-версия"
+    ][0]
+    inline_web_button = [
+        button
+        for row in inline_markup["inline_keyboard"]
+        for button in row
+        if button["text"] == "🌐 Web-версия"
+    ][0]
+
+    assert "web_app" not in reply_web_button
+    assert inline_web_button["callback_data"] == "settings_web_login"
+    assert "web_app" not in inline_web_button
 
 
 def test_driver_keyboards_have_registered_callbacks():

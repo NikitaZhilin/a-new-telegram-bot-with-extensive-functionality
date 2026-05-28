@@ -23,6 +23,7 @@ python -B -m src.main bot
 python -B -m src.main worker
 python -B -m src.main all
 python -B -m src.main init-db
+python -B -m src.main production-check
 ```
 
 Dry-run проверки:
@@ -32,6 +33,7 @@ python -B -m src.main api --dry-run
 python -B -m src.main bot --dry-run
 python -B -m src.main worker --dry-run
 python -B -m src.main all --dry-run
+python -B -m src.main production-check
 ```
 
 Особенности:
@@ -41,6 +43,7 @@ python -B -m src.main all --dry-run
 - `api` отдает FastAPI, `/web`, `/admin/ui`, `/me/...`, `/admin/...`;
 - `all` запускает `bot`, `worker`, `api` в одном процессе и подходит только для простого локального запуска;
 - `init-db` выполняет Alembic migrations до `head`.
+- `production-check` валидирует production-настройки Mini App: HTTPS public URL, strict CORS, выключенные docs/test-login и срок действия Telegram `initData`.
 
 ## Архитектура
 
@@ -339,6 +342,7 @@ python -B -m src.main api --dry-run
 python -B -m src.main bot --dry-run
 python -B -m src.main worker --dry-run
 python -B -m src.main all --dry-run
+python -B -m src.main production-check
 ```
 
 Test groups:

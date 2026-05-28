@@ -19,9 +19,14 @@ const state = {
   driverExpenses: [],
   driverDocuments: [],
   driverJournal: [],
+  todaySnapshot: {
+    reminders: [],
+    medications: [],
+  },
   activeChecklistRun: null,
   selectedListId: null,
   selectedVehicleId: null,
+  driverTab: localStorage.getItem("rememberme.driverTab") || "vehicles",
   editingListId: null,
   editingItemId: null,
   editingReminderId: null,
@@ -59,6 +64,16 @@ const titles = {
   admin: ["Админ-панель", "Агрегированная активность, пользователи и воронки сценариев."],
 };
 
+const baseNavSections = ["dashboard", "lists", "reminders", "medications", "driver"];
+
+const driverTabs = [
+  { id: "vehicles", label: "Авто" },
+  { id: "fuel", label: "Заправки" },
+  { id: "expenses", label: "Расходы" },
+  { id: "documents", label: "Документы" },
+  { id: "journal", label: "Журнал" },
+];
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
@@ -83,6 +98,50 @@ function showMessage(text, isError = false) {
   node.style.color = isError ? "var(--danger)" : "var(--text)";
   window.clearTimeout(showMessage.timer);
   showMessage.timer = window.setTimeout(() => node.classList.add("hidden"), 4500);
+
+  const stack = $("#toastStack");
+  if (!stack) return;
+  const toast = document.createElement("div");
+  toast.className = `toast ${isError ? "is-error" : "is-ok"}`;
+  toast.textContent = text;
+  stack.appendChild(toast);
+  window.setTimeout(() => {
+    toast.classList.add("is-leaving");
+    window.setTimeout(() => toast.remove(), 220);
+  }, 3600);
+}
+
+async function withButtonLoading(button, loadingText, task) {
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.dataset.loading = "1";
+  button.textContent = loadingText;
+  try {
+    return await task();
+  } finally {
+    button.disabled = false;
+    button.dataset.loading = "0";
+    button.textContent = previousText;
+  }
+}
+
+async function withFormLoading(form, loadingText, task) {
+  const button = form.querySelector('button[type="submit"]');
+  form.setAttribute("aria-busy", "true");
+  if (!button) {
+    try {
+      return await task();
+    } finally {
+      form.removeAttribute("aria-busy");
+    }
+  }
+  return withButtonLoading(button, loadingText, task)
+    .finally(() => form.removeAttribute("aria-busy"));
+}
+
+function bindFormSubmit(selector, handler, loadingText) {
+  $(selector).addEventListener("submit", (event) => withFormLoading(event.currentTarget, loadingText, () => handler(event))
+    .catch((error) => showMessage(error.message, true)));
 }
 
 function setCssColor(name, value) {
@@ -268,7 +327,59 @@ function updateAuthUi() {
     ? `${state.user.first_name || state.user.username || "user"} · ${state.user.telegram_id}`
     : isTelegramMiniApp() ? "Telegram Mini App" : "не подключено";
   $("#authStatus").classList.toggle("muted", !state.user);
-  $$('[data-section="admin"]').forEach((button) => button.classList.toggle("hidden", isTelegramMiniApp()));
+  updateNavigation();
+}
+
+function userCanOpenAdmin() {
+  return Boolean(state.user && state.summary?.access?.is_admin && state.auth.adminToken);
+}
+
+function navSections() {
+  return userCanOpenAdmin() ? [...baseNavSections, "admin"] : baseNavSections;
+}
+
+function navBadge(section) {
+  const stats = state.summary?.stats || {};
+  if (!state.user) return "";
+  if (section === "lists") {
+    const total = Number(stats.lists?.owned || 0) + Number(stats.lists?.shared || 0);
+    return total ? String(total) : "";
+  }
+  if (section === "reminders") {
+    return stats.reminders?.active ? String(stats.reminders.active) : "";
+  }
+  if (section === "medications") {
+    return stats.medications?.active ? String(stats.medications.active) : "";
+  }
+  if (section === "driver") {
+    return stats.driver?.vehicles_count ? String(stats.driver.vehicles_count) : "";
+  }
+  if (section === "admin") {
+    return "admin";
+  }
+  return "";
+}
+
+function updateNavigation() {
+  const nav = $("#mobileNav");
+  if (!nav) return;
+  nav.innerHTML = navSections().map((section) => {
+    const label = titles[section]?.[0] || section;
+    const badge = navBadge(section);
+    return `
+      <button class="nav-button ${state.section === section ? "active" : ""}" data-section="${section}" type="button">
+        <span class="nav-label">${escapeHtml(label)}</span>
+        ${badge ? `<span class="nav-badge">${escapeHtml(badge)}</span>` : ""}
+      </button>
+    `;
+  }).join("");
+}
+
+function setSectionBusy(section, isBusy) {
+  const node = document.getElementById(section);
+  if (!node) return;
+  node.toggleAttribute("aria-busy", isBusy);
+  node.classList.toggle("section-loading", isBusy);
 }
 
 function setSection(section) {
@@ -276,18 +387,24 @@ function setSection(section) {
 }
 
 async function switchSection(section) {
-  if (section === "admin" && isTelegramMiniApp()) {
+  if (section === "admin" && !userCanOpenAdmin()) {
+    showMessage("Администрирование доступно в отдельной панели /admin/ui.", true);
     section = "dashboard";
   }
   state.section = section;
-  $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.section === section));
+  updateNavigation();
   $$(".section").forEach((node) => node.classList.toggle("active", node.id === section));
   const [title, subtitle] = titles[section] || titles.dashboard;
   $("#sectionTitle").textContent = title;
   $("#sectionSubtitle").textContent = subtitle;
   closeMobileMenu();
   if (state.user) {
-    await loadSection(section);
+    setSectionBusy(section, true);
+    try {
+      await loadSection(section);
+    } finally {
+      setSectionBusy(section, false);
+    }
   }
   syncTelegramBackButton();
 }
@@ -296,23 +413,23 @@ function openMobileMenu() {
   const sidebar = $(".sidebar");
   if (!sidebar) return;
   sidebar.classList.add("open");
-  $("#menuBackdrop").classList.add("open");
-  $("#menuBackdrop").hidden = false;
-  $("#menuToggle").setAttribute("aria-expanded", "true");
+  $("#menuBackdrop")?.classList.add("open");
+  if ($("#menuBackdrop")) $("#menuBackdrop").hidden = false;
+  $("#menuToggle")?.setAttribute("aria-expanded", "true");
 }
 
 function closeMobileMenu() {
   const sidebar = $(".sidebar");
   if (!sidebar) {
-    $("#menuBackdrop").classList.remove("open");
-    $("#menuBackdrop").hidden = true;
-    $("#menuToggle").setAttribute("aria-expanded", "false");
+    $("#menuBackdrop")?.classList.remove("open");
+    if ($("#menuBackdrop")) $("#menuBackdrop").hidden = true;
+    $("#menuToggle")?.setAttribute("aria-expanded", "false");
     return;
   }
   sidebar.classList.remove("open");
-  $("#menuBackdrop").classList.remove("open");
-  $("#menuBackdrop").hidden = true;
-  $("#menuToggle").setAttribute("aria-expanded", "false");
+  $("#menuBackdrop")?.classList.remove("open");
+  if ($("#menuBackdrop")) $("#menuBackdrop").hidden = true;
+  $("#menuToggle")?.setAttribute("aria-expanded", "false");
 }
 
 function toggleMobileMenu() {
@@ -345,6 +462,7 @@ function renderMetrics() {
   `).join("");
   renderDashboardDetails(stats);
   renderReleaseInfo();
+  renderTodaySnapshot();
 }
 
 function renderReleaseInfo() {
@@ -401,6 +519,116 @@ function renderReleaseInfo() {
       </details>
     </div>
   `;
+}
+
+function isSameLocalDate(value, base = new Date()) {
+  if (!value) return false;
+  const date = new Date(value);
+  return date.getFullYear() === base.getFullYear()
+    && date.getMonth() === base.getMonth()
+    && date.getDate() === base.getDate();
+}
+
+function activeReminderRows(reminders) {
+  const now = new Date();
+  const active = (reminders || [])
+    .filter((item) => item.status === "active")
+    .sort((a, b) => new Date(a.remind_at_utc) - new Date(b.remind_at_utc));
+  const today = active.filter((item) => isSameLocalDate(item.remind_at_utc, now));
+  return (today.length ? today : active).slice(0, 4);
+}
+
+function medicationTodayRows(medications) {
+  return (medications || [])
+    .filter((item) => item.is_active)
+    .map((item) => {
+      const slots = item.today_slots || [];
+      const available = slots.find((slot) => slot.status === "available");
+      const pending = slots.find((slot) => slot.status === "pending");
+      const next = available || pending || slots[0];
+      return { item, slot: next };
+    })
+    .filter((row) => row.slot)
+    .sort((a, b) => String(a.slot.scheduled_time_local || "").localeCompare(String(b.slot.scheduled_time_local || "")))
+    .slice(0, 4);
+}
+
+function renderTodaySnapshot() {
+  const node = $("#dashboardToday");
+  if (!node) return;
+  if (!state.user) {
+    node.innerHTML = `
+      <h2>Сегодня</h2>
+      <div class="empty-state">Войдите через Telegram-ключ, чтобы увидеть ближайшие задачи, лекарства и напоминания.</div>
+    `;
+    return;
+  }
+  const reminders = activeReminderRows(state.todaySnapshot.reminders);
+  const medications = medicationTodayRows(state.todaySnapshot.medications);
+  const stats = state.summary?.stats || {};
+  const activeChecks = stats.checklists?.active || 0;
+  const quickActions = [
+    ["lists", "Новый список", "Создать список или открыть текущие чек-листы."],
+    ["reminders", "Напоминание", "Поставить разовое или повторяющееся напоминание."],
+    ["medications", "Лекарство", "Добавить препарат и расписание приема."],
+    ["driver", "Авто", "Добавить заправку, расход или запись в журнал."],
+  ];
+  node.innerHTML = `
+    <div class="panel-heading compact-heading">
+      <div>
+        <h2>Сегодня</h2>
+        <div class="item-meta">Ближайшие действия по данным web-версии.</div>
+      </div>
+    </div>
+    <div class="today-grid">
+      <article class="today-card">
+        <h3>Напоминания</h3>
+        ${reminders.length ? reminders.map((item) => `
+          <button class="today-row" type="button" data-action="focus-reminder" data-id="${item.id}">
+            <span>${escapeHtml(item.title || item.text || "Напоминание")}</span>
+            <small>${formatDate(item.remind_at_utc)}</small>
+          </button>
+        `).join("") : `<div class="empty-state compact">Активных напоминаний на сегодня нет.</div>`}
+      </article>
+      <article class="today-card">
+        <h3>Лекарства</h3>
+        ${medications.length ? medications.map(({ item, slot }) => `
+          <button class="today-row" type="button" data-action="focus-medication" data-id="${item.id}">
+            <span>${escapeHtml(item.name)}</span>
+            <small>${escapeHtml(slot.scheduled_time_local || slot.status_label || "сегодня")}</small>
+          </button>
+        `).join("") : `<div class="empty-state compact">Нет приемов на сегодня.</div>`}
+      </article>
+      <article class="today-card">
+        <h3>Чек-листы</h3>
+        <div class="today-kpi">${activeChecks}</div>
+        <div class="item-meta">${activeChecks ? "Активные прохождения доступны в разделе списков." : "Активных прохождений нет."}</div>
+        <button class="secondary small action-open" type="button" data-action="go-section" data-section-target="lists">Открыть списки</button>
+      </article>
+      <article class="today-card quick-actions">
+        <h3>Быстрые действия</h3>
+        ${quickActions.map(([section, label, hint]) => `
+          <button class="quick-action" type="button" data-action="go-section" data-section-target="${section}">
+            <span>${escapeHtml(label)}</span>
+            <small>${escapeHtml(hint)}</small>
+          </button>
+        `).join("")}
+      </article>
+    </div>
+  `;
+}
+
+async function loadTodaySnapshot() {
+  if (!state.user) {
+    renderTodaySnapshot();
+    return;
+  }
+  const [reminders, medications] = await Promise.all([
+    api("/me/reminders?active_only=false"),
+    api("/me/medications?active_only=false"),
+  ]);
+  state.todaySnapshot = { reminders, medications };
+  renderTodaySnapshot();
 }
 
 function renderDashboardDetails(stats) {
@@ -1271,6 +1499,7 @@ async function loadMedications() {
 function renderDriver() {
   const vehicles = state.driver?.vehicles || [];
   renderDriverOverview();
+  ensureDriverTabs();
   renderVehiclePresetSelect();
   $("#vehiclesContainer").innerHTML = vehicles.length
     ? vehicles.map((item) => `
@@ -1560,6 +1789,52 @@ function renderDocuments() {
   });
 }
 
+function ensureDriverTabs() {
+  const driverSection = $("#driver");
+  const overview = $("#driverOverview");
+  if (!driverSection || !overview) return;
+  if (!$("#driverTabs")) {
+    overview.insertAdjacentHTML("afterend", `
+      <nav id="driverTabs" class="subtabs" aria-label="Разделы водителя">
+        ${driverTabs.map((tab) => `
+          <button class="subtab-button" type="button" data-action="driver-tab" data-driver-tab="${tab.id}">
+            ${escapeHtml(tab.label)}
+          </button>
+        `).join("")}
+      </nav>
+    `);
+  }
+  const panelMap = [
+    ["vehicleCreateForm", "vehicles"],
+    ["fuelCreateForm", "fuel"],
+    ["expenseCreateForm", "expenses"],
+    ["documentCreateForm", "documents"],
+    ["journalCreateForm", "journal"],
+    ["driverJournalFilterForm", "journal"],
+  ];
+  panelMap.forEach(([formId, tab]) => {
+    const panel = document.getElementById(formId)?.closest(".panel");
+    if (!panel) return;
+    panel.dataset.driverTab = tab;
+    panel.classList.add("driver-domain-panel");
+  });
+  setDriverTab(state.driverTab || "vehicles", false);
+}
+
+function setDriverTab(tab, persist = true) {
+  const nextTab = driverTabs.some((item) => item.id === tab) ? tab : "vehicles";
+  state.driverTab = nextTab;
+  if (persist) {
+    localStorage.setItem("rememberme.driverTab", nextTab);
+  }
+  $$("#driverTabs .subtab-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.driverTab === nextTab);
+  });
+  $$(".driver-domain-panel").forEach((panel) => {
+    panel.classList.toggle("driver-tab-hidden", panel.dataset.driverTab !== nextTab);
+  });
+}
+
 async function loadAdmin() {
   if (!state.auth.adminToken) {
     $("#adminActivity").innerHTML = `<div class="empty-state">Для просмотра активности укажите admin token в блоке входа. Токен хранится только в браузере.</div>`;
@@ -1631,6 +1906,7 @@ async function loadSection(section) {
   if (!state.user && section !== "dashboard") return;
   if (section === "dashboard") {
     await loadSummary();
+    await loadTodaySnapshot();
   } else if (section === "lists") {
     await loadLists();
   } else if (section === "reminders") {
@@ -2076,7 +2352,18 @@ async function handleAction(event) {
     return;
   }
   try {
-    if (action === "open-list") {
+    if (action === "driver-tab") {
+      setDriverTab(target.dataset.driverTab);
+    } else if (action === "go-section") {
+      const targetSection = target.dataset.sectionTarget || "dashboard";
+      await switchSection(targetSection);
+    } else if (action === "focus-reminder") {
+      state.editingReminderId = null;
+      await switchSection("reminders");
+    } else if (action === "focus-medication") {
+      state.editingMedicationId = null;
+      await switchSection("medications");
+    } else if (action === "open-list") {
       await openList(id);
     } else if (action === "remind-list") {
       await switchSection("reminders");
@@ -2271,9 +2558,14 @@ async function handleAction(event) {
 }
 
 function bindEvents() {
-  $("#menuToggle").addEventListener("click", toggleMobileMenu);
-  $("#menuBackdrop").addEventListener("click", closeMobileMenu);
-  $$(".nav-button").forEach((button) => button.addEventListener("click", () => setSection(button.dataset.section)));
+  $("#menuToggle")?.addEventListener("click", toggleMobileMenu);
+  $("#menuBackdrop")?.addEventListener("click", closeMobileMenu);
+  $("#mobileNav").addEventListener("click", (event) => {
+    const button = event.target.closest(".nav-button");
+    if (button?.dataset.section) {
+      setSection(button.dataset.section);
+    }
+  });
   $("#themeToggle").addEventListener("click", () => {
     if (isTelegramMiniApp()) {
       applyTelegramTheme();
@@ -2284,20 +2576,22 @@ function bindEvents() {
     document.documentElement.dataset.theme = next;
     localStorage.setItem("rememberme.theme", next);
   });
-  $("#reloadButton").addEventListener("click", () => loadSection(state.section)
-    .then(() => showMessage("Данные обновлены."))
-    .catch((error) => showMessage(error.message, true)));
+  $("#reloadButton").addEventListener("click", (event) => withButtonLoading(event.currentTarget, "Обновление...", async () => {
+    await loadSection(state.section);
+    showMessage("Данные обновлены.");
+  }).catch((error) => showMessage(error.message, true)));
   $("#logoutButton").addEventListener("click", clearAuth);
-  $("#loginButton").addEventListener("click", () => handleLogin().catch((error) => showMessage(error.message, true)));
-  $("#listCreateForm").addEventListener("submit", (event) => handleListCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#reminderCreateForm").addEventListener("submit", (event) => handleReminderCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#medicationCreateForm").addEventListener("submit", (event) => handleMedicationCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#vehicleCreateForm").addEventListener("submit", (event) => handleVehicleCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#fuelCreateForm").addEventListener("submit", (event) => handleFuelCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#expenseCreateForm").addEventListener("submit", (event) => handleExpenseCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#documentCreateForm").addEventListener("submit", (event) => handleDocumentCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#journalCreateForm").addEventListener("submit", (event) => handleJournalCreate(event).catch((error) => showMessage(error.message, true)));
-  $("#driverJournalFilterForm").addEventListener("submit", (event) => handleJournalFilter(event).catch((error) => showMessage(error.message, true)));
+  $("#loginButton").addEventListener("click", (event) => withButtonLoading(event.currentTarget, "Вход...", handleLogin)
+    .catch((error) => showMessage(error.message, true)));
+  bindFormSubmit("#listCreateForm", handleListCreate, "Создание...");
+  bindFormSubmit("#reminderCreateForm", handleReminderCreate, "Создание...");
+  bindFormSubmit("#medicationCreateForm", handleMedicationCreate, "Создание...");
+  bindFormSubmit("#vehicleCreateForm", handleVehicleCreate, "Добавление...");
+  bindFormSubmit("#fuelCreateForm", handleFuelCreate, "Сохранение...");
+  bindFormSubmit("#expenseCreateForm", handleExpenseCreate, "Сохранение...");
+  bindFormSubmit("#documentCreateForm", handleDocumentCreate, "Сохранение...");
+  bindFormSubmit("#journalCreateForm", handleJournalCreate, "Добавление...");
+  bindFormSubmit("#driverJournalFilterForm", handleJournalFilter, "Фильтрация...");
   $("#adminActivityFilterForm").addEventListener("submit", (event) => {
     event.preventDefault();
     state.adminFilters.days = Number(event.currentTarget.days.value || 7);
