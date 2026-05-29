@@ -81,6 +81,7 @@ class NoteResponse(BaseModel):
     title: str
     text: str
     category: str
+    is_pinned: bool
     is_archived: bool
     created_at: datetime
     updated_at: datetime
@@ -100,6 +101,7 @@ class NoteUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=255)
     text: Optional[str] = Field(default=None, max_length=20000)
     category: Optional[str] = Field(default=None, max_length=40)
+    is_pinned: Optional[bool] = None
 
 
 class ListItemResponse(BaseModel):
@@ -612,6 +614,7 @@ def _note_response(note: Note) -> NoteResponse:
         title=note.title,
         text=note.text or "",
         category=note.category or "other",
+        is_pinned=note.is_pinned,
         is_archived=note.is_archived,
         created_at=note.created_at,
         updated_at=note.updated_at,
@@ -907,6 +910,7 @@ async def get_my_notes(
     limit: int = Query(50, ge=1, le=100),
     search: Optional[str] = Query(None, max_length=120),
     category: Optional[str] = Query(None, max_length=40),
+    pinned_only: bool = Query(False),
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[NoteResponse]:
@@ -920,6 +924,7 @@ async def get_my_notes(
             include_archived=include_archived,
             search_query=search,
             category=category,
+            pinned_only=pinned_only,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
@@ -975,6 +980,7 @@ async def update_my_note(
             title=payload.title,
             text=payload.text,
             category=payload.category,
+            is_pinned=payload.is_pinned,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None

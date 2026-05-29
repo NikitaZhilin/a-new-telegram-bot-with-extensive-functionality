@@ -87,6 +87,7 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
         notes_response = await client.get("/me/notes", headers=headers)
         notes_search_response = await client.get("/me/notes?search=web", headers=headers)
         notes_category_response = await client.get("/me/notes?category=recipe", headers=headers)
+        notes_pinned_response = await client.get("/me/notes?pinned_only=true", headers=headers)
         notes_invalid_category_response = await client.get("/me/notes?category=unknown", headers=headers)
         notes_miss_response = await client.get("/me/notes?search=hidden", headers=headers)
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
@@ -99,6 +100,7 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     assert notes_response.status_code == 200
     assert notes_search_response.status_code == 200
     assert notes_category_response.status_code == 200
+    assert notes_pinned_response.status_code == 200
     assert notes_invalid_category_response.status_code == 400
     assert notes_miss_response.status_code == 200
     assert reminders_response.status_code == 200
@@ -112,8 +114,10 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     assert [item["title"] for item in lists_response.json()] == ["Web list"]
     assert [item["title"] for item in notes_response.json()] == ["Web note"]
     assert notes_response.json()[0]["category"] == "recipe"
+    assert notes_response.json()[0]["is_pinned"] is False
     assert [item["title"] for item in notes_search_response.json()] == ["Web note"]
     assert [item["title"] for item in notes_category_response.json()] == ["Web note"]
+    assert notes_pinned_response.json() == []
     assert notes_miss_response.json() == []
     assert [item["text"] for item in reminders_response.json()] == ["Web reminder"]
     assert medications_response.json()[0]["name"] == "Web medication"
@@ -422,9 +426,15 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
         updated_note_response = await client.patch(
             f"/me/notes/{note_id}",
             headers=headers,
-            json={"title": "Recipe note updated", "text": "Updated text", "category": "instruction"},
+            json={
+                "title": "Recipe note updated",
+                "text": "Updated text",
+                "category": "instruction",
+                "is_pinned": True,
+            },
         )
         note_detail_response = await client.get(f"/me/notes/{note_id}", headers=headers)
+        notes_pinned_response = await client.get("/me/notes?pinned_only=true", headers=headers)
 
         list_response = await client.post("/me/lists", headers=headers, json={"title": "Web CRUD"})
         list_id = list_response.json()["id"]
@@ -683,7 +693,9 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert updated_note_response.status_code == 200
     assert updated_note_response.json()["title"] == "Recipe note updated"
     assert updated_note_response.json()["category"] == "instruction"
+    assert updated_note_response.json()["is_pinned"] is True
     assert note_detail_response.json()["text"] == "Updated text"
+    assert notes_pinned_response.json()[0]["id"] == note_id
     assert list_response.status_code == 201
     assert item_response.status_code == 201
     assert checklist_response.status_code == 201

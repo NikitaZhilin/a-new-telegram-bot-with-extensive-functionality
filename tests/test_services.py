@@ -75,6 +75,42 @@ async def test_note_service_enforces_ownership_and_archiving(db_session):
 
 
 @pytest.mark.asyncio
+async def test_note_service_pins_filters_and_sorts_notes(db_session):
+    """Pinned notes should stay user-scoped and appear before regular notes."""
+    user = User(telegram_id=9911, timezone="UTC")
+    other = User(telegram_id=9912, timezone="UTC")
+    db_session.add_all([user, other])
+    await db_session.flush()
+
+    service = NoteService(db_session)
+    regular = await service.create_note(user.id, "Regular", "Common text")
+    pinned = await service.create_note(user.id, "Pinned", "Important text")
+    other_note = await service.create_note(other.id, "Other pinned", "Hidden")
+
+    updated = await service.update_note(pinned.id, user.id, is_pinned=True)
+    blocked = await service.update_note(other_note.id, user.id, is_pinned=True)
+
+    notes, total = await service.list_notes(user.id)
+    pinned_notes, pinned_total = await service.list_notes(user.id, pinned_only=True)
+
+    assert updated is not None
+    assert updated.is_pinned is True
+    assert blocked is None
+    assert total == 2
+    assert [item.id for item in notes] == [pinned.id, regular.id]
+    assert pinned_total == 1
+    assert [item.id for item in pinned_notes] == [pinned.id]
+
+    unpinned = await service.update_note(pinned.id, user.id, is_pinned=False)
+    pinned_notes, pinned_total = await service.list_notes(user.id, pinned_only=True)
+
+    assert unpinned is not None
+    assert unpinned.is_pinned is False
+    assert pinned_notes == []
+    assert pinned_total == 0
+
+
+@pytest.mark.asyncio
 async def test_list_service_item_ownership(db_session):
     """Users must not manage items from other users' lists."""
     user = User(telegram_id=1001, timezone="UTC")

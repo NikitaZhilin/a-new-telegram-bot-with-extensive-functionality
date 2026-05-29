@@ -94,11 +94,13 @@ from src.bot.handlers.notes import (
     note_delete_callback,
     note_delete_confirm_callback,
     note_edit_category_callback,
+    note_pin_callback,
     note_view_callback,
     notes_filter_callback,
     notes_filter_set_callback,
     notes_list_callback,
     notes_page_callback,
+    notes_pinned_toggle_callback,
     notes_search_clear_callback,
     notes_search_conv,
 )
@@ -252,8 +254,10 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(notes_page_callback, pattern="^notes_page:"))
     application.add_handler(CallbackQueryHandler(notes_filter_callback, pattern="^notes_filter$"))
     application.add_handler(CallbackQueryHandler(notes_filter_set_callback, pattern="^notes_filter:"))
+    application.add_handler(CallbackQueryHandler(notes_pinned_toggle_callback, pattern="^notes_pinned_toggle$"))
     application.add_handler(CallbackQueryHandler(notes_search_clear_callback, pattern="^notes_search_clear$"))
     application.add_handler(CallbackQueryHandler(note_view_callback, pattern="^note_view:"))
+    application.add_handler(CallbackQueryHandler(note_pin_callback, pattern="^note_pin:"))
     application.add_handler(CallbackQueryHandler(note_edit_category_callback, pattern="^note_edit_category:"))
     application.add_handler(CallbackQueryHandler(note_category_set_callback, pattern="^note_category_set:"))
     application.add_handler(CallbackQueryHandler(note_delete_confirm_callback, pattern="^note_delete_confirm:"))

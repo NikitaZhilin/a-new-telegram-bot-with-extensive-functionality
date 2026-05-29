@@ -896,13 +896,15 @@ def get_notes_list_keyboard(
     has_next: bool = False,
     search_active: bool = False,
     category_active: bool = False,
+    pinned_active: bool = False,
 ) -> InlineKeyboardMarkup:
     """Keyboard for notes list with pagination."""
     keyboard = []
     for note in notes:
+        icon = "📌" if getattr(note, "is_pinned", False) else "📝"
         keyboard.append([
             InlineKeyboardButton(
-                f"📝 {truncate(note.title, 32)}",
+                f"{icon} {truncate(note.title, 32)}",
                 callback_data=f"note_view:{note.id}",
             )
         ])
@@ -922,13 +924,19 @@ def get_notes_list_keyboard(
     keyboard.append([
         InlineKeyboardButton("🏷 Категория", callback_data="notes_filter"),
     ])
-    if search_active or category_active:
-        keyboard.append([InlineKeyboardButton("↩️ Все заметки", callback_data="notes_search_clear")])
+    keyboard.append([
+        InlineKeyboardButton(
+            "↩️ Все заметки" if pinned_active else "📌 Закрепленные",
+            callback_data="notes_pinned_toggle",
+        ),
+    ])
+    if search_active or category_active or pinned_active:
+        keyboard.append([InlineKeyboardButton("↩️ Сбросить фильтры", callback_data="notes_search_clear")])
     keyboard.append([InlineKeyboardButton("🏠 В меню", callback_data="home")])
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_note_view_keyboard(note_id: int) -> InlineKeyboardMarkup:
+def get_note_view_keyboard(note_id: int, is_pinned: bool = False) -> InlineKeyboardMarkup:
     """Keyboard for viewing one note."""
     keyboard = [
         [
@@ -937,6 +945,12 @@ def get_note_view_keyboard(note_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("🏷 Категория", callback_data=f"note_edit_category:{note_id}"),
+        ],
+        [
+            InlineKeyboardButton(
+                "📍 Открепить" if is_pinned else "📌 Закрепить",
+                callback_data=f"note_pin:{note_id}",
+            ),
         ],
         [
             InlineKeyboardButton("⏰ Напомнить", callback_data=f"note_remind:{note_id}"),

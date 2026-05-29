@@ -14,6 +14,7 @@ const state = {
   notes: [],
   noteSearch: "",
   noteCategoryFilter: "",
+  notePinnedOnly: false,
   reminders: [],
   medications: [],
   driver: null,
@@ -1354,6 +1355,9 @@ async function loadNotes() {
   if (state.noteCategoryFilter) {
     params.set("category", state.noteCategoryFilter);
   }
+  if (state.notePinnedOnly) {
+    params.set("pinned_only", "true");
+  }
   const url = params.toString() ? `/me/notes?${params.toString()}` : "/me/notes";
   state.notes = await api(url);
   const searchInput = $("#noteSearchForm input[name='search']");
@@ -1364,24 +1368,32 @@ async function loadNotes() {
   if (categoryInput) {
     categoryInput.value = state.noteCategoryFilter;
   }
+  const pinnedButton = $("#noteSearchForm [data-action='toggle-note-pinned-filter']");
+  if (pinnedButton) {
+    pinnedButton.textContent = state.notePinnedOnly ? "Все заметки" : "Закрепленные";
+    pinnedButton.classList.toggle("action-open", state.notePinnedOnly);
+  }
   $("#notesContainer").innerHTML = state.notes.length
     ? state.notes.map((item) => `
       <article class="item-card">
         <div class="item-card-header">
           <div>
-            <div class="item-title">${escapeHtml(item.title)}</div>
-            <div class="item-meta">категория: ${escapeHtml(formatNoteCategory(item.category))} · обновлено: ${formatDate(item.updated_at)}</div>
+            <div class="item-title">${item.is_pinned ? "📌 " : ""}${escapeHtml(item.title)}</div>
+            <div class="item-meta">${item.is_pinned ? "закреплена · " : ""}категория: ${escapeHtml(formatNoteCategory(item.category))} · обновлено: ${formatDate(item.updated_at)}</div>
           </div>
         </div>
         <div class="item-text note-preview">${escapeHtml(notePreview(item.text))}</div>
         <div class="item-actions">
           <button class="small action-open" data-action="open-note" data-id="${item.id}">Открыть</button>
+          <button class="secondary small" data-action="toggle-note-pin" data-id="${item.id}">
+            ${item.is_pinned ? "Открепить" : "Закрепить"}
+          </button>
           <button class="secondary small action-edit" data-action="edit-note" data-id="${item.id}">Изменить</button>
           <button class="danger small action-danger" data-action="delete-note" data-id="${item.id}">Удалить</button>
         </div>
       </article>
     `).join("")
-    : `<div class="item-meta">${state.noteSearch.trim() || state.noteCategoryFilter ? "По текущему фильтру ничего не найдено." : "Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст."}</div>`;
+    : `<div class="item-meta">${state.noteSearch.trim() || state.noteCategoryFilter || state.notePinnedOnly ? "По текущему фильтру ничего не найдено." : "Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст."}</div>`;
   updateReminderNoteSelects();
 }
 
@@ -1413,10 +1425,13 @@ async function openNote(noteId) {
     <div class="panel-heading">
       <div>
         <h2>${escapeHtml(note.title)}</h2>
-          <div class="item-meta">категория: ${escapeHtml(formatNoteCategory(note.category))} · создано: ${formatDate(note.created_at)} · обновлено: ${formatDate(note.updated_at)}</div>
+          <div class="item-meta">${note.is_pinned ? "закреплена · " : ""}категория: ${escapeHtml(formatNoteCategory(note.category))} · создано: ${formatDate(note.created_at)} · обновлено: ${formatDate(note.updated_at)}</div>
       </div>
       <div class="panel-heading-actions">
         <button class="secondary small action-open" data-action="remind-note" data-id="${note.id}">Напомнить</button>
+        <button class="secondary small" data-action="toggle-note-pin" data-id="${note.id}">
+          ${note.is_pinned ? "Открепить" : "Закрепить"}
+        </button>
         <button class="secondary small action-edit" data-action="edit-note" data-id="${note.id}">Изменить</button>
         <button class="danger small action-danger" data-action="delete-note" data-id="${note.id}">Удалить</button>
       </div>
@@ -2171,6 +2186,7 @@ async function handleNoteCreate(event) {
   });
   state.noteSearch = "";
   state.noteCategoryFilter = "";
+  state.notePinnedOnly = false;
   form.reset();
   await loadNotes();
   await openNote(note.id);
@@ -2605,6 +2621,13 @@ async function handleAction(event) {
     } else if (action === "clear-note-search") {
       state.noteSearch = "";
       state.noteCategoryFilter = "";
+      state.notePinnedOnly = false;
+      state.selectedNoteId = null;
+      state.editingNoteId = null;
+      $("#noteDetailPanel").classList.add("hidden");
+      await loadNotes();
+    } else if (action === "toggle-note-pinned-filter") {
+      state.notePinnedOnly = !state.notePinnedOnly;
       state.selectedNoteId = null;
       state.editingNoteId = null;
       $("#noteDetailPanel").classList.add("hidden");
@@ -2642,6 +2665,18 @@ async function handleAction(event) {
     } else if (action === "edit-note") {
       state.editingNoteId = Number(id);
       await openNote(id);
+    } else if (action === "toggle-note-pin") {
+      const current = state.notes.find((item) => Number(item.id) === Number(id));
+      const detail = current || await api(`/me/notes/${id}`);
+      await api(`/me/notes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_pinned: !detail.is_pinned }),
+      });
+      await loadNotes();
+      if (Number(state.selectedNoteId) === Number(id)) {
+        await openNote(id);
+      }
+      await loadSummary();
     } else if (action === "cancel-note-edit") {
       state.editingNoteId = null;
       await openNote(state.selectedNoteId);

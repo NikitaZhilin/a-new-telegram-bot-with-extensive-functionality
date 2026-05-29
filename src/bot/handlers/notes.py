@@ -75,6 +75,11 @@ def _notes_category_filter(context: ContextTypes.DEFAULT_TYPE) -> str | None:
     return value if value in NOTE_CATEGORIES else None
 
 
+def _notes_pinned_filter(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Return whether the current notes list shows only pinned notes."""
+    return bool(context.user_data.get("notes_pinned_only"))
+
+
 async def _edit_prompt_or_reply(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -114,7 +119,8 @@ def _render_note_text(note) -> str:
     if not body:
         body = "Текст заметки пока пуст."
     category = note_category_label(getattr(note, "category", None))
-    return f"📝 {note.title}\n🏷 Категория: {category}\n\n{truncate(body, 3500)}"
+    pin_line = "📌 Закреплена\n" if getattr(note, "is_pinned", False) else ""
+    return f"📝 {note.title}\n{pin_line}🏷 Категория: {category}\n\n{truncate(body, 3500)}"
 
 
 async def _render_notes_page(
@@ -123,6 +129,7 @@ async def _render_notes_page(
     *,
     search_query: str | None = None,
     category: str | None = None,
+    pinned_only: bool = False,
 ) -> tuple[str, object]:
     """Build notes list text and keyboard."""
     page = max(page, 0)
@@ -135,6 +142,7 @@ async def _render_notes_page(
             page_size=NOTES_PER_PAGE,
             search_query=search_value,
             category=category_value,
+            pinned_only=pinned_only,
         )
     if not notes and page > 0:
         return await _render_notes_page(
@@ -142,16 +150,19 @@ async def _render_notes_page(
             page - 1,
             search_query=search_value,
             category=category_value,
+            pinned_only=pinned_only,
         )
 
     header_lines = ["📝 Заметки"]
+    if pinned_only:
+        header_lines.append("Фильтр: закрепленные")
     if search_value:
         header_lines.append(f"Поиск: «{search_value}»")
     if category_value:
         header_lines.append(f"Категория: {note_category_label(category_value)}")
 
     if not notes:
-        if search_value or category_value:
+        if search_value or category_value or pinned_only:
             header = "\n".join(header_lines)
             text = f"{header}\n\nНичего не найдено."
         else:
@@ -162,7 +173,7 @@ async def _render_notes_page(
     else:
         current_page = page + 1
         total_pages = max(1, (total + NOTES_PER_PAGE - 1) // NOTES_PER_PAGE)
-        if search_value or category_value:
+        if search_value or category_value or pinned_only:
             header_lines.append(f"Найдено: {total}")
             header_lines.append(f"Страница {current_page}/{total_pages}")
             text = "\n".join(header_lines)
@@ -175,6 +186,7 @@ async def _render_notes_page(
         has_next=(page + 1) * NOTES_PER_PAGE < total,
         search_active=bool(search_value),
         category_active=bool(category_value),
+        pinned_active=pinned_only,
     )
 
 
@@ -184,7 +196,7 @@ async def _render_note_view(note_id: int, user_id: int) -> tuple[str | None, obj
         note = await NoteService(session).get_note(note_id, user_id)
     if not note:
         return None, None
-    return _render_note_text(note), get_note_view_keyboard(note.id)
+    return _render_note_text(note), get_note_view_keyboard(note.id, is_pinned=note.is_pinned)
 
 
 async def notes_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -198,7 +210,14 @@ async def notes_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     search_query = context.user_data.get("notes_search_query")
     category = _notes_category_filter(context)
-    text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query, category=category)
+    pinned_only = _notes_pinned_filter(context)
+    text, keyboard = await _render_notes_page(
+        user_id,
+        page=0,
+        search_query=search_query,
+        category=category,
+        pinned_only=pinned_only,
+    )
     if query:
         await query.edit_message_text(text, reply_markup=keyboard)
     else:
@@ -217,7 +236,14 @@ async def notes_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     search_query = context.user_data.get("notes_search_query")
     category = _notes_category_filter(context)
-    text, keyboard = await _render_notes_page(user_id, page=page, search_query=search_query, category=category)
+    pinned_only = _notes_pinned_filter(context)
+    text, keyboard = await _render_notes_page(
+        user_id,
+        page=page,
+        search_query=search_query,
+        category=category,
+        pinned_only=pinned_only,
+    )
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 
@@ -257,6 +283,7 @@ async def notes_search_save(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             page=0,
             search_query=search_query,
             category=category,
+            pinned_only=_notes_pinned_filter(context),
         )
     except ValueError as exc:
         await _edit_prompt_or_reply(update, context, f"❌ {exc}", get_cancel_inline_keyboard())
@@ -273,6 +300,7 @@ async def notes_search_clear_callback(update: Update, context: ContextTypes.DEFA
     await query.answer("Фильтры сброшены")
     context.user_data.pop("notes_search_query", None)
     context.user_data.pop("notes_category_filter", None)
+    context.user_data.pop("notes_pinned_only", None)
 
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
@@ -282,6 +310,7 @@ async def notes_search_clear_callback(update: Update, context: ContextTypes.DEFA
         page=0,
         search_query=context.user_data.get("notes_search_query"),
         category=_notes_category_filter(context),
+        pinned_only=_notes_pinned_filter(context),
     )
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
@@ -322,7 +351,35 @@ async def notes_filter_set_callback(update: Update, context: ContextTypes.DEFAUL
 
     search_query = context.user_data.get("notes_search_query")
     category = _notes_category_filter(context)
-    text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query, category=category)
+    pinned_only = _notes_pinned_filter(context)
+    text, keyboard = await _render_notes_page(
+        user_id,
+        page=0,
+        search_query=search_query,
+        category=category,
+        pinned_only=pinned_only,
+    )
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def notes_pinned_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle the pinned-only notes filter."""
+    query = update.callback_query
+    next_value = not _notes_pinned_filter(context)
+    context.user_data["notes_pinned_only"] = next_value
+    await query.answer("Показаны закрепленные" if next_value else "Показаны все заметки")
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+
+    text, keyboard = await _render_notes_page(
+        user_id,
+        page=0,
+        search_query=context.user_data.get("notes_search_query"),
+        category=_notes_category_filter(context),
+        pinned_only=next_value,
+    )
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 
@@ -341,6 +398,27 @@ async def note_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
         return ConversationHandler.END
 
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def note_pin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle pinned state for a user-owned note."""
+    query = update.callback_query
+    await query.answer()
+    note_id = _parse_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        service = NoteService(session)
+        note = await service.get_note(note_id, user_id)
+        if not note:
+            await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+            return ConversationHandler.END
+        await service.update_note(note_id, user_id, is_pinned=not note.is_pinned)
+        await session.commit()
+
+    text, keyboard = await _render_note_view(note_id, user_id)
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 

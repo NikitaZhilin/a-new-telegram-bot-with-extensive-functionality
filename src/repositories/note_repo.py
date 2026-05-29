@@ -48,6 +48,13 @@ class NoteRepository(BaseRepository[Note]):
             return query
         return query.where(Note.category == category)
 
+    @staticmethod
+    def _apply_pinned(query, pinned_only: bool):
+        """Apply optional pinned-only filter."""
+        if not pinned_only:
+            return query
+        return query.where(Note.is_pinned.is_(True))
+
     async def get_for_user(
         self,
         note_id: int,
@@ -71,12 +78,13 @@ class NoteRepository(BaseRepository[Note]):
         offset: int = 0,
         search_query: str | None = None,
         category: str | None = None,
+        pinned_only: bool = False,
     ) -> Sequence[Note]:
         """Return user's notes ordered by recent updates."""
         query = (
             select(Note)
             .where(Note.user_id == user_id)
-            .order_by(Note.updated_at.desc(), Note.id.desc())
+            .order_by(Note.is_pinned.desc(), Note.updated_at.desc(), Note.id.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -84,6 +92,7 @@ class NoteRepository(BaseRepository[Note]):
             query = query.where(Note.is_archived.is_not(True))
         query = self._apply_search(query, search_query)
         query = self._apply_category(query, category)
+        query = self._apply_pinned(query, pinned_only)
         result = await self.db.execute(query)
         return result.scalars().all()
 
@@ -94,6 +103,7 @@ class NoteRepository(BaseRepository[Note]):
         include_archived: bool = False,
         search_query: str | None = None,
         category: str | None = None,
+        pinned_only: bool = False,
     ) -> int:
         """Count user's notes."""
         query = select(func.count(Note.id)).where(Note.user_id == user_id)
@@ -101,5 +111,6 @@ class NoteRepository(BaseRepository[Note]):
             query = query.where(Note.is_archived.is_not(True))
         query = self._apply_search(query, search_query)
         query = self._apply_category(query, category)
+        query = self._apply_pinned(query, pinned_only)
         result = await self.db.execute(query)
         return result.scalar() or 0

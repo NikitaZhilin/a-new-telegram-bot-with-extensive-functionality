@@ -98,6 +98,7 @@ class NoteService:
         include_archived: bool = False,
         search_query: Optional[str] = None,
         category: Optional[str] = None,
+        pinned_only: bool = False,
     ) -> tuple[list[Note], int]:
         """Return paginated user notes."""
         page = max(page, 0)
@@ -112,6 +113,7 @@ class NoteService:
                 offset=page * page_size,
                 search_query=search_value,
                 category=category_value,
+                pinned_only=pinned_only,
             )
         )
         total = await self.repo.count_by_user(
@@ -119,6 +121,7 @@ class NoteService:
             include_archived=include_archived,
             search_query=search_value,
             category=category_value,
+            pinned_only=pinned_only,
         )
         return notes, total
 
@@ -134,8 +137,9 @@ class NoteService:
         title: Optional[str] = None,
         text: Optional[str] = None,
         category: Optional[str] = None,
+        is_pinned: Optional[bool] = None,
     ) -> Optional[Note]:
-        """Update title, text, and/or category of a user-owned note."""
+        """Update title, text, category, and/or pinned state of a user-owned note."""
         note = await self.get_note(note_id, user_id)
         if not note:
             return None
@@ -146,6 +150,8 @@ class NoteService:
             note.text = _clean_text(text)
         if category is not None:
             note.category = clean_note_category(category)
+        if is_pinned is not None:
+            note.is_pinned = bool(is_pinned)
         note.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         await self.db.refresh(note)

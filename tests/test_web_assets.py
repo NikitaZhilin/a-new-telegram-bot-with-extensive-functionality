@@ -246,6 +246,11 @@ def test_web_notes_have_dedicated_section_and_inline_crud():
     assert "handleNoteUpdate" in script
     assert "handleNoteSearch" in script
     assert "clear-note-search" in script
+    assert "notePinnedOnly" in script
+    assert "toggle-note-pinned-filter" in script
+    assert "toggle-note-pin" in script
+    assert "is_pinned" in script
+    assert 'params.set("pinned_only"' in script
     assert 'params.set("search"' in script
     assert 'params.set("category"' in script
     assert "renderNoteCategoryOptions" in script
