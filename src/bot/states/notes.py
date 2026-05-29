@@ -7,6 +7,7 @@ class NoteStates(StatesGroup):
     """Note creation/editing states."""
 
     WAIT_TITLE = State("NOTE_WAIT_TITLE")
+    WAIT_CATEGORY = State("NOTE_WAIT_CATEGORY")
     WAIT_TEXT = State("NOTE_WAIT_TEXT")
     WAIT_SEARCH = State("NOTE_WAIT_SEARCH")
     WAIT_EDIT_TITLE = State("NOTE_WAIT_EDIT_TITLE")

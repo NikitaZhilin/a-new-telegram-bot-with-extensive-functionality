@@ -895,6 +895,7 @@ def get_notes_list_keyboard(
     page: int = 0,
     has_next: bool = False,
     search_active: bool = False,
+    category_active: bool = False,
 ) -> InlineKeyboardMarkup:
     """Keyboard for notes list with pagination."""
     keyboard = []
@@ -918,7 +919,10 @@ def get_notes_list_keyboard(
         InlineKeyboardButton("➕ Создать", callback_data="note_create"),
         InlineKeyboardButton("🔎 Поиск", callback_data="notes_search"),
     ])
-    if search_active:
+    keyboard.append([
+        InlineKeyboardButton("🏷 Категория", callback_data="notes_filter"),
+    ])
+    if search_active or category_active:
         keyboard.append([InlineKeyboardButton("↩️ Все заметки", callback_data="notes_search_clear")])
     keyboard.append([InlineKeyboardButton("🏠 В меню", callback_data="home")])
     return InlineKeyboardMarkup(keyboard)
@@ -932,6 +936,9 @@ def get_note_view_keyboard(note_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton("📝 Текст", callback_data=f"note_edit_text:{note_id}"),
         ],
         [
+            InlineKeyboardButton("🏷 Категория", callback_data=f"note_edit_category:{note_id}"),
+        ],
+        [
             InlineKeyboardButton("🗑 Удалить", callback_data=f"note_delete:{note_id}"),
         ],
         [
@@ -939,6 +946,34 @@ def get_note_view_keyboard(note_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏠 В меню", callback_data="home"),
         ],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_note_category_keyboard(
+    *,
+    prefix: str = "note_category",
+    note_id: Optional[int] = None,
+    selected: Optional[str] = None,
+    include_all: bool = False,
+    back_callback: str = "notes_list",
+) -> InlineKeyboardMarkup:
+    """Keyboard for note category choice and filters."""
+    categories = [
+        ("recipe", "🍲 Рецепт"),
+        ("instruction", "📌 Инструкция"),
+        ("idea", "💡 Идея"),
+        ("personal", "👤 Личное"),
+        ("other", "📎 Другое"),
+    ]
+    keyboard = []
+    if include_all:
+        label = "✅ Все категории" if not selected else "Все категории"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"{prefix}:all")])
+    for category, label in categories:
+        text = f"✅ {label}" if selected == category else label
+        callback_data = f"{prefix}:{category}" if note_id is None else f"{prefix}:{note_id}:{category}"
+        keyboard.append([InlineKeyboardButton(text, callback_data=callback_data)])
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(keyboard)
 
 

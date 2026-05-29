@@ -213,6 +213,7 @@ class Note(Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False, default="other", server_default="other", index=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -230,7 +231,7 @@ class Note(Base):
     user = relationship("User", back_populates="notes")
 
     def __repr__(self) -> str:
-        return f"<Note(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
+        return f"<Note(id={self.id}, user_id={self.user_id}, category='{self.category}', title='{self.title}')>"
 
 
 class UserSubscription(Base):

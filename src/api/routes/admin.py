@@ -319,6 +319,7 @@ async def get_user_records(
             {
                 "id": item.id,
                 "title": item.title,
+                "category": item.category or "other",
                 "text": (item.text or "")[:500],
                 "created_at": item.created_at.isoformat(),
                 "updated_at": item.updated_at.isoformat(),

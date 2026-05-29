@@ -97,6 +97,13 @@
             <h2>Новая заметка</h2>
             <form id="noteCreateForm" class="stack">
               <input name="title" type="text" placeholder="Название заметки" required>
+              <select name="category">
+                <option value="other">Другое</option>
+                <option value="recipe">Рецепт</option>
+                <option value="instruction">Инструкция</option>
+                <option value="idea">Идея</option>
+                <option value="personal">Личное</option>
+              </select>
               <textarea name="text" rows="8" placeholder="Текст заметки: рецепт, инструкция, идея или любой справочный текст"></textarea>
               <button class="action-save" type="submit">Сохранить заметку</button>
             </form>
@@ -105,6 +112,14 @@
             <h2>Заметки</h2>
             <form id="noteSearchForm" class="form-grid compact-form">
               <input name="search" type="search" placeholder="Поиск по названию и тексту">
+              <select name="category">
+                <option value="">Все категории</option>
+                <option value="recipe">Рецепты</option>
+                <option value="instruction">Инструкции</option>
+                <option value="idea">Идеи</option>
+                <option value="personal">Личное</option>
+                <option value="other">Другое</option>
+              </select>
               <button class="secondary" type="submit">Найти</button>
               <button class="secondary" type="button" data-action="clear-note-search">Сбросить</button>
             </form>

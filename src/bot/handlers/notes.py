@@ -15,6 +15,7 @@ from telegram.ext import (
 from src.bot.keyboards import (
     get_back_home_inline_keyboard,
     get_cancel_inline_keyboard,
+    get_note_category_keyboard,
     get_note_delete_confirm_keyboard,
     get_note_view_keyboard,
     get_notes_list_keyboard,
@@ -22,7 +23,12 @@ from src.bot.keyboards import (
 from src.bot.states import NoteStates
 from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
-from src.services.note_service import NoteService
+from src.services.note_service import (
+    DEFAULT_NOTE_CATEGORY,
+    NOTE_CATEGORIES,
+    NoteService,
+    note_category_label,
+)
 from src.utils.text import truncate
 
 logger = logging.getLogger(__name__)
@@ -63,6 +69,12 @@ def _clear_prompt_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("note_prompt_message_id", None)
 
 
+def _notes_category_filter(context: ContextTypes.DEFAULT_TYPE) -> str | None:
+    """Return current notes category filter."""
+    value = context.user_data.get("notes_category_filter")
+    return value if value in NOTE_CATEGORIES else None
+
+
 async def _edit_prompt_or_reply(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -101,7 +113,8 @@ def _render_note_text(note) -> str:
     body = (note.text or "").strip()
     if not body:
         body = "Текст заметки пока пуст."
-    return f"📝 {note.title}\n\n{truncate(body, 3500)}"
+    category = note_category_label(getattr(note, "category", None))
+    return f"📝 {note.title}\n🏷 Категория: {category}\n\n{truncate(body, 3500)}"
 
 
 async def _render_notes_page(
@@ -109,23 +122,38 @@ async def _render_notes_page(
     page: int,
     *,
     search_query: str | None = None,
+    category: str | None = None,
 ) -> tuple[str, object]:
     """Build notes list text and keyboard."""
     page = max(page, 0)
     search_value = (search_query or "").strip()
+    category_value = category if category in NOTE_CATEGORIES else None
     async with async_session_maker() as session:
         notes, total = await NoteService(session).list_notes(
             user_id,
             page=page,
             page_size=NOTES_PER_PAGE,
             search_query=search_value,
+            category=category_value,
         )
     if not notes and page > 0:
-        return await _render_notes_page(user_id, page - 1, search_query=search_value)
+        return await _render_notes_page(
+            user_id,
+            page - 1,
+            search_query=search_value,
+            category=category_value,
+        )
+
+    header_lines = ["📝 Заметки"]
+    if search_value:
+        header_lines.append(f"Поиск: «{search_value}»")
+    if category_value:
+        header_lines.append(f"Категория: {note_category_label(category_value)}")
 
     if not notes:
-        if search_value:
-            text = f"📝 Заметки\n\nПо запросу «{search_value}» ничего не найдено."
+        if search_value or category_value:
+            header = "\n".join(header_lines)
+            text = f"{header}\n\nНичего не найдено."
         else:
             text = (
                 "📝 Заметки\n\n"
@@ -134,13 +162,10 @@ async def _render_notes_page(
     else:
         current_page = page + 1
         total_pages = max(1, (total + NOTES_PER_PAGE - 1) // NOTES_PER_PAGE)
-        if search_value:
-            text = (
-                f"📝 Заметки\n"
-                f"Поиск: «{search_value}»\n"
-                f"Найдено: {total}\n"
-                f"Страница {current_page}/{total_pages}"
-            )
+        if search_value or category_value:
+            header_lines.append(f"Найдено: {total}")
+            header_lines.append(f"Страница {current_page}/{total_pages}")
+            text = "\n".join(header_lines)
         else:
             text = f"📝 Заметки ({total} всего)\nСтраница {current_page}/{total_pages}"
 
@@ -149,6 +174,7 @@ async def _render_notes_page(
         page=page,
         has_next=(page + 1) * NOTES_PER_PAGE < total,
         search_active=bool(search_value),
+        category_active=bool(category_value),
     )
 
 
@@ -171,7 +197,8 @@ async def notes_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = await _get_app_user_id(update, session)
 
     search_query = context.user_data.get("notes_search_query")
-    text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query)
+    category = _notes_category_filter(context)
+    text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query, category=category)
     if query:
         await query.edit_message_text(text, reply_markup=keyboard)
     else:
@@ -189,7 +216,8 @@ async def notes_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = await _get_app_user_id(update, session)
 
     search_query = context.user_data.get("notes_search_query")
-    text, keyboard = await _render_notes_page(user_id, page=page, search_query=search_query)
+    category = _notes_category_filter(context)
+    text, keyboard = await _render_notes_page(user_id, page=page, search_query=search_query, category=category)
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 
@@ -223,7 +251,13 @@ async def notes_search_save(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         async with async_session_maker() as session:
             user_id = await _get_app_user_id(update, session)
-        text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query)
+        category = _notes_category_filter(context)
+        text, keyboard = await _render_notes_page(
+            user_id,
+            page=0,
+            search_query=search_query,
+            category=category,
+        )
     except ValueError as exc:
         await _edit_prompt_or_reply(update, context, f"❌ {exc}", get_cancel_inline_keyboard())
         return NoteStates.WAIT_SEARCH
@@ -236,13 +270,59 @@ async def notes_search_save(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def notes_search_clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Clear current note search filter."""
     query = update.callback_query
-    await query.answer("Поиск сброшен")
+    await query.answer("Фильтры сброшены")
     context.user_data.pop("notes_search_query", None)
+    context.user_data.pop("notes_category_filter", None)
 
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
 
-    text, keyboard = await _render_notes_page(user_id, page=0)
+    text, keyboard = await _render_notes_page(
+        user_id,
+        page=0,
+        search_query=context.user_data.get("notes_search_query"),
+        category=_notes_category_filter(context),
+    )
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def notes_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show note category filter choices."""
+    query = update.callback_query
+    await query.answer()
+    current = _notes_category_filter(context)
+    await query.edit_message_text(
+        "🏷 Фильтр заметок\n\nВыберите категорию или покажите все заметки.",
+        reply_markup=get_note_category_keyboard(
+            prefix="notes_filter",
+            selected=current,
+            include_all=True,
+            back_callback="notes_list",
+        ),
+    )
+    return ConversationHandler.END
+
+
+async def notes_filter_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Apply note category filter."""
+    query = update.callback_query
+    await query.answer()
+    value = query.data.split(":", 1)[1]
+    if value == "all":
+        context.user_data.pop("notes_category_filter", None)
+    elif value in NOTE_CATEGORIES:
+        context.user_data["notes_category_filter"] = value
+    else:
+        await query.answer("Неизвестная категория", show_alert=True)
+        return ConversationHandler.END
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+
+    search_query = context.user_data.get("notes_search_query")
+    category = _notes_category_filter(context)
+    text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query, category=category)
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 
@@ -279,7 +359,7 @@ async def note_create_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def note_save_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Save note title and ask for text."""
+    """Save note title and ask for category."""
     title = update.message.text.strip()
     await _delete_user_message(update)
     if not title:
@@ -294,8 +374,26 @@ async def note_save_title(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _edit_prompt_or_reply(
         update,
         context,
-        f"📝 {title}\n\nТеперь отправьте текст заметки. Можно несколькими строками.",
-        get_cancel_inline_keyboard(),
+        f"📝 {title}\n\nВыберите категорию заметки.",
+        get_note_category_keyboard(back_callback="notes_list"),
+    )
+    return NoteStates.WAIT_CATEGORY
+
+
+async def note_save_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save note category and ask for text."""
+    query = update.callback_query
+    await query.answer()
+    category = query.data.split(":", 1)[1]
+    if category not in NOTE_CATEGORIES:
+        await query.answer("Неизвестная категория", show_alert=True)
+        return NoteStates.WAIT_CATEGORY
+
+    context.user_data["note_category"] = category
+    title = context.user_data.get("note_title", "Новая заметка")
+    await query.edit_message_text(
+        f"📝 {title}\n🏷 Категория: {note_category_label(category)}\n\nТеперь отправьте текст заметки. Можно несколькими строками.",
+        reply_markup=get_cancel_inline_keyboard(),
     )
     return NoteStates.WAIT_TEXT
 
@@ -303,6 +401,7 @@ async def note_save_title(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def note_save_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Create note from collected title and text."""
     title = context.user_data.get("note_title")
+    category = context.user_data.get("note_category", DEFAULT_NOTE_CATEGORY)
     text_value = update.message.text or ""
     await _delete_user_message(update)
     if not title:
@@ -318,7 +417,7 @@ async def note_save_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         async with async_session_maker() as session:
             user_id = await _get_app_user_id(update, session)
-            note = await NoteService(session).create_note(user_id, title, text_value)
+            note = await NoteService(session).create_note(user_id, title, text_value, category=category)
             await session.commit()
             note_id = note.id
         rendered_text, keyboard = await _render_note_view(note_id, user_id)
@@ -375,6 +474,55 @@ async def note_edit_text_start(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=get_cancel_inline_keyboard(),
     )
     return NoteStates.WAIT_EDIT_TEXT
+
+
+async def note_edit_category_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show category choices for an existing note."""
+    query = update.callback_query
+    await query.answer()
+    note_id = _parse_id(query.data)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        note = await NoteService(session).get_note(note_id, user_id)
+
+    if not note:
+        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        f"🏷 Категория заметки\n\n{note.title}",
+        reply_markup=get_note_category_keyboard(
+            prefix="note_category_set",
+            note_id=note_id,
+            selected=getattr(note, "category", DEFAULT_NOTE_CATEGORY),
+            back_callback=f"note_view:{note_id}",
+        ),
+    )
+    return ConversationHandler.END
+
+
+async def note_category_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Update category for an existing note."""
+    query = update.callback_query
+    await query.answer()
+    _, note_id_raw, category = query.data.split(":", 2)
+    note_id = int(note_id_raw)
+
+    try:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            note = await NoteService(session).update_note(note_id, user_id, category=category)
+            await session.commit()
+        if not note:
+            raise ValueError("Заметка не найдена")
+    except ValueError as exc:
+        await query.edit_message_text(f"❌ {exc}", reply_markup=get_back_home_inline_keyboard())
+        return ConversationHandler.END
+
+    rendered_text, keyboard = await _render_note_view(note_id, user_id)
+    await query.edit_message_text(rendered_text, reply_markup=keyboard)
+    return ConversationHandler.END
 
 
 async def note_save_title_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -485,6 +633,10 @@ note_create_conv = ConversationHandler(
     states={
         NoteStates.WAIT_TITLE: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, note_save_title),
+        ],
+        NoteStates.WAIT_CATEGORY: [
+            CallbackQueryHandler(note_save_category, pattern="^note_category:"),
+            CallbackQueryHandler(notes_list_callback, pattern="^notes_list$"),
         ],
         NoteStates.WAIT_TEXT: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, note_save_text),

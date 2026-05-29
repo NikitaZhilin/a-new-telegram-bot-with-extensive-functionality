@@ -41,6 +41,13 @@ class NoteRepository(BaseRepository[Note]):
             )
         )
 
+    @staticmethod
+    def _apply_category(query, category: str | None):
+        """Apply optional category filter."""
+        if not category:
+            return query
+        return query.where(Note.category == category)
+
     async def get_for_user(
         self,
         note_id: int,
@@ -63,6 +70,7 @@ class NoteRepository(BaseRepository[Note]):
         limit: int = 50,
         offset: int = 0,
         search_query: str | None = None,
+        category: str | None = None,
     ) -> Sequence[Note]:
         """Return user's notes ordered by recent updates."""
         query = (
@@ -75,6 +83,7 @@ class NoteRepository(BaseRepository[Note]):
         if not include_archived:
             query = query.where(Note.is_archived.is_not(True))
         query = self._apply_search(query, search_query)
+        query = self._apply_category(query, category)
         result = await self.db.execute(query)
         return result.scalars().all()
 
@@ -84,11 +93,13 @@ class NoteRepository(BaseRepository[Note]):
         *,
         include_archived: bool = False,
         search_query: str | None = None,
+        category: str | None = None,
     ) -> int:
         """Count user's notes."""
         query = select(func.count(Note.id)).where(Note.user_id == user_id)
         if not include_archived:
             query = query.where(Note.is_archived.is_not(True))
         query = self._apply_search(query, search_query)
+        query = self._apply_category(query, category)
         result = await self.db.execute(query)
         return result.scalar() or 0

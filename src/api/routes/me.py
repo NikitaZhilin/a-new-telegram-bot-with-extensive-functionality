@@ -80,6 +80,7 @@ class NoteResponse(BaseModel):
     id: int
     title: str
     text: str
+    category: str
     is_archived: bool
     created_at: datetime
     updated_at: datetime
@@ -90,6 +91,7 @@ class NoteCreateRequest(BaseModel):
 
     title: str = Field(min_length=1, max_length=255)
     text: Optional[str] = Field(default="", max_length=20000)
+    category: str = Field(default="other", max_length=40)
 
 
 class NoteUpdateRequest(BaseModel):
@@ -97,6 +99,7 @@ class NoteUpdateRequest(BaseModel):
 
     title: Optional[str] = Field(default=None, min_length=1, max_length=255)
     text: Optional[str] = Field(default=None, max_length=20000)
+    category: Optional[str] = Field(default=None, max_length=40)
 
 
 class ListItemResponse(BaseModel):
@@ -605,6 +608,7 @@ def _note_response(note: Note) -> NoteResponse:
         id=note.id,
         title=note.title,
         text=note.text or "",
+        category=note.category or "other",
         is_archived=note.is_archived,
         created_at=note.created_at,
         updated_at=note.updated_at,
@@ -884,18 +888,23 @@ async def get_my_notes(
     include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=100),
     search: Optional[str] = Query(None, max_length=120),
+    category: Optional[str] = Query(None, max_length=40),
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[NoteResponse]:
     """Return current user's standalone notes."""
     service = NoteService(db)
-    notes, _ = await service.list_notes(
-        current_user.id,
-        page=0,
-        page_size=limit,
-        include_archived=include_archived,
-        search_query=search,
-    )
+    try:
+        notes, _ = await service.list_notes(
+            current_user.id,
+            page=0,
+            page_size=limit,
+            include_archived=include_archived,
+            search_query=search,
+            category=category,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     return [_note_response(note) for note in notes]
 
 
@@ -911,6 +920,7 @@ async def create_my_note(
             current_user.id,
             payload.title,
             payload.text,
+            category=payload.category,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
@@ -946,6 +956,7 @@ async def update_my_note(
             current_user.id,
             title=payload.title,
             text=payload.text,
+            category=payload.category,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None

@@ -43,6 +43,7 @@ from src.bot.keyboards import (
     get_main_menu_inline_keyboard,
     get_main_menu_keyboard,
     get_note_delete_confirm_keyboard,
+    get_note_category_keyboard,
     get_note_view_keyboard,
     get_notes_list_keyboard,
     get_list_delete_confirm_keyboard,
@@ -131,10 +132,15 @@ def test_important_callback_patterns_are_registered():
         "^notes_page:",
         "^notes_search$",
         "^notes_search_clear$",
+        "^notes_filter$",
+        "^notes_filter:",
         "^note_create$",
+        "^note_category:",
         "^note_view:",
         "^note_edit_title:",
         "^note_edit_text:",
+        "^note_edit_category:",
+        "^note_category_set:",
         "^note_delete:",
         "^note_delete_confirm:",
         "^share_bot$",
@@ -347,6 +353,8 @@ def test_note_keyboards_have_registered_callbacks():
     for keyboard in [
         get_notes_list_keyboard([note], page=0, has_next=True),
         get_note_view_keyboard(10),
+        get_note_category_keyboard(prefix="notes_filter", include_all=True),
+        get_note_category_keyboard(prefix="note_category_set", note_id=10),
         get_note_delete_confirm_keyboard(10),
     ]:
         callbacks.update(_collect_callback_data(keyboard))

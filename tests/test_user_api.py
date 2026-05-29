@@ -48,7 +48,7 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     await list_service.create_list(user.id, "Driver hidden", source_module="driver")
     await list_service.create_list(other.id, "Other list")
     note_service = NoteService(db_session)
-    await note_service.create_note(user.id, "Web note", "Private text")
+    await note_service.create_note(user.id, "Web note", "Private text", category="recipe")
     await note_service.create_note(other.id, "Other note", "Other text")
 
     reminder_service = ReminderService(db_session)
@@ -86,6 +86,8 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
         lists_response = await client.get("/me/lists", headers=headers)
         notes_response = await client.get("/me/notes", headers=headers)
         notes_search_response = await client.get("/me/notes?search=web", headers=headers)
+        notes_category_response = await client.get("/me/notes?category=recipe", headers=headers)
+        notes_invalid_category_response = await client.get("/me/notes?category=unknown", headers=headers)
         notes_miss_response = await client.get("/me/notes?search=hidden", headers=headers)
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
         medications_response = await client.get("/me/medications", headers=headers)
@@ -96,6 +98,8 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     assert lists_response.status_code == 200
     assert notes_response.status_code == 200
     assert notes_search_response.status_code == 200
+    assert notes_category_response.status_code == 200
+    assert notes_invalid_category_response.status_code == 400
     assert notes_miss_response.status_code == 200
     assert reminders_response.status_code == 200
     assert medications_response.status_code == 200
@@ -107,7 +111,9 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     assert summary_response.json()["app_info"]["version"] == settings.APP_VERSION
     assert [item["title"] for item in lists_response.json()] == ["Web list"]
     assert [item["title"] for item in notes_response.json()] == ["Web note"]
+    assert notes_response.json()[0]["category"] == "recipe"
     assert [item["title"] for item in notes_search_response.json()] == ["Web note"]
+    assert [item["title"] for item in notes_category_response.json()] == ["Web note"]
     assert notes_miss_response.json() == []
     assert [item["text"] for item in reminders_response.json()] == ["Web reminder"]
     assert medications_response.json()[0]["name"] == "Web medication"
@@ -385,13 +391,13 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
         note_response = await client.post(
             "/me/notes",
             headers=headers,
-            json={"title": "Recipe note", "text": "Mix ingredients\nBake"},
+            json={"title": "Recipe note", "text": "Mix ingredients\nBake", "category": "recipe"},
         )
         note_id = note_response.json()["id"]
         updated_note_response = await client.patch(
             f"/me/notes/{note_id}",
             headers=headers,
-            json={"title": "Recipe note updated", "text": "Updated text"},
+            json={"title": "Recipe note updated", "text": "Updated text", "category": "instruction"},
         )
         note_detail_response = await client.get(f"/me/notes/{note_id}", headers=headers)
 
@@ -635,6 +641,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
         lists_response = await client.get("/me/lists", headers=headers)
         notes_response = await client.get("/me/notes", headers=headers)
         notes_search_response = await client.get("/me/notes?search=updated", headers=headers)
+        notes_category_response = await client.get("/me/notes?category=instruction", headers=headers)
         deleted_note_response = await client.delete(f"/me/notes/{note_id}", headers=headers)
         notes_after_delete_response = await client.get("/me/notes", headers=headers)
         list_detail_response = await client.get(f"/me/lists/{list_id}", headers=headers)
@@ -650,6 +657,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert note_response.status_code == 201
     assert updated_note_response.status_code == 200
     assert updated_note_response.json()["title"] == "Recipe note updated"
+    assert updated_note_response.json()["category"] == "instruction"
     assert note_detail_response.json()["text"] == "Updated text"
     assert list_response.status_code == 201
     assert item_response.status_code == 201
@@ -707,6 +715,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert lists_response.json()[0]["title"] == "Web CRUD"
     assert notes_response.json()[0]["title"] == "Recipe note updated"
     assert notes_search_response.json()[0]["title"] == "Recipe note updated"
+    assert notes_category_response.json()[0]["title"] == "Recipe note updated"
     assert deleted_note_response.json()["ok"] is True
     assert notes_after_delete_response.json() == []
     assert next(item for item in list_detail_response.json()["items"] if item["id"] == second_item_id)["is_completed"] is False

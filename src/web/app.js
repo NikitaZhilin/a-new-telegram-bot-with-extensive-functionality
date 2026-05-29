@@ -13,6 +13,7 @@ const state = {
   lists: [],
   notes: [],
   noteSearch: "",
+  noteCategoryFilter: "",
   reminders: [],
   medications: [],
   driver: null,
@@ -79,6 +80,14 @@ const driverTabs = [
   { id: "journal", label: "Журнал" },
 ];
 
+const noteCategories = [
+  ["other", "Другое"],
+  ["recipe", "Рецепт"],
+  ["instruction", "Инструкция"],
+  ["idea", "Идея"],
+  ["personal", "Личное"],
+];
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
@@ -93,6 +102,19 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function formatNoteCategory(value) {
+  return noteCategories.find(([key]) => key === value)?.[1] || "Другое";
+}
+
+function renderNoteCategoryOptions(selected = "", includeAll = false) {
+  const rows = includeAll
+    ? [["", "Все категории"], ...noteCategories]
+    : noteCategories;
+  return rows.map(([value, label]) => `
+    <option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(label)}</option>
+  `).join("");
 }
 
 function showMessage(text, isError = false) {
@@ -1267,11 +1289,18 @@ async function loadNotes() {
   if (state.noteSearch.trim()) {
     params.set("search", state.noteSearch.trim());
   }
+  if (state.noteCategoryFilter) {
+    params.set("category", state.noteCategoryFilter);
+  }
   const url = params.toString() ? `/me/notes?${params.toString()}` : "/me/notes";
   state.notes = await api(url);
   const searchInput = $("#noteSearchForm input[name='search']");
   if (searchInput) {
     searchInput.value = state.noteSearch;
+  }
+  const categoryInput = $("#noteSearchForm select[name='category']");
+  if (categoryInput) {
+    categoryInput.value = state.noteCategoryFilter;
   }
   $("#notesContainer").innerHTML = state.notes.length
     ? state.notes.map((item) => `
@@ -1279,7 +1308,7 @@ async function loadNotes() {
         <div class="item-card-header">
           <div>
             <div class="item-title">${escapeHtml(item.title)}</div>
-            <div class="item-meta">обновлено: ${formatDate(item.updated_at)}</div>
+            <div class="item-meta">категория: ${escapeHtml(formatNoteCategory(item.category))} · обновлено: ${formatDate(item.updated_at)}</div>
           </div>
         </div>
         <div class="item-text note-preview">${escapeHtml(notePreview(item.text))}</div>
@@ -1290,7 +1319,7 @@ async function loadNotes() {
         </div>
       </article>
     `).join("")
-    : `<div class="item-meta">${state.noteSearch.trim() ? `По запросу «${escapeHtml(state.noteSearch.trim())}» ничего не найдено.` : "Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст."}</div>`;
+    : `<div class="item-meta">${state.noteSearch.trim() || state.noteCategoryFilter ? "По текущему фильтру ничего не найдено." : "Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст."}</div>`;
 }
 
 function notePreview(text) {
@@ -1303,6 +1332,7 @@ function renderNoteEditForm(note) {
   return `
     <form class="note-edit-form stack compact-form" data-id="${note.id}">
       <input name="title" type="text" value="${escapeHtml(note.title)}" required>
+      <select name="category">${renderNoteCategoryOptions(note.category || "other")}</select>
       <textarea name="text" rows="10">${escapeHtml(note.text || "")}</textarea>
       <div class="button-row">
         <button class="small action-save" type="submit">Сохранить</button>
@@ -1320,7 +1350,7 @@ async function openNote(noteId) {
     <div class="panel-heading">
       <div>
         <h2>${escapeHtml(note.title)}</h2>
-        <div class="item-meta">создано: ${formatDate(note.created_at)} · обновлено: ${formatDate(note.updated_at)}</div>
+          <div class="item-meta">категория: ${escapeHtml(formatNoteCategory(note.category))} · создано: ${formatDate(note.created_at)} · обновлено: ${formatDate(note.updated_at)}</div>
       </div>
       <div class="panel-heading-actions">
         <button class="secondary small action-edit" data-action="edit-note" data-id="${note.id}">Изменить</button>
@@ -2067,9 +2097,11 @@ async function handleNoteCreate(event) {
     body: JSON.stringify({
       title: form.title.value,
       text: form.text.value,
+      category: form.category.value || "other",
     }),
   });
   state.noteSearch = "";
+  state.noteCategoryFilter = "";
   form.reset();
   await loadNotes();
   await openNote(note.id);
@@ -2081,6 +2113,7 @@ async function handleNoteSearch(event) {
   event.preventDefault();
   const form = event.currentTarget;
   state.noteSearch = form.search.value.trim();
+  state.noteCategoryFilter = form.category.value || "";
   state.selectedNoteId = null;
   state.editingNoteId = null;
   $("#noteDetailPanel").classList.add("hidden");
@@ -2096,6 +2129,7 @@ async function handleNoteUpdate(event) {
     body: JSON.stringify({
       title: form.title.value,
       text: form.text.value,
+      category: form.category.value || "other",
     }),
   });
   state.editingNoteId = null;
@@ -2499,6 +2533,7 @@ async function handleAction(event) {
       await openNote(id);
     } else if (action === "clear-note-search") {
       state.noteSearch = "";
+      state.noteCategoryFilter = "";
       state.selectedNoteId = null;
       state.editingNoteId = null;
       $("#noteDetailPanel").classList.add("hidden");

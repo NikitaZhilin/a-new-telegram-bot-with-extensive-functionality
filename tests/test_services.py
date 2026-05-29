@@ -28,14 +28,26 @@ async def test_note_service_enforces_ownership_and_archiving(db_session):
     await db_session.flush()
 
     service = NoteService(db_session)
-    note = await service.create_note(user.id, "Recipe", "Step 1\nStep 2")
+    note = await service.create_note(user.id, "Recipe", "Step 1\nStep 2", category="recipe")
     other_note = await service.create_note(other.id, "Other", "Hidden")
     await db_session.flush()
 
     notes, total = await service.list_notes(user.id)
     assert total == 1
     assert [item.id for item in notes] == [note.id]
+    assert notes[0].category == "recipe"
     assert await service.get_note(other_note.id, user.id) is None
+
+    recipes, recipes_total = await service.list_notes(user.id, category="recipe")
+    assert recipes_total == 1
+    assert [item.id for item in recipes] == [note.id]
+
+    other_category_notes, other_category_total = await service.list_notes(user.id, category="other")
+    assert other_category_notes == []
+    assert other_category_total == 0
+
+    with pytest.raises(ValueError, match="Неизвестная категория"):
+        await service.list_notes(user.id, category="unknown")
 
     title_matches, title_total = await service.list_notes(user.id, search_query="rec")
     assert title_total == 1
@@ -49,10 +61,11 @@ async def test_note_service_enforces_ownership_and_archiving(db_session):
     assert hidden_matches == []
     assert hidden_total == 0
 
-    updated = await service.update_note(note.id, user.id, title="Updated", text="New text")
+    updated = await service.update_note(note.id, user.id, title="Updated", text="New text", category="instruction")
     assert updated is not None
     assert updated.title == "Updated"
     assert updated.text == "New text"
+    assert updated.category == "instruction"
 
     assert await service.archive_note(note.id, other.id) is False
     assert await service.archive_note(note.id, user.id) is True

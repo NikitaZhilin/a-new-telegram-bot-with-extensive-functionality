@@ -12,6 +12,14 @@ from src.repositories.note_repo import NoteRepository
 MAX_NOTE_TITLE_LENGTH = 255
 MAX_NOTE_TEXT_LENGTH = 20000
 MAX_NOTE_SEARCH_LENGTH = 120
+NOTE_CATEGORIES: dict[str, str] = {
+    "recipe": "Рецепт",
+    "instruction": "Инструкция",
+    "idea": "Идея",
+    "personal": "Личное",
+    "other": "Другое",
+}
+DEFAULT_NOTE_CATEGORY = "other"
 
 
 def _clean_title(title: str) -> str:
@@ -39,6 +47,20 @@ def _clean_search_query(search_query: Optional[str]) -> str | None:
     return value
 
 
+def clean_note_category(category: Optional[str]) -> str:
+    """Normalize note category to a known allowlisted value."""
+    value = (category or DEFAULT_NOTE_CATEGORY).strip().lower()
+    if value not in NOTE_CATEGORIES:
+        raise ValueError("Неизвестная категория заметки")
+    return value
+
+
+def note_category_label(category: Optional[str]) -> str:
+    """Return user-facing category label."""
+    value = (category or DEFAULT_NOTE_CATEGORY).strip().lower()
+    return NOTE_CATEGORIES.get(value, NOTE_CATEGORIES[DEFAULT_NOTE_CATEGORY])
+
+
 class NoteService:
     """Service for user-owned standalone notes."""
 
@@ -46,12 +68,20 @@ class NoteService:
         self.db = db
         self.repo = NoteRepository(db)
 
-    async def create_note(self, user_id: int, title: str, text: Optional[str] = None) -> Note:
+    async def create_note(
+        self,
+        user_id: int,
+        title: str,
+        text: Optional[str] = None,
+        *,
+        category: Optional[str] = None,
+    ) -> Note:
         """Create a personal note."""
         note = Note(
             user_id=user_id,
             title=_clean_title(title),
             text=_clean_text(text),
+            category=clean_note_category(category),
             is_archived=False,
         )
         self.db.add(note)
@@ -67,11 +97,13 @@ class NoteService:
         page_size: int = 10,
         include_archived: bool = False,
         search_query: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> tuple[list[Note], int]:
         """Return paginated user notes."""
         page = max(page, 0)
         page_size = max(1, min(page_size, 50))
         search_value = _clean_search_query(search_query)
+        category_value = clean_note_category(category) if category else None
         notes = list(
             await self.repo.get_by_user(
                 user_id,
@@ -79,12 +111,14 @@ class NoteService:
                 limit=page_size,
                 offset=page * page_size,
                 search_query=search_value,
+                category=category_value,
             )
         )
         total = await self.repo.count_by_user(
             user_id,
             include_archived=include_archived,
             search_query=search_value,
+            category=category_value,
         )
         return notes, total
 
@@ -99,8 +133,9 @@ class NoteService:
         *,
         title: Optional[str] = None,
         text: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> Optional[Note]:
-        """Update title and/or text of a user-owned note."""
+        """Update title, text, and/or category of a user-owned note."""
         note = await self.get_note(note_id, user_id)
         if not note:
             return None
@@ -109,6 +144,8 @@ class NoteService:
             note.title = _clean_title(title)
         if text is not None:
             note.text = _clean_text(text)
+        if category is not None:
+            note.category = clean_note_category(category)
         note.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         await self.db.refresh(note)
