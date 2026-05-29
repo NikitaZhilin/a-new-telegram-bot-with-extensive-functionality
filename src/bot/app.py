@@ -29,6 +29,8 @@ from src.bot.handlers import (
     list_edit_item_conv,
     list_rename_conv,
     list_voice_conv,
+    note_create_conv,
+    note_edit_conv,
     medication_create_conv,
     medication_edit_conv,
     medication_reminder_conv,
@@ -86,6 +88,13 @@ from src.bot.handlers.checklists import (
     checklist_start_item_callback,
     checklist_start_callback,
     checklist_toggle_callback,
+)
+from src.bot.handlers.notes import (
+    note_delete_callback,
+    note_delete_confirm_callback,
+    note_view_callback,
+    notes_list_callback,
+    notes_page_callback,
 )
 from src.bot.handlers.medications import (
     medications_list_callback,
@@ -156,8 +165,9 @@ from src.bot.handlers.driver import (
     driver_vehicle_view_callback,
 )
 from src.bot.handlers.navigation import menu_button_handler
+from src.bot.handlers.navigation import mini_app_unavailable_callback
 from src.bot.handlers.navigation import web_entry_callback
-from src.bot.handlers.navigation import removed_notes_callback, share_bot_callback
+from src.bot.handlers.navigation import share_bot_callback
 from src.bot.handlers.activity import activity_event_handler
 
 
@@ -200,6 +210,10 @@ def create_application() -> Application:
     application.add_handler(list_edit_item_conv)
     application.add_handler(list_rename_conv)
 
+    # Notes
+    application.add_handler(note_create_conv)
+    application.add_handler(note_edit_conv)
+
     # Medications
     application.add_handler(medication_create_conv)
     application.add_handler(medication_edit_conv)
@@ -226,8 +240,12 @@ def create_application() -> Application:
     application.add_handler(back_handler)
     application.add_handler(home_handler)
     
-    # Removed notes callbacks. Old messages may still contain these buttons.
-    application.add_handler(CallbackQueryHandler(removed_notes_callback, pattern="^(notes_|note_)"))
+    # Notes callbacks
+    application.add_handler(CallbackQueryHandler(notes_list_callback, pattern="^notes_list$"))
+    application.add_handler(CallbackQueryHandler(notes_page_callback, pattern="^notes_page:"))
+    application.add_handler(CallbackQueryHandler(note_view_callback, pattern="^note_view:"))
+    application.add_handler(CallbackQueryHandler(note_delete_confirm_callback, pattern="^note_delete_confirm:"))
+    application.add_handler(CallbackQueryHandler(note_delete_callback, pattern="^note_delete:"))
     
     # Lists callbacks
     application.add_handler(CallbackQueryHandler(lists_list_callback, pattern="^lists_list$"))
@@ -292,6 +310,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(settings_subscription_callback, pattern="^settings_subscription$"))
     application.add_handler(CallbackQueryHandler(settings_web_login_callback, pattern="^settings_web_login$"))
     application.add_handler(CallbackQueryHandler(web_entry_callback, pattern="^web_entry$"))
+    application.add_handler(CallbackQueryHandler(mini_app_unavailable_callback, pattern="^mini_app_unavailable$"))
 
     # Driver callbacks
     application.add_handler(CallbackQueryHandler(driver_menu_callback, pattern="^driver_menu$"))

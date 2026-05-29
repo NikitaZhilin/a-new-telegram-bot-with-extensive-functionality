@@ -75,6 +75,7 @@ class SettingsService:
             DriverVehicle,
             ListMember,
             Medication,
+            Note,
             Reminder,
             ReminderStatus,
             TodoList,
@@ -96,6 +97,18 @@ class SettingsService:
             .where(
                 ListMember.user_id == user_id,
                 TodoList.source_module == "general",
+            )
+        )
+        notes_active = await count(
+            select(func.count(Note.id)).where(
+                Note.user_id == user_id,
+                Note.is_archived.is_not(True),
+            )
+        )
+        notes_archived = await count(
+            select(func.count(Note.id)).where(
+                Note.user_id == user_id,
+                Note.is_archived.is_(True),
             )
         )
 
@@ -165,6 +178,10 @@ class SettingsService:
                 "owned": owned_lists,
                 "shared": shared_lists,
             },
+            "notes": {
+                "active": notes_active,
+                "archived": notes_archived,
+            },
             "reminders": {
                 "active": reminders_active,
                 "done": reminders_done,
@@ -194,6 +211,7 @@ class SettingsService:
             DriverVehicle,
             ListMember,
             Medication,
+            Note,
             Reminder,
             TodoList,
         )
@@ -221,6 +239,13 @@ class SettingsService:
         shared_members_users = await count(
             select(func.count(distinct(ListMember.user_id))).where(
                 ListMember.user_id != current_user_id,
+            )
+        )
+        notes_total = await count(select(func.count(Note.id)).where(Note.is_archived.is_not(True)))
+        notes_users = await count(
+            select(func.count(distinct(Note.user_id))).where(
+                Note.user_id != current_user_id,
+                Note.is_archived.is_not(True),
             )
         )
 
@@ -287,6 +312,10 @@ class SettingsService:
             "shared_lists": {
                 "records": shared_members_total,
                 "other_users": shared_members_users,
+            },
+            "notes": {
+                "records": notes_total,
+                "other_users": notes_users,
             },
             "reminders": {
                 "records": reminders_total,

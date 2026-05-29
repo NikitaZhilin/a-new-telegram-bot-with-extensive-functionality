@@ -11,6 +11,7 @@ const state = {
   summary: null,
   appInfo: null,
   lists: [],
+  notes: [],
   reminders: [],
   medications: [],
   driver: null,
@@ -25,10 +26,12 @@ const state = {
   },
   activeChecklistRun: null,
   selectedListId: null,
+  selectedNoteId: null,
   selectedVehicleId: null,
   driverTab: localStorage.getItem("rememberme.driverTab") || "vehicles",
   editingListId: null,
   editingItemId: null,
+  editingNoteId: null,
   editingReminderId: null,
   editingMedicationId: null,
   editingVehicleId: null,
@@ -58,13 +61,14 @@ const state = {
 const titles = {
   dashboard: ["Сводка", "Текущие данные бота в web-версии."],
   lists: ["Списки", "Создание, просмотр и отметка пунктов."],
+  notes: ["Заметки", "Текстовые записи без чек-листов и отметок."],
   reminders: ["Напоминания", "Активные напоминания пользователя."],
   medications: ["Лекарства", "Приемы, важность и ежедневное расписание."],
   driver: ["Водитель", "Автомобили, заправки, расходы и документы."],
   admin: ["Админ-панель", "Агрегированная активность, пользователи и воронки сценариев."],
 };
 
-const baseNavSections = ["dashboard", "lists", "reminders", "medications", "driver"];
+const baseNavSections = ["dashboard", "lists", "notes", "reminders", "medications", "driver"];
 
 const driverTabs = [
   { id: "vehicles", label: "Авто" },
@@ -345,6 +349,9 @@ function navBadge(section) {
     const total = Number(stats.lists?.owned || 0) + Number(stats.lists?.shared || 0);
     return total ? String(total) : "";
   }
+  if (section === "notes") {
+    return stats.notes?.active ? String(stats.notes.active) : "";
+  }
   if (section === "reminders") {
     return stats.reminders?.active ? String(stats.reminders.active) : "";
   }
@@ -446,6 +453,7 @@ function renderMetrics() {
   const stats = state.summary?.stats || {};
   const cards = [
     ["Списки", stats.lists?.owned ?? 0, `общих списков с вашим доступом: ${stats.lists?.shared ?? 0}`],
+    ["Заметки", stats.notes?.active ?? 0, `в архиве: ${stats.notes?.archived ?? 0}`],
     ["Чек-листы", stats.checklists?.completed ?? 0, `активных: ${stats.checklists?.active ?? 0}; отменено: ${stats.checklists?.canceled ?? 0}`],
     ["Активные напоминания", stats.reminders?.active ?? 0, `выполнено: ${stats.reminders?.done ?? 0}; отменено: ${stats.reminders?.canceled ?? 0}`],
     ["Лекарства", stats.medications?.active ?? 0, `в архиве: ${stats.medications?.archived ?? 0}`],
@@ -569,6 +577,7 @@ function renderTodaySnapshot() {
   const activeChecks = stats.checklists?.active || 0;
   const quickActions = [
     ["lists", "Новый список", "Создать список или открыть текущие чек-листы."],
+    ["notes", "Заметка", "Сохранить рецепт, инструкцию или любой текст для чтения."],
     ["reminders", "Напоминание", "Поставить разовое или повторяющееся напоминание."],
     ["medications", "Лекарство", "Добавить препарат и расписание приема."],
     ["driver", "Авто", "Добавить заправку, расход или запись в журнал."],
@@ -639,6 +648,7 @@ function renderDashboardDetails(stats) {
       lines: [
         `Личные списки: ${stats.lists?.owned ?? 0}`,
         `Общие списки: ${stats.lists?.shared ?? 0}`,
+        `Заметки: ${stats.notes?.active ?? 0}`,
         `Завершенные чек-листы: ${stats.checklists?.completed ?? 0}`,
         `Активные чек-листы: ${stats.checklists?.active ?? 0}`,
         `Активные лекарства: ${stats.medications?.active ?? 0}`,
@@ -1249,6 +1259,67 @@ async function loadLists() {
   $$(".list-rename-form").forEach((form) => {
     form.addEventListener("submit", (event) => handleListRename(event).catch((error) => showMessage(error.message, true)));
   });
+}
+
+async function loadNotes() {
+  state.notes = await api("/me/notes");
+  $("#notesContainer").innerHTML = state.notes.length
+    ? state.notes.map((item) => `
+      <article class="item-card">
+        <div class="item-card-header">
+          <div>
+            <div class="item-title">${escapeHtml(item.title)}</div>
+            <div class="item-meta">обновлено: ${formatDate(item.updated_at)}</div>
+          </div>
+        </div>
+        <div class="item-text note-preview">${escapeHtml(notePreview(item.text))}</div>
+        <div class="item-actions">
+          <button class="small action-open" data-action="open-note" data-id="${item.id}">Открыть</button>
+          <button class="secondary small action-edit" data-action="edit-note" data-id="${item.id}">Изменить</button>
+          <button class="danger small action-danger" data-action="delete-note" data-id="${item.id}">Удалить</button>
+        </div>
+      </article>
+    `).join("")
+    : `<div class="item-meta">Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст.</div>`;
+}
+
+function notePreview(text) {
+  const value = String(text || "").trim();
+  if (!value) return "Текст заметки пока пуст.";
+  return value.length > 180 ? `${value.slice(0, 180)}...` : value;
+}
+
+function renderNoteEditForm(note) {
+  return `
+    <form class="note-edit-form stack compact-form" data-id="${note.id}">
+      <input name="title" type="text" value="${escapeHtml(note.title)}" required>
+      <textarea name="text" rows="10">${escapeHtml(note.text || "")}</textarea>
+      <div class="button-row">
+        <button class="small action-save" type="submit">Сохранить</button>
+        <button class="secondary small action-cancel" type="button" data-action="cancel-note-edit">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
+async function openNote(noteId) {
+  const note = await api(`/me/notes/${noteId}`);
+  state.selectedNoteId = note.id;
+  $("#noteDetailPanel").classList.remove("hidden");
+  $("#noteDetailPanel").innerHTML = `
+    <div class="panel-heading">
+      <div>
+        <h2>${escapeHtml(note.title)}</h2>
+        <div class="item-meta">создано: ${formatDate(note.created_at)} · обновлено: ${formatDate(note.updated_at)}</div>
+      </div>
+      <div class="panel-heading-actions">
+        <button class="secondary small action-edit" data-action="edit-note" data-id="${note.id}">Изменить</button>
+        <button class="danger small action-danger" data-action="delete-note" data-id="${note.id}">Удалить</button>
+      </div>
+    </div>
+    ${state.editingNoteId === note.id ? renderNoteEditForm(note) : `<div class="item-text note-full-text">${escapeHtml(note.text || "Текст заметки пока пуст.")}</div>`}
+  `;
+  $(".note-edit-form")?.addEventListener("submit", (event) => handleNoteUpdate(event).catch((error) => showMessage(error.message, true)));
 }
 
 async function openList(listId) {
@@ -1909,6 +1980,8 @@ async function loadSection(section) {
     await loadTodaySnapshot();
   } else if (section === "lists") {
     await loadLists();
+  } else if (section === "notes") {
+    await loadNotes();
   } else if (section === "reminders") {
     await loadReminders();
   } else if (section === "medications") {
@@ -1974,6 +2047,41 @@ async function handleListRename(event) {
   }
   await loadSummary();
   showMessage("Список переименован.");
+}
+
+async function handleNoteCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const note = await api("/me/notes", {
+    method: "POST",
+    body: JSON.stringify({
+      title: form.title.value,
+      text: form.text.value,
+    }),
+  });
+  form.reset();
+  await loadNotes();
+  await openNote(note.id);
+  await loadSummary();
+  showMessage("Заметка сохранена.");
+}
+
+async function handleNoteUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const noteId = form.dataset.id;
+  await api(`/me/notes/${noteId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      title: form.title.value,
+      text: form.text.value,
+    }),
+  });
+  state.editingNoteId = null;
+  await loadNotes();
+  await openNote(noteId);
+  await loadSummary();
+  showMessage("Заметка обновлена.");
 }
 
 async function handleListItemUpdate(event) {
@@ -2340,7 +2448,7 @@ async function handleAction(event) {
   if (!target) return;
   const action = target.dataset.action;
   const id = target.dataset.id;
-  const needsSecondClick = new Set(["delete-list", "delete-item", "delete-reminder", "archive-medication", "delete-vehicle", "delete-fuel", "delete-expense", "delete-document", "delete-journal", "remove-member"]);
+  const needsSecondClick = new Set(["delete-list", "delete-item", "delete-note", "delete-reminder", "archive-medication", "delete-vehicle", "delete-fuel", "delete-expense", "delete-document", "delete-journal", "remove-member"]);
   if (needsSecondClick.has(action) && target.dataset.confirmed !== "1") {
     target.dataset.originalText = target.textContent;
     target.dataset.confirmed = "1";
@@ -2365,6 +2473,9 @@ async function handleAction(event) {
       await switchSection("medications");
     } else if (action === "open-list") {
       await openList(id);
+    } else if (action === "open-note") {
+      state.editingNoteId = null;
+      await openNote(id);
     } else if (action === "remind-list") {
       await switchSection("reminders");
       prefillReminderFromList(id);
@@ -2387,6 +2498,21 @@ async function handleAction(event) {
       await api(`/me/lists/${id}`, { method: "DELETE" });
       $("#listDetailPanel").classList.add("hidden");
       await loadLists();
+      await loadSummary();
+    } else if (action === "edit-note") {
+      state.editingNoteId = Number(id);
+      await openNote(id);
+    } else if (action === "cancel-note-edit") {
+      state.editingNoteId = null;
+      await openNote(state.selectedNoteId);
+    } else if (action === "delete-note") {
+      await api(`/me/notes/${id}`, { method: "DELETE" });
+      if (Number(state.selectedNoteId) === Number(id)) {
+        $("#noteDetailPanel").classList.add("hidden");
+        state.selectedNoteId = null;
+      }
+      state.editingNoteId = null;
+      await loadNotes();
       await loadSummary();
     } else if (action === "toggle-item") {
       const activeRun = state.activeChecklistRun?.source_list_id === Number(state.selectedListId) && state.activeChecklistRun.status === "active"
@@ -2584,6 +2710,7 @@ function bindEvents() {
   $("#loginButton").addEventListener("click", (event) => withButtonLoading(event.currentTarget, "Вход...", handleLogin)
     .catch((error) => showMessage(error.message, true)));
   bindFormSubmit("#listCreateForm", handleListCreate, "Создание...");
+  bindFormSubmit("#noteCreateForm", handleNoteCreate, "Сохранение...");
   bindFormSubmit("#reminderCreateForm", handleReminderCreate, "Создание...");
   bindFormSubmit("#medicationCreateForm", handleMedicationCreate, "Создание...");
   bindFormSubmit("#vehicleCreateForm", handleVehicleCreate, "Добавление...");

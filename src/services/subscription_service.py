@@ -24,6 +24,7 @@ class PlanDefinition:
 CORE_FEATURES = frozenset(
     {
         "lists",
+        "notes",
         "shared_lists",
         "reminders",
         "medications",
@@ -37,6 +38,7 @@ PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
         features=CORE_FEATURES,
         limits={
             "lists": None,
+            "notes": None,
             "shared_list_members": None,
             "active_reminders": None,
             "medications": None,
@@ -48,6 +50,7 @@ PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
         features=CORE_FEATURES | {"advanced_history", "priority_support"},
         limits={
             "lists": None,
+            "notes": None,
             "shared_list_members": None,
             "active_reminders": None,
             "medications": None,
@@ -59,6 +62,7 @@ PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
         features=CORE_FEATURES | {"advanced_history", "priority_support", "exports", "family_access"},
         limits={
             "lists": None,
+            "notes": None,
             "shared_list_members": None,
             "active_reminders": None,
             "medications": None,

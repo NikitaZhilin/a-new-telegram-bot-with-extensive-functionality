@@ -89,7 +89,7 @@ WEB_LOGIN_TOKEN_TTL_DAYS=30
 MINI_APP_MENU_BUTTON_TEXT=RememberMe
 LOG_LEVEL=INFO
 TIMEZONE_DEFAULT=Europe/Moscow
-APP_VERSION=0.1.0-beta
+APP_VERSION=0.1.20-beta
 STARTUP_UPDATE_MESSAGE=Обновлена стабильность сервиса и web-версии.
 TESTING_NOTICE_ENABLED=true
 TESTING_NOTICE_TEXT=
@@ -176,9 +176,10 @@ WEB_PUBLIC_URL=https://bot.example.com
 MINI_APP_MENU_BUTTON_TEXT=RememberMe
 ```
 
-`WEB_PUBLIC_URL` must not include `/web` or `/miniapp`. The application appends
-`/miniapp` for Telegram launch surfaces and `/web?token=...` for personal
-fallback links outside Telegram.
+Prefer setting `WEB_PUBLIC_URL` to the base domain without `/web` or `/miniapp`.
+If an entrypoint suffix is accidentally included, the application normalizes it
+before appending `/miniapp` for Telegram launch surfaces and `/web?token=...`
+for personal fallback links outside Telegram.
 
 Before configuring Telegram, validate the URL without calling Telegram:
 
@@ -194,14 +195,14 @@ python -B -m src.main menu-button
 ```
 
 This sets the bot's menu button to open `{WEB_PUBLIC_URL}/miniapp`. The command
-refuses non-HTTPS URLs. In the bot menus, `Web-версия` opens the Mini App
-directly when HTTPS is configured. In local development without HTTPS, it falls
-back to the personal web-key flow for `/web`.
+refuses non-HTTPS URLs. In the bot menus, `Web / приложение` opens a chooser:
+`Открыть приложение` launches the Mini App at `/miniapp`, and `Web-версия`
+issues the personal web-key flow for `/web`.
 
 `production-check` fails validation if:
 
 - `WEB_PUBLIC_URL`/`APP_BASE_URL` is not HTTPS;
-- the public URL includes `/web`, `/miniapp`, or has a trailing slash;
+- the public URL has a trailing slash;
 - `API_DOCS_ENABLED=true`;
 - `WEB_TEST_LOGIN_ENABLED=true`;
 - `CORS_ORIGINS` contains `*` or non-HTTPS origins;

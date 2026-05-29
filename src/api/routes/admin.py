@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.auth import require_admin
 from src.db.session import get_db
-from src.db.models import Medication, TodoList, Reminder, ReminderStatus, User
+from src.db.models import Medication, Note, TodoList, Reminder, ReminderStatus, User
 from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
 from src.services.restart_request_service import (
@@ -75,6 +75,7 @@ class StatsResponse(BaseModel):
     """System statistics."""
     users: StatsCount
     lists: StatsCount
+    notes: StatsCount
     reminders: StatsReminders
     generated_at: str
 
@@ -85,6 +86,7 @@ class UserRecordsResponse(BaseModel):
     user: UserResponse
     access: dict
     lists: List[dict]
+    notes: List[dict]
     reminders: List[dict]
     medications: List[dict]
     driver: dict
@@ -277,6 +279,12 @@ async def get_user_records(
         .order_by(TodoList.updated_at.desc())
         .limit(50)
     )
+    notes_result = await db.execute(
+        select(Note)
+        .where(Note.user_id == user_id, Note.is_archived.is_not(True))
+        .order_by(Note.updated_at.desc())
+        .limit(50)
+    )
     reminders_result = await db.execute(
         select(Reminder)
         .where(Reminder.user_id == user_id)
@@ -290,6 +298,7 @@ async def get_user_records(
         .limit(50)
     )
     lists = lists_result.scalars().all()
+    notes = notes_result.scalars().all()
     reminders = reminders_result.scalars().all()
     medications = medications_result.scalars().all()
     vehicles = await driver_service.get_vehicles(user_id)
@@ -305,6 +314,16 @@ async def get_user_records(
                 "updated_at": item.updated_at.isoformat(),
             }
             for item in lists
+        ],
+        notes=[
+            {
+                "id": item.id,
+                "title": item.title,
+                "text": (item.text or "")[:500],
+                "created_at": item.created_at.isoformat(),
+                "updated_at": item.updated_at.isoformat(),
+            }
+            for item in notes
         ],
         reminders=[
             {
@@ -491,6 +510,10 @@ async def get_stats(
     lists_total = await get_count(TodoList)
     lists_today = await get_count(TodoList, today_start)
     lists_week = await get_count(TodoList, week_start)
+
+    notes_total = await get_count(Note)
+    notes_today = await get_count(Note, today_start)
+    notes_week = await get_count(Note, week_start)
     
     # Reminder counts by status
     from sqlalchemy import and_
@@ -534,6 +557,11 @@ async def get_stats(
             total=lists_total,
             created_today=lists_today,
             created_week=lists_week,
+        ),
+        notes=StatsCount(
+            total=notes_total,
+            created_today=notes_today,
+            created_week=notes_week,
         ),
         reminders=StatsReminders(
             total=reminders_total,

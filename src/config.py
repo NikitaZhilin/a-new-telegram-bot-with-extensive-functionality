@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # Application
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
     TIMEZONE_DEFAULT: str = Field(default="Europe/Moscow", description="Default timezone")
-    APP_VERSION: str = Field(default="0.1.0-beta", description="Human-readable application version")
+    APP_VERSION: str = Field(default="0.1.20-beta", description="Human-readable application version")
     APP_RELEASE_CHANNEL: str = Field(default="beta", description="Release channel shown in UI")
     APP_GITHUB_URL: str = Field(
         default="https://github.com/NikitaZhilin/a-new-telegram-bot-with-extensive-functionality",

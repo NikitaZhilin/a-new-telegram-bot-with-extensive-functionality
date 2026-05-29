@@ -17,6 +17,10 @@ from src.bot.keyboards.builder import (
     get_settings_back_home_keyboard,
     get_web_entry_keyboard,
     get_web_login_keyboard,
+    # Notes
+    get_notes_list_keyboard,
+    get_note_view_keyboard,
+    get_note_delete_confirm_keyboard,
     # Lists
     get_lists_list_keyboard,
     get_list_delete_confirm_keyboard,
@@ -105,6 +109,10 @@ __all__ = [
     "get_settings_back_home_keyboard",
     "get_web_entry_keyboard",
     "get_web_login_keyboard",
+    # Notes
+    "get_notes_list_keyboard",
+    "get_note_view_keyboard",
+    "get_note_delete_confirm_keyboard",
     # Lists
     "get_lists_list_keyboard",
     "get_list_delete_confirm_keyboard",

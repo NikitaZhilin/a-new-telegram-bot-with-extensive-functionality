@@ -3,6 +3,7 @@
 from src.services.list_service import ListService
 from src.services.checklist_service import ChecklistService
 from src.services.medication_service import MedicationService
+from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.services.settings_service import SettingsService
 from src.services.speech_service import SpeechTranscriptionService
@@ -15,6 +16,7 @@ __all__ = [
     "ListService",
     "ChecklistService",
     "MedicationService",
+    "NoteService",
     "ReminderService",
     "SettingsService",
     "SpeechTranscriptionService",

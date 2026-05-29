@@ -30,6 +30,10 @@ from src.bot.handlers.lists import (
     list_rename_conv,
     list_voice_conv,
 )
+from src.bot.handlers.notes import (
+    note_create_conv,
+    note_edit_conv,
+)
 from src.bot.handlers.medications import (
     medication_create_conv,
     medication_edit_conv,
@@ -67,6 +71,9 @@ __all__ = [
     "list_rename_conv",
     "import_list_handler",
     "join_list_handler",
+    # Notes
+    "note_create_conv",
+    "note_edit_conv",
     # Medications
     "medication_create_conv",
     "medication_edit_conv",

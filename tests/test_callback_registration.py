@@ -42,6 +42,9 @@ from src.bot.keyboards import (
     get_driver_full_tank_keyboard,
     get_main_menu_inline_keyboard,
     get_main_menu_keyboard,
+    get_note_delete_confirm_keyboard,
+    get_note_view_keyboard,
+    get_notes_list_keyboard,
     get_list_delete_confirm_keyboard,
     get_list_item_delete_confirm_keyboard,
     get_list_item_keyboard,
@@ -124,7 +127,14 @@ def test_important_callback_patterns_are_registered():
     patterns = _collect_application_callback_patterns()
 
     expected = {
-        "^(notes_|note_)",
+        "^notes_list$",
+        "^notes_page:",
+        "^note_create$",
+        "^note_view:",
+        "^note_edit_title:",
+        "^note_edit_text:",
+        "^note_delete:",
+        "^note_delete_confirm:",
         "^share_bot$",
         "^lists_page:",
         "^list_item_edit:",
@@ -185,6 +195,7 @@ def test_important_callback_patterns_are_registered():
         "^settings_technical_status$",
         "^settings_subscription$",
         "^settings_web_login$",
+        "^mini_app_unavailable$",
         "^web_entry$",
         "^tz_custom$",
         "^driver_menu$",
@@ -326,6 +337,27 @@ def test_list_keyboards_have_registered_callbacks():
     assert unregistered == set()
 
 
+def test_note_keyboards_have_registered_callbacks():
+    """Note buttons should not point to dead callback_data."""
+    patterns = _collect_application_callback_patterns()
+    note = SimpleNamespace(id=10, title="Рецепт хлеба")
+    callbacks = set()
+    for keyboard in [
+        get_notes_list_keyboard([note], page=0, has_next=True),
+        get_note_view_keyboard(10),
+        get_note_delete_confirm_keyboard(10),
+    ]:
+        callbacks.update(_collect_callback_data(keyboard))
+
+    unregistered = {
+        callback_data
+        for callback_data in callbacks
+        if not _is_registered(callback_data, patterns)
+    }
+
+    assert unregistered == set()
+
+
 def test_settings_keyboards_have_registered_callbacks():
     """Settings buttons should route to registered handlers or URL links."""
     patterns = _collect_application_callback_patterns()
@@ -377,6 +409,7 @@ def test_main_menus_expose_active_sections_only():
 
     assert reply_texts == {
         "📋 Списки",
+        "📝 Заметки",
         "💊 Лекарства",
         "⏰ Напоминания",
         "🚗 Водитель",
@@ -397,6 +430,7 @@ def test_main_menus_expose_active_sections_only():
 
     assert inline_texts == {
         "📋 Списки",
+        "📝 Заметки",
         "💊 Лекарства",
         "⏰ Напоминания",
         "🚗 Водитель",
@@ -408,7 +442,7 @@ def test_main_menus_expose_active_sections_only():
 
 def test_web_entry_chooser_offers_mini_app_and_web_login(monkeypatch):
     """Main menu opens a chooser; Mini App button appears only with HTTPS URL."""
-    monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "https://bot.example.com")
+    monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "https://bot.example.com/web")
     monkeypatch.setattr(settings, "APP_BASE_URL", None)
 
     reply_markup = get_main_menu_keyboard().to_dict()
@@ -448,6 +482,7 @@ def test_web_entry_chooser_offers_mini_app_and_web_login(monkeypatch):
     ]
 
     assert all("web_app" not in button for button in entry_buttons)
+    assert any(button.get("callback_data") == "mini_app_unavailable" for button in entry_buttons)
     assert any(button.get("callback_data") == "settings_web_login" for button in entry_buttons)
 
 

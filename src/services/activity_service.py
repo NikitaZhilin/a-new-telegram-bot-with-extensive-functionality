@@ -20,9 +20,9 @@ DOMAIN_LABELS = {
     "medications": "лекарства",
     "reminders": "напоминания",
     "driver": "для водителя",
+    "notes": "заметки",
     "settings": "настройки",
     "system": "система",
-    "notes_removed": "старые заметки",
     "unknown": "прочее",
 }
 
@@ -35,6 +35,16 @@ FUNNEL_DEFINITIONS = [
             ("create_start", "Начали создание", ["list_create"]),
             ("item_add", "Добавляли пункт", ["list_add_item:{id}", "list_add_bulk:{id}"]),
             ("share", "Открывали шаринг", ["list_share:{id}"]),
+        ],
+    },
+    {
+        "key": "notes",
+        "label": "Заметки",
+        "stages": [
+            ("open", "Открыли раздел", ["menu:notes", "notes_list"]),
+            ("create_start", "Начали создание", ["note_create"]),
+            ("view", "Открывали заметку", ["note_view:{id}"]),
+            ("edit", "Редактировали", ["note_edit_title:{id}", "note_edit_text:{id}"]),
         ],
     },
     {
@@ -346,6 +356,8 @@ def normalize_menu_text(text: str) -> Optional[str]:
     normalized = text.strip().lower()
     if "списки" in normalized:
         return "menu:lists"
+    if "заметки" in normalized:
+        return "menu:notes"
     if "лекарства" in normalized:
         return "menu:medications"
     if "напоминания" in normalized:
@@ -371,6 +383,8 @@ def infer_domain(event_name: str) -> str:
         return "sharing"
     if event_name.startswith(("checklist_",)):
         return "checklists"
+    if event_name.startswith(("note_", "notes_", "menu:notes")):
+        return "notes"
     if event_name.startswith(("list_", "lists_", "menu:lists", "/import_list")):
         return "lists"
     if event_name.startswith(("med_", "medication", "menu:medications")):
@@ -381,8 +395,6 @@ def infer_domain(event_name: str) -> str:
         return "driver"
     if event_name.startswith(("settings", "tz_", "menu:settings")):
         return "settings"
-    if event_name.startswith(("note_", "notes_")):
-        return "notes_removed"
     return "unknown"
 
 
@@ -399,6 +411,7 @@ def format_event_label(event_name: str) -> str:
         "back": "назад",
         "cancel": "отмена действия",
         "menu:lists": "кнопка меню: списки",
+        "menu:notes": "кнопка меню: заметки",
         "menu:medications": "кнопка меню: лекарства",
         "menu:reminders": "кнопка меню: напоминания",
         "menu:driver": "кнопка меню: водитель",
@@ -416,6 +429,12 @@ def format_event_label(event_name: str) -> str:
         "list_add_bulk:{id}": "пакетное добавление пунктов",
         "list_share:{id}": "открытие доступа к списку",
         "list_view:{id}": "просмотр списка",
+        "notes_list": "открытие заметок",
+        "note_create": "создание заметки",
+        "note_view:{id}": "просмотр заметки",
+        "note_edit_title:{id}": "редактирование названия заметки",
+        "note_edit_text:{id}": "редактирование текста заметки",
+        "note_delete:{id}": "удаление заметки",
         "checklist_start:{id}": "запуск чек-листа",
         "checklist_toggle:{id}:{id}": "отметка пункта чек-листа",
         "checklist_check_all:{id}": "отметка всех пунктов чек-листа",

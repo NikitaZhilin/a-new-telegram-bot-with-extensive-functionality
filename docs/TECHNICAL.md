@@ -7,6 +7,7 @@
 Проект - модульный Telegram productivity bot с web-версией и API. Основные домены:
 
 - списки и общие списки;
+- заметки;
 - напоминания;
 - учет приема лекарств;
 - автомобильный журнал;
@@ -109,6 +110,25 @@ docs/
 
 Checklist-run не использует `ListItem.is_completed`. Исходный список остается источником шаблона, а прохождение хранится отдельно в `checklist_runs` и `checklist_run_items`. Это сохраняет корректную работу общих списков, напоминаний на список и web/API.
 
+### Notes
+
+Файлы:
+
+- `src/bot/handlers/notes.py`
+- `src/services/note_service.py`
+- `src/repositories/note_repo.py`
+
+Ключевые возможности:
+
+- автономные текстовые заметки без чек-листов и отметок;
+- создание, просмотр, редактирование названия и текста;
+- мягкое удаление через архивирование;
+- ownership checks: пользователь видит и меняет только свои заметки;
+- отдельный раздел в Telegram, `/web` и `/miniapp`;
+- учет заметок в пользовательской статистике и admin records.
+
+Заметки не смешиваются со списками и напоминаниями. Их задача - хранить текст, который нужно открыть и прочитать: рецепты, инструкции, идеи, справочную информацию.
+
 ### Reminders
 
 Файлы:
@@ -183,12 +203,6 @@ Checklist-run не использует `ListItem.is_completed`. Исходны�
 - startup announcement policy;
 - базовая модель тарифов.
 
-### Removed Notes Runtime
-
-Старый пользовательский модуль заметок отключен. Runtime handlers, service, repository, states и клавиатуры заметок удалены из активного кода бота.
-
-Таблица `notes` и ORM-модель `Note` сохранены для совместимости со старыми локальными/production базами. Старые Telegram-сообщения с кнопками `note_*` или `notes_*` обрабатываются `removed_notes_callback` и показывают безопасное сообщение, что раздел убран.
-
 ## API
 
 Health:
@@ -214,6 +228,11 @@ User API:
 ```text
 GET    /me
 GET    /me/summary
+GET    /me/notes
+POST   /me/notes
+GET    /me/notes/{note_id}
+PATCH  /me/notes/{note_id}
+DELETE /me/notes/{note_id}
 GET    /me/lists
 POST   /me/lists
 GET    /me/lists/{list_id}

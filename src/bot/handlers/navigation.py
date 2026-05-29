@@ -73,6 +73,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"👋 Привет, {user.first_name}!\n\n"
         f"Я бот-напоминалка. Я помогу тебе:\n"
         f"📋 Вести списки дел\n"
+        f"📝 Хранить текстовые заметки\n"
         f"💊 Следить за приемом лекарств\n"
         f"⏰ Создавать напоминания\n"
         f"🚗 Вести автомобильный журнал\n\n"
@@ -92,6 +93,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Создавай списки дел или покупок. "
         "Добавляй элементы по одному или пачкой. "
         "Отмечай выполненные и делись копией списка с другим пользователем.\n\n"
+        "📝 *Заметки*\n"
+        "Храни рецепты, инструкции и любой текст без отметок и чек-листов. "
+        "Заметку можно открыть, прочитать, изменить или удалить.\n\n"
         "💊 *Прием лекарств*\n"
         "Добавляй препараты, важность, дозировку, инструкции и напоминания 1-3 раза в день.\n\n"
         "⏰ *Напоминания*\n"
@@ -117,11 +121,7 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text
 
     if text == "📝 Заметки":
-        await update.message.reply_text(
-            "📝 Раздел заметок убран из бота.\n\n"
-            "Я обновил нижнее меню, используйте актуальные разделы: списки, лекарства, напоминания, водитель и web-версия.",
-            reply_markup=get_main_menu_keyboard(),
-        )
+        await show_notes_menu(update, context)
         return
     if text == "📋 Списки":
         await show_lists_menu(update, context)
@@ -164,6 +164,13 @@ async def show_lists_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Show lists section menu."""
     from src.bot.handlers.lists import lists_list_callback
     await lists_list_callback(update, context)
+
+
+async def show_notes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show notes section menu."""
+    from src.bot.handlers.notes import notes_list_callback
+
+    await notes_list_callback(update, context)
 
 
 async def show_medications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -221,6 +228,15 @@ async def web_entry_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(text, reply_markup=get_web_entry_keyboard())
 
 
+async def mini_app_unavailable_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Explain why the Mini App button cannot open in this environment."""
+    query = update.callback_query
+    await query.answer(
+        "Для запуска приложения нужен публичный HTTPS WEB_PUBLIC_URL. Сейчас можно открыть Web-версию.",
+        show_alert=True,
+    )
+
+
 def _share_bot_text() -> str:
     """Build bot sharing text."""
     if settings.BOT_USERNAME:
@@ -254,17 +270,6 @@ async def share_bot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(
         _share_bot_text(),
         reply_markup=get_home_inline_keyboard(),
-    )
-
-
-async def removed_notes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle stale notes buttons from older bot messages."""
-    query = update.callback_query
-    await query.answer("Раздел заметок убран")
-    await query.edit_message_text(
-        "📝 Раздел заметок убран из бота.\n\n"
-        "Сейчас доступны списки, лекарства, напоминания, водительский раздел, web-версия и настройки.",
-        reply_markup=get_main_menu_inline_keyboard(),
     )
 
 

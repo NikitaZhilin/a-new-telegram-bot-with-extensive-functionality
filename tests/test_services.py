@@ -8,13 +8,46 @@ from src.bot.keyboards.builder import get_list_view_keyboard
 from src.db.models import (
     ListMember,
     Medication,
+    Note,
     Reminder,
     ReminderStatus,
     RepeatRule,
     User,
 )
 from src.services.list_service import ListService
+from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
+
+
+@pytest.mark.asyncio
+async def test_note_service_enforces_ownership_and_archiving(db_session):
+    """Users should only see and modify their own active notes."""
+    user = User(telegram_id=9901, timezone="UTC")
+    other = User(telegram_id=9902, timezone="UTC")
+    db_session.add_all([user, other])
+    await db_session.flush()
+
+    service = NoteService(db_session)
+    note = await service.create_note(user.id, "Recipe", "Step 1\nStep 2")
+    other_note = await service.create_note(other.id, "Other", "Hidden")
+    await db_session.flush()
+
+    notes, total = await service.list_notes(user.id)
+    assert total == 1
+    assert [item.id for item in notes] == [note.id]
+    assert await service.get_note(other_note.id, user.id) is None
+
+    updated = await service.update_note(note.id, user.id, title="Updated", text="New text")
+    assert updated is not None
+    assert updated.title == "Updated"
+    assert updated.text == "New text"
+
+    assert await service.archive_note(note.id, other.id) is False
+    assert await service.archive_note(note.id, user.id) is True
+    notes, total = await service.list_notes(user.id)
+    assert notes == []
+    assert total == 0
+
 
 @pytest.mark.asyncio
 async def test_list_service_item_ownership(db_session):
@@ -358,6 +391,8 @@ async def test_settings_stats_cover_visible_domains(db_session):
         [
             Medication(user_id=owner.id, name="Active med", is_active=True),
             Medication(user_id=owner.id, name="Archived med", is_active=False),
+            Note(user_id=owner.id, title="Recipe", text="Flour and water", is_archived=False),
+            Note(user_id=owner.id, title="Old note", text="Archive", is_archived=True),
             Reminder(
                 user_id=owner.id,
                 text="Active reminder",
@@ -378,7 +413,7 @@ async def test_settings_stats_cover_visible_domains(db_session):
 
     assert owned.id is not None
     assert stats["lists"] == {"owned": 1, "shared": 1}
-    assert "notes" not in stats
+    assert stats["notes"] == {"active": 1, "archived": 1}
     assert stats["medications"] == {"active": 1, "archived": 1}
     assert stats["checklists"] == {"active": 0, "completed": 0, "canceled": 0}
     assert stats["reminders"]["active"] == 1

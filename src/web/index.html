@@ -27,6 +27,7 @@
       <nav id="mobileNav" class="nav nav-tabs" aria-label="Основные разделы">
         <button class="nav-button active" data-section="dashboard">Сводка</button>
         <button class="nav-button" data-section="lists">Списки</button>
+        <button class="nav-button" data-section="notes">Заметки</button>
         <button class="nav-button" data-section="reminders">Напоминания</button>
         <button class="nav-button" data-section="medications">Лекарства</button>
         <button class="nav-button" data-section="driver">Водитель</button>
@@ -34,7 +35,7 @@
 
       <section id="loginPanel" class="panel">
         <h2>Вход</h2>
-        <p class="hint">Основной вход: получите ключ в Telegram через Web-версия или Настройки -> Web-версия. Если ссылка содержит ключ, вход выполнится автоматически.</p>
+        <p class="hint">Основной вход: получите ключ в Telegram через Web / приложение -> Web-версия. Если ссылка содержит ключ, вход выполнится автоматически.</p>
         <div class="form-grid login-grid">
           <label class="wide-field">
             <span>Web-ключ из Telegram</span>
@@ -88,6 +89,24 @@
           </div>
         </div>
         <div id="listDetailPanel" class="panel hidden"></div>
+      </section>
+
+      <section id="notes" class="section">
+        <div class="split-layout">
+          <div class="panel">
+            <h2>Новая заметка</h2>
+            <form id="noteCreateForm" class="stack">
+              <input name="title" type="text" placeholder="Название заметки" required>
+              <textarea name="text" rows="8" placeholder="Текст заметки: рецепт, инструкция, идея или любой справочный текст"></textarea>
+              <button class="action-save" type="submit">Сохранить заметку</button>
+            </form>
+          </div>
+          <div class="panel">
+            <h2>Заметки</h2>
+            <div id="notesContainer" class="item-list"></div>
+          </div>
+        </div>
+        <div id="noteDetailPanel" class="panel hidden"></div>
       </section>
 
       <section id="reminders" class="section">

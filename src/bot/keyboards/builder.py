@@ -10,6 +10,7 @@ from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMa
 
 from src.config import settings
 from src.utils.text import truncate
+from src.utils.public_url import is_https_url, normalize_public_base_url
 
 
 def _plural_ru(count: int, one: str, few: str, many: str) -> str:
@@ -27,8 +28,8 @@ def _plural_ru(count: int, one: str, few: str, many: str) -> str:
 
 def _public_base_url() -> Optional[str]:
     """Return the configured public HTTPS base URL."""
-    base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip().rstrip("/")
-    if not base_url.startswith("https://"):
+    base_url = normalize_public_base_url(settings.WEB_PUBLIC_URL or settings.APP_BASE_URL)
+    if not is_https_url(base_url):
         return None
     return base_url
 
@@ -47,6 +48,8 @@ def get_web_entry_keyboard() -> InlineKeyboardMarkup:
     mini_app_url = _mini_app_url()
     if mini_app_url:
         keyboard.append([InlineKeyboardButton("📱 Открыть приложение", web_app=WebAppInfo(url=mini_app_url))])
+    else:
+        keyboard.append([InlineKeyboardButton("📱 Открыть приложение", callback_data="mini_app_unavailable")])
     keyboard.append([InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login")])
     keyboard.append([
         InlineKeyboardButton("⬅️ Назад", callback_data="home"),
@@ -79,10 +82,10 @@ def get_cancel_inline_keyboard() -> InlineKeyboardMarkup:
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Main menu reply keyboard."""
     keyboard = [
-        ["📋 Списки", "💊 Лекарства"],
-        ["⏰ Напоминания", "🚗 Водитель"],
-        ["⚙️ Настройки", "🌐 Web / приложение"],
-        ["👥 Поделиться ботом"],
+        ["📋 Списки", "📝 Заметки"],
+        ["💊 Лекарства", "⏰ Напоминания"],
+        ["🚗 Водитель", "🌐 Web / приложение"],
+        ["⚙️ Настройки", "👥 Поделиться ботом"],
         ["⌨️ Скрыть меню"],
         ["❓ Помощь"],
     ]
@@ -99,17 +102,18 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("📋 Списки", callback_data="lists_list"),
+            InlineKeyboardButton("📝 Заметки", callback_data="notes_list"),
+        ],
+        [
             InlineKeyboardButton("💊 Лекарства", callback_data="medications_list"),
-        ],
-        [
             InlineKeyboardButton("⏰ Напоминания", callback_data="reminders_list"),
-            InlineKeyboardButton("🚗 Водитель", callback_data="driver_menu"),
         ],
         [
-            InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
+            InlineKeyboardButton("🚗 Водитель", callback_data="driver_menu"),
             _web_entry_inline_button(),
         ],
         [
+            InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu"),
             InlineKeyboardButton("👥 Поделиться ботом", callback_data="share_bot"),
         ],
     ]
@@ -879,6 +883,68 @@ def get_web_login_keyboard(url: Optional[str]) -> InlineKeyboardMarkup:
         InlineKeyboardButton("⬅️ Настройки", callback_data="settings_menu"),
         InlineKeyboardButton("🏠 В меню", callback_data="home"),
     ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+# =============================================================================
+# Inline Keyboards - Notes
+# =============================================================================
+
+def get_notes_list_keyboard(
+    notes: List,
+    page: int = 0,
+    has_next: bool = False,
+) -> InlineKeyboardMarkup:
+    """Keyboard for notes list with pagination."""
+    keyboard = []
+    for note in notes:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"📝 {truncate(note.title, 32)}",
+                callback_data=f"note_view:{note.id}",
+            )
+        ])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f"notes_page:{page - 1}"))
+    if has_next:
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f"notes_page:{page + 1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([InlineKeyboardButton("➕ Создать", callback_data="note_create")])
+    keyboard.append([InlineKeyboardButton("🏠 В меню", callback_data="home")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_note_view_keyboard(note_id: int) -> InlineKeyboardMarkup:
+    """Keyboard for viewing one note."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Название", callback_data=f"note_edit_title:{note_id}"),
+            InlineKeyboardButton("📝 Текст", callback_data=f"note_edit_text:{note_id}"),
+        ],
+        [
+            InlineKeyboardButton("🗑 Удалить", callback_data=f"note_delete:{note_id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ К заметкам", callback_data="notes_list"),
+            InlineKeyboardButton("🏠 В меню", callback_data="home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_note_delete_confirm_keyboard(note_id: int) -> InlineKeyboardMarkup:
+    """Confirm note deletion/archive."""
+    keyboard = [
+        [InlineKeyboardButton("🗑 Да, удалить", callback_data=f"note_delete_confirm:{note_id}")],
+        [
+            InlineKeyboardButton("⬅️ К заметке", callback_data=f"note_view:{note_id}"),
+            InlineKeyboardButton("📝 К заметкам", callback_data="notes_list"),
+        ],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 

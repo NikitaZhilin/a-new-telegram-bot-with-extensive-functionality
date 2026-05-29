@@ -11,6 +11,7 @@ This directory contains the current documentation for `new_architecture`.
 - [Git Workflow](GIT.md) - local Git checks and commit hygiene.
 - [Web Roadmap](WEB_APP_ROADMAP.md) - web/PWA/app development direction.
 - [Telegram Mini App TZ](TELEGRAM_MINI_APP_TZ.md) - requirements for turning the current web version into a Telegram Mini App.
+- [Lists And Reminders Unification TZ](LISTS_REMINDERS_UNIFICATION_TZ.md) - requirements for merging lists and reminders into one task-oriented flow.
 - [Archive](archive/) - historical implementation reports and old provider-specific notes. Every archived file starts with an archive notice.
 
 ## Documentation Rules

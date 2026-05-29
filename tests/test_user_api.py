@@ -16,6 +16,7 @@ from src.db.models import ListMember, Medication, Reminder, ReminderStatus, Repe
 from src.db.session import get_db
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
+from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.services.web_auth_service import WebAuthService
 
@@ -46,6 +47,9 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     await list_service.add_item(own_list.id, user.id, "First")
     await list_service.create_list(user.id, "Driver hidden", source_module="driver")
     await list_service.create_list(other.id, "Other list")
+    note_service = NoteService(db_session)
+    await note_service.create_note(user.id, "Web note", "Private text")
+    await note_service.create_note(other.id, "Other note", "Other text")
 
     reminder_service = ReminderService(db_session)
     remind_at = datetime(2026, 5, 25, 10, 0, tzinfo=timezone.utc)
@@ -80,6 +84,7 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
         me_response = await client.get("/me", headers=headers)
         summary_response = await client.get("/me/summary", headers=headers)
         lists_response = await client.get("/me/lists", headers=headers)
+        notes_response = await client.get("/me/notes", headers=headers)
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
         medications_response = await client.get("/me/medications", headers=headers)
         driver_response = await client.get("/me/driver", headers=headers)
@@ -87,14 +92,17 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     assert me_response.status_code == 200
     assert summary_response.status_code == 200
     assert lists_response.status_code == 200
+    assert notes_response.status_code == 200
     assert reminders_response.status_code == 200
     assert medications_response.status_code == 200
     assert driver_response.status_code == 200
 
     assert me_response.json()["telegram_id"] == user.telegram_id
     assert summary_response.json()["stats"]["lists"]["owned"] == 1
+    assert summary_response.json()["stats"]["notes"]["active"] == 1
     assert summary_response.json()["app_info"]["version"] == settings.APP_VERSION
     assert [item["title"] for item in lists_response.json()] == ["Web list"]
+    assert [item["title"] for item in notes_response.json()] == ["Web note"]
     assert [item["text"] for item in reminders_response.json()] == ["Web reminder"]
     assert medications_response.json()[0]["name"] == "Web medication"
     assert driver_response.json()["vehicles"][0]["title"] == "Web car"
@@ -163,6 +171,18 @@ async def test_user_api_accepts_bot_issued_web_login_key(db_session):
     assert response.status_code == 200
     assert response.json()["telegram_id"] == user.telegram_id
     assert invalid_response.status_code == 401
+
+
+def test_web_login_url_normalizes_configured_entrypoint(monkeypatch):
+    """Bot-issued web links should work even if the public URL includes /web or /miniapp."""
+    monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "https://bot.example.com/web")
+    monkeypatch.setattr(settings, "APP_BASE_URL", None)
+
+    assert WebAuthService.build_login_url("abc") == "https://bot.example.com/web?token=abc"
+
+    monkeypatch.setattr(settings, "WEB_PUBLIC_URL", "https://bot.example.com/miniapp")
+
+    assert WebAuthService.build_login_url("abc") == "https://bot.example.com/web?token=abc"
 
 
 @pytest.mark.asyncio
@@ -355,6 +375,19 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
         web_response = await client.get("/web")
         miniapp_response = await client.get("/miniapp")
         summary_response = await client.get("/me/summary", headers=headers)
+
+        note_response = await client.post(
+            "/me/notes",
+            headers=headers,
+            json={"title": "Recipe note", "text": "Mix ingredients\nBake"},
+        )
+        note_id = note_response.json()["id"]
+        updated_note_response = await client.patch(
+            f"/me/notes/{note_id}",
+            headers=headers,
+            json={"title": "Recipe note updated", "text": "Updated text"},
+        )
+        note_detail_response = await client.get(f"/me/notes/{note_id}", headers=headers)
 
         list_response = await client.post("/me/lists", headers=headers, json={"title": "Web CRUD"})
         list_id = list_response.json()["id"]
@@ -594,6 +627,9 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
         )
 
         lists_response = await client.get("/me/lists", headers=headers)
+        notes_response = await client.get("/me/notes", headers=headers)
+        deleted_note_response = await client.delete(f"/me/notes/{note_id}", headers=headers)
+        notes_after_delete_response = await client.get("/me/notes", headers=headers)
         list_detail_response = await client.get(f"/me/lists/{list_id}", headers=headers)
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
         medications_response = await client.get("/me/medications", headers=headers)
@@ -604,6 +640,10 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert miniapp_response.status_code == 200
     assert "RememberMe Web" in miniapp_response.text
     assert summary_response.status_code == 200
+    assert note_response.status_code == 201
+    assert updated_note_response.status_code == 200
+    assert updated_note_response.json()["title"] == "Recipe note updated"
+    assert note_detail_response.json()["text"] == "Updated text"
     assert list_response.status_code == 201
     assert item_response.status_code == 201
     assert checklist_response.status_code == 201
@@ -658,6 +698,9 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert manual_journal_response.json()["event_type"] == "repair"
     assert manual_journal_response.json()["vehicle_id"] == vehicle_id
     assert lists_response.json()[0]["title"] == "Web CRUD"
+    assert notes_response.json()[0]["title"] == "Recipe note updated"
+    assert deleted_note_response.json()["ok"] is True
+    assert notes_after_delete_response.json() == []
     assert next(item for item in list_detail_response.json()["items"] if item["id"] == second_item_id)["is_completed"] is False
     assert reminders_response.json()[0]["status"] == "canceled"
     assert medications_response.json()[0]["name"] == "Web med updated"

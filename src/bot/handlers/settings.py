@@ -211,6 +211,8 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
         "Ваши данные\n"
         f"• Личные списки: {_records(stats['lists']['owned'])}\n"
         f"• Общие списки, где есть доступ: {_records(stats['lists']['shared'])}\n"
+        f"• Заметки: активных {stats['notes']['active']}, "
+        f"в архиве {stats['notes']['archived']}\n"
         f"• Лекарства: активных {stats['medications']['active']}, "
         f"в архиве {stats['medications']['archived']}\n"
         f"• Чек-листы: активных {stats['checklists']['active']}, "
@@ -259,6 +261,8 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
             f"всего личных списков: {_records(admin_activity['lists']['records'])}\n"
             f"• Доступов к общим спискам: {_records(admin_activity['shared_lists']['records'])}; "
             f"участников: {_people(admin_activity['shared_lists']['other_users'])}\n"
+            f"• Заметки ведут: {_people(admin_activity['notes']['other_users'])}; "
+            f"активных заметок: {_records(admin_activity['notes']['records'])}\n"
             f"• Напоминания используют: {_people(admin_activity['reminders']['other_users'])}; "
             f"создано: {_records(admin_activity['reminders']['records'])}\n"
             f"• Чек-листы проходили: {_people(admin_activity['checklists']['other_users'])}; "
@@ -314,6 +318,7 @@ async def settings_subscription_callback(update: Update, context: ContextTypes.D
 
     feature_labels = {
         "lists": "списки",
+        "notes": "заметки",
         "shared_lists": "общие списки",
         "reminders": "напоминания",
         "medications": "лекарства",

@@ -81,6 +81,10 @@ def test_build_mini_app_web_url_requires_https(monkeypatch):
 
     assert main.build_mini_app_web_url() == "https://bot.example.com/miniapp"
 
+    monkeypatch.setattr(main.settings, "WEB_PUBLIC_URL", "https://bot.example.com/web")
+
+    assert main.build_mini_app_web_url() == "https://bot.example.com/miniapp"
+
 
 @pytest.mark.asyncio
 async def test_configure_menu_button_dry_run_uses_https_url_without_network(monkeypatch):
@@ -125,7 +129,6 @@ def test_production_readiness_check_rejects_insecure_settings(monkeypatch):
     errors = main.production_readiness_errors()
 
     assert "WEB_PUBLIC_URL or APP_BASE_URL must be an HTTPS URL" in errors
-    assert "WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web or /miniapp URL" in errors
     assert "API_DOCS_ENABLED must be false in production" in errors
     assert "WEB_TEST_LOGIN_ENABLED must be false in production" in errors
     assert "CORS_ORIGINS must not contain * in production" in errors

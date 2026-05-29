@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from src.config import settings
 from src.db.models import User, WebLoginToken
+from src.utils.public_url import normalize_public_base_url
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ class WebAuthService:
     @staticmethod
     def build_login_url(token: str) -> str | None:
         """Build a clickable web login URL when a public base URL is configured."""
-        base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip().rstrip("/")
+        base_url = normalize_public_base_url(settings.WEB_PUBLIC_URL or settings.APP_BASE_URL)
         if not base_url:
             return None
         return f"{base_url}/web?token={quote(token)}"

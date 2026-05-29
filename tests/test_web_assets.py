@@ -215,6 +215,24 @@ def test_web_reminders_can_link_general_lists():
     assert "list_id: form.list_id.value ? Number(form.list_id.value) : null" in script
 
 
+def test_web_notes_have_dedicated_section_and_inline_crud():
+    """Notes should be a standalone web section, not a checklist/list subtype."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert 'data-section="notes"' in html
+    assert 'id="noteCreateForm"' in html
+    assert 'id="notesContainer"' in html
+    assert 'id="noteDetailPanel"' in html
+    assert '"/me/notes"' in script
+    assert "`/me/notes/${noteId}`" in script
+    assert '`/me/notes/${id}`' in script
+    assert "handleNoteCreate" in script
+    assert "handleNoteUpdate" in script
+    assert "openNote" in script
+    assert "Заметки" in script
+
+
 def test_web_navigation_has_dynamic_badges_and_admin_gate():
     """Top navigation should be rendered from state with badges and admin gating."""
     script = Path("src/web/app.js").read_text(encoding="utf-8")

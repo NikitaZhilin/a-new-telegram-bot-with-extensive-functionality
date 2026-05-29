@@ -37,6 +37,7 @@ from src.services.release_info import (
     should_send_admin_startup_notice,
     should_send_startup_announcement,
 )
+from src.utils.public_url import is_https_url, normalize_public_base_url
 
 
 # Configure logging
@@ -525,8 +526,8 @@ async def dry_run_all() -> None:
 
 def build_mini_app_web_url() -> str | None:
     """Return the HTTPS Mini App URL accepted by Telegram web_app launch surfaces."""
-    base_url = (settings.WEB_PUBLIC_URL or settings.APP_BASE_URL or "").strip().rstrip("/")
-    if not base_url.startswith("https://"):
+    base_url = normalize_public_base_url(settings.WEB_PUBLIC_URL or settings.APP_BASE_URL)
+    if not is_https_url(base_url):
         return None
     return f"{base_url}/miniapp"
 
@@ -568,8 +569,6 @@ def production_readiness_errors() -> list[str]:
         errors.append("WEB_PUBLIC_URL or APP_BASE_URL must be an HTTPS URL")
     if raw_base_url.endswith("/"):
         errors.append("WEB_PUBLIC_URL/APP_BASE_URL must not have a trailing slash")
-    if raw_base_url.endswith("/web") or raw_base_url.endswith("/miniapp"):
-        errors.append("WEB_PUBLIC_URL/APP_BASE_URL must be the base URL, not the /web or /miniapp URL")
     if settings.API_DOCS_ENABLED:
         errors.append("API_DOCS_ENABLED must be false in production")
     if settings.WEB_TEST_LOGIN_ENABLED:

@@ -18,6 +18,7 @@ from src.db.models import (
     DriverExpense,
     DriverVehicle,
     Medication,
+    Note,
     Reminder,
     ReminderStatus,
     TodoList,
@@ -28,6 +29,7 @@ from src.services.checklist_service import ChecklistService
 from src.services.driver_service import DRIVER_JOURNAL_EVENT_TYPES, DriverService
 from src.services.list_service import ListService
 from src.services.medication_service import MedicationService
+from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.services.release_info import app_info
 from src.services.settings_service import SettingsService
@@ -70,6 +72,31 @@ class ListSummaryResponse(BaseModel):
     items_total: int
     items_done: int
     updated_at: datetime
+
+
+class NoteResponse(BaseModel):
+    """Standalone text note."""
+
+    id: int
+    title: str
+    text: str
+    is_archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class NoteCreateRequest(BaseModel):
+    """Create a note."""
+
+    title: str = Field(min_length=1, max_length=255)
+    text: Optional[str] = Field(default="", max_length=20000)
+
+
+class NoteUpdateRequest(BaseModel):
+    """Update a note."""
+
+    title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    text: Optional[str] = Field(default=None, max_length=20000)
 
 
 class ListItemResponse(BaseModel):
@@ -572,6 +599,18 @@ async def _list_response(list_obj: TodoList, user_id: int, service: ListService)
     )
 
 
+def _note_response(note: Note) -> NoteResponse:
+    """Serialize Note ORM object."""
+    return NoteResponse(
+        id=note.id,
+        title=note.title,
+        text=note.text or "",
+        is_archived=note.is_archived,
+        created_at=note.created_at,
+        updated_at=note.updated_at,
+    )
+
+
 async def _checklist_run_response(
     run: ChecklistRun,
     service: ChecklistService,
@@ -838,6 +877,93 @@ async def get_me_summary(
         access=access,
         app_info=app_info(settings),
     )
+
+
+@router.get("/me/notes", response_model=List[NoteResponse])
+async def get_my_notes(
+    include_archived: bool = Query(False),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[NoteResponse]:
+    """Return current user's standalone notes."""
+    service = NoteService(db)
+    notes, _ = await service.list_notes(
+        current_user.id,
+        page=0,
+        page_size=limit,
+        include_archived=include_archived,
+    )
+    return [_note_response(note) for note in notes]
+
+
+@router.post("/me/notes", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_note(
+    payload: NoteCreateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> NoteResponse:
+    """Create a standalone text note."""
+    try:
+        note = await NoteService(db).create_note(
+            current_user.id,
+            payload.title,
+            payload.text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    await db.commit()
+    await db.refresh(note)
+    return _note_response(note)
+
+
+@router.get("/me/notes/{note_id}", response_model=NoteResponse)
+async def get_my_note(
+    note_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> NoteResponse:
+    """Return one user-owned standalone note."""
+    note = await NoteService(db).get_note(note_id, current_user.id)
+    if not note:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    return _note_response(note)
+
+
+@router.patch("/me/notes/{note_id}", response_model=NoteResponse)
+async def update_my_note(
+    note_id: int,
+    payload: NoteUpdateRequest,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> NoteResponse:
+    """Update title and/or text of a standalone note."""
+    try:
+        note = await NoteService(db).update_note(
+            note_id,
+            current_user.id,
+            title=payload.title,
+            text=payload.text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    if not note:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    await db.commit()
+    await db.refresh(note)
+    return _note_response(note)
+
+
+@router.delete("/me/notes/{note_id}", response_model=MutationResponse)
+async def delete_my_note(
+    note_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Archive a standalone note."""
+    ok = await NoteService(db).archive_note(note_id, current_user.id)
+    await db.commit()
+    return MutationResponse(ok=ok)
 
 
 @router.get("/me/lists", response_model=List[ListSummaryResponse])

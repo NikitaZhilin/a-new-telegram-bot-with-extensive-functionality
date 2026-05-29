@@ -7,7 +7,7 @@ import pytest
 
 from src.api.app import create_application
 from src.config import settings
-from src.db.models import Medication, Reminder, ReminderStatus, RepeatRule, TodoList, User
+from src.db.models import Medication, Note, Reminder, ReminderStatus, RepeatRule, TodoList, User
 from src.db.session import get_db
 from src.services.driver_service import DriverService
 from src.services.activity_service import ActivityService
@@ -35,7 +35,8 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
         status=ReminderStatus.ACTIVE,
     )
     medication = Medication(user_id=user.id, name="API visible medication", importance="normal")
-    db_session.add_all([todo_list, reminder, medication])
+    note = Note(user_id=user.id, title="API visible note", text="Admin-visible note text")
+    db_session.add_all([todo_list, note, reminder, medication])
     await db_session.flush()
     driver_service = DriverService(db_session)
     vehicle = await driver_service.create_vehicle(user.id, "API visible vehicle", current_mileage_km=1000)
@@ -100,6 +101,7 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     records_payload = records_response.json()
     assert records_payload["user"]["id"] == user.id
     assert records_payload["lists"][0]["title"] == "API visible list"
+    assert records_payload["notes"][0]["title"] == "API visible note"
     assert records_payload["reminders"][0]["text"] == "API visible reminder"
     assert records_payload["medications"][0]["name"] == "API visible medication"
     assert records_payload["driver"]["overview"]["vehicles_count"] == 1
@@ -124,7 +126,7 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
 
 
 @pytest.mark.asyncio
-async def test_admin_stats_week_is_last_seven_days_without_legacy_notes(db_session):
+async def test_admin_stats_week_is_last_seven_days_with_notes(db_session):
     """Admin stats should count the last 7 days, not only today."""
     user = User(telegram_id=99002, username="admin_stats_user", timezone="UTC")
     db_session.add(user)
@@ -136,6 +138,9 @@ async def test_admin_stats_week_is_last_seven_days_without_legacy_notes(db_sessi
             TodoList(user_id=user.id, title="Today list", created_at=now),
             TodoList(user_id=user.id, title="Week list", created_at=now - timedelta(days=3)),
             TodoList(user_id=user.id, title="Old list", created_at=now - timedelta(days=10)),
+            Note(user_id=user.id, title="Today note", created_at=now),
+            Note(user_id=user.id, title="Week note", created_at=now - timedelta(days=3)),
+            Note(user_id=user.id, title="Old note", created_at=now - timedelta(days=10)),
         ]
     )
     await db_session.flush()
@@ -154,7 +159,9 @@ async def test_admin_stats_week_is_last_seven_days_without_legacy_notes(db_sessi
 
     assert response.status_code == 200
     payload = response.json()
-    assert "notes" not in payload
+    assert payload["notes"]["total"] == 3
+    assert payload["notes"]["created_today"] == 1
+    assert payload["notes"]["created_week"] == 2
     assert payload["lists"]["total"] == 3
     assert payload["lists"]["created_today"] == 1
     assert payload["lists"]["created_week"] == 2

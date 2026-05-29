@@ -6,7 +6,7 @@
 
 ## Русский
 
-Модульный Telegram-бот для личной организации: списки, напоминания, прием лекарств, автомобильный журнал, web-версия, admin UI и основа для подписок.
+Модульный Telegram-бот для личной организации: списки, заметки, напоминания, прием лекарств, автомобильный журнал, web-версия, admin UI и основа для подписок.
 
 README намеренно не содержит токенов, адресов серверов, приватных путей, имен production-ботов и других чувствительных данных.
 
@@ -25,6 +25,7 @@ README намеренно не содержит токенов, адресов �
 ### Что Умеет Бот
 
 - Списки: личные и общие списки, пункты, bulk add, голосовое создание/пополнение списка, интерактивное прохождение чек-листа, роли `owner/editor/viewer`, токены копии и приглашения.
+- Заметки: автономные текстовые записи без чек-листов и отметок, просмотр, редактирование и архивирование.
 - Напоминания: быстрые даты/время, ручные фразы, повторы, редактирование, выполнение, отмена.
 - Лекарства: карточки препаратов, дозировка, инструкция, важность, напоминания 1-3 раза в день, отметки приема.
 - Водитель: авто, presets, пробег, ТО, заправки, расходы, документы, напоминания по документам, статистика.
@@ -164,7 +165,7 @@ docker-compose config --quiet
 
 ## English
 
-Modular Telegram productivity bot for personal organization: lists, reminders, medication tracking, driver journal, web version, admin UI, and a foundation for subscriptions.
+Modular Telegram productivity bot for personal organization: lists, notes, reminders, medication tracking, driver journal, web version, admin UI, and a foundation for subscriptions.
 
 This README intentionally avoids tokens, server addresses, private paths, production bot names, and other sensitive details.
 
@@ -183,6 +184,7 @@ Old stage reports and provider-specific notes are kept in `docs/archive` and are
 ### Features
 
 - Lists: personal and shared lists, items, bulk add, voice-to-list creation/appending, interactive checklist runs, `owner/editor/viewer` roles, copy and collaboration tokens.
+- Notes: standalone text records without checklist state, with viewing, editing, and archiving.
 - Reminders: quick date/time presets, natural phrases, repeats, editing, done/cancel/delete actions.
 - Medications: medication cards, dosage, instructions, importance, 1-3 daily reminders, intake tracking.
 - Driver: vehicles, presets, mileage, service plan, fuel, expenses, documents, document reminders, statistics.

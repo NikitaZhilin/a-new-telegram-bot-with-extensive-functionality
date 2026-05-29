@@ -108,13 +108,14 @@ Admin UI не входит в пользовательский Mini App. Адм�
 
 ### MVP
 
-1. Reply keyboard button `Web-версия`
-   - если публичный URL HTTPS настроен, кнопка открывает Mini App через `web_app` напрямую;
-   - если HTTPS не настроен, кнопка остается fallback-текстом и выдает web-ключ для `/web`.
+1. Reply keyboard button `Web / приложение`
+   - открывает выбор между Mini App и обычной web-версией;
+   - если публичный URL HTTPS настроен, вариант `Открыть приложение` запускает Mini App через `web_app`;
+   - вариант `Web-версия` выдает web-ключ для `/web`.
 
-2. Inline button `Web-версия`
-   - если публичный URL HTTPS настроен, кнопка открывает Mini App через `web_app` напрямую;
-   - иначе вызывает текущий сценарий выдачи web-ключа.
+2. Inline button `Web / приложение`
+   - открывает тот же выбор между Mini App и web-версией;
+   - при отсутствии HTTPS вариант приложения показывает объяснение, а web-ключ остается доступен.
 
 3. Menu button
    - настроить через BotFather или Bot API `setChatMenuButton`;
@@ -296,7 +297,7 @@ Admin UI не входит в пользовательский Mini App. Адм�
 
 ## Критерии Приемки MVP
 
-1. При `WEB_PUBLIC_URL=https://...` кнопка `Web-версия` в Telegram открывает Mini App без ручного web-ключа.
+1. При `WEB_PUBLIC_URL=https://...` кнопка `Web / приложение` в Telegram показывает выбор, а вариант `Открыть приложение` запускает Mini App без ручного web-ключа.
 2. Backend принимает `X-Telegram-Init-Data`, валидирует подпись и создает/обновляет пользователя.
 3. При невалидном или просроченном `initData` User API возвращает `401`.
 4. Вне Telegram `/web` продолжает поддерживать вход по персональному web-ключу.
@@ -384,7 +385,7 @@ Admin UI не входит в пользовательский Mini App. Адм�
 Реализация:
 
 - добавлена команда `python -B -m src.main production-check`;
-- команда валидирует HTTPS public URL, отсутствие `/web` и `/miniapp` в base URL, strict CORS, выключенные API docs и test-login;
+- команда валидирует HTTPS public URL, strict CORS, выключенные API docs и test-login; `/web` и `/miniapp` на конце public URL нормализуются до base URL;
 - команда проверяет допустимый TTL `USER_AUTH_MAX_AGE_SECONDS` и текст Telegram menu button;
 - `Deployment` и `Technical Guide` обновлены production-check шагом;
 - Mini App launch, menu button и domain smoke закреплены автоматическими тестами.
