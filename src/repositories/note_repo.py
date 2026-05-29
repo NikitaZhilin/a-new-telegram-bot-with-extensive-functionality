@@ -2,7 +2,7 @@
 
 from typing import Optional, Sequence
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Note
@@ -14,6 +14,32 @@ class NoteRepository(BaseRepository[Note]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(Note, db)
+
+    @staticmethod
+    def _search_pattern(search_query: str | None) -> str | None:
+        """Build an escaped ILIKE pattern for user-entered note search."""
+        value = (search_query or "").strip()
+        if not value:
+            return None
+        escaped = (
+            value.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        return f"%{escaped}%"
+
+    @classmethod
+    def _apply_search(cls, query, search_query: str | None):
+        """Apply title/body search to a note query."""
+        pattern = cls._search_pattern(search_query)
+        if not pattern:
+            return query
+        return query.where(
+            or_(
+                Note.title.ilike(pattern, escape="\\"),
+                Note.text.ilike(pattern, escape="\\"),
+            )
+        )
 
     async def get_for_user(
         self,
@@ -36,6 +62,7 @@ class NoteRepository(BaseRepository[Note]):
         include_archived: bool = False,
         limit: int = 50,
         offset: int = 0,
+        search_query: str | None = None,
     ) -> Sequence[Note]:
         """Return user's notes ordered by recent updates."""
         query = (
@@ -47,13 +74,21 @@ class NoteRepository(BaseRepository[Note]):
         )
         if not include_archived:
             query = query.where(Note.is_archived.is_not(True))
+        query = self._apply_search(query, search_query)
         result = await self.db.execute(query)
         return result.scalars().all()
 
-    async def count_by_user(self, user_id: int, *, include_archived: bool = False) -> int:
+    async def count_by_user(
+        self,
+        user_id: int,
+        *,
+        include_archived: bool = False,
+        search_query: str | None = None,
+    ) -> int:
         """Count user's notes."""
         query = select(func.count(Note.id)).where(Note.user_id == user_id)
         if not include_archived:
             query = query.where(Note.is_archived.is_not(True))
+        query = self._apply_search(query, search_query)
         result = await self.db.execute(query)
         return result.scalar() or 0

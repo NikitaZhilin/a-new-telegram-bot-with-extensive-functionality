@@ -11,6 +11,7 @@ from src.repositories.note_repo import NoteRepository
 
 MAX_NOTE_TITLE_LENGTH = 255
 MAX_NOTE_TEXT_LENGTH = 20000
+MAX_NOTE_SEARCH_LENGTH = 120
 
 
 def _clean_title(title: str) -> str:
@@ -26,6 +27,15 @@ def _clean_text(text: Optional[str]) -> str:
     value = (text or "").strip()
     if len(value) > MAX_NOTE_TEXT_LENGTH:
         raise ValueError(f"Текст заметки не должен быть длиннее {MAX_NOTE_TEXT_LENGTH} символов")
+    return value
+
+
+def _clean_search_query(search_query: Optional[str]) -> str | None:
+    value = (search_query or "").strip()
+    if not value:
+        return None
+    if len(value) > MAX_NOTE_SEARCH_LENGTH:
+        raise ValueError(f"Поисковый запрос не должен быть длиннее {MAX_NOTE_SEARCH_LENGTH} символов")
     return value
 
 
@@ -56,19 +66,26 @@ class NoteService:
         page: int = 0,
         page_size: int = 10,
         include_archived: bool = False,
+        search_query: Optional[str] = None,
     ) -> tuple[list[Note], int]:
         """Return paginated user notes."""
         page = max(page, 0)
         page_size = max(1, min(page_size, 50))
+        search_value = _clean_search_query(search_query)
         notes = list(
             await self.repo.get_by_user(
                 user_id,
                 include_archived=include_archived,
                 limit=page_size,
                 offset=page * page_size,
+                search_query=search_value,
             )
         )
-        total = await self.repo.count_by_user(user_id, include_archived=include_archived)
+        total = await self.repo.count_by_user(
+            user_id,
+            include_archived=include_archived,
+            search_query=search_value,
+        )
         return notes, total
 
     async def get_note(self, note_id: int, user_id: int, *, include_archived: bool = False) -> Optional[Note]:

@@ -129,6 +129,8 @@ def test_important_callback_patterns_are_registered():
     expected = {
         "^notes_list$",
         "^notes_page:",
+        "^notes_search$",
+        "^notes_search_clear$",
         "^note_create$",
         "^note_view:",
         "^note_edit_title:",

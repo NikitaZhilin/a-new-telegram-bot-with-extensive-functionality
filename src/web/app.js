@@ -12,6 +12,7 @@ const state = {
   appInfo: null,
   lists: [],
   notes: [],
+  noteSearch: "",
   reminders: [],
   medications: [],
   driver: null,
@@ -1262,7 +1263,16 @@ async function loadLists() {
 }
 
 async function loadNotes() {
-  state.notes = await api("/me/notes");
+  const params = new URLSearchParams();
+  if (state.noteSearch.trim()) {
+    params.set("search", state.noteSearch.trim());
+  }
+  const url = params.toString() ? `/me/notes?${params.toString()}` : "/me/notes";
+  state.notes = await api(url);
+  const searchInput = $("#noteSearchForm input[name='search']");
+  if (searchInput) {
+    searchInput.value = state.noteSearch;
+  }
   $("#notesContainer").innerHTML = state.notes.length
     ? state.notes.map((item) => `
       <article class="item-card">
@@ -1280,7 +1290,7 @@ async function loadNotes() {
         </div>
       </article>
     `).join("")
-    : `<div class="item-meta">Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст.</div>`;
+    : `<div class="item-meta">${state.noteSearch.trim() ? `По запросу «${escapeHtml(state.noteSearch.trim())}» ничего не найдено.` : "Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст."}</div>`;
 }
 
 function notePreview(text) {
@@ -2059,11 +2069,22 @@ async function handleNoteCreate(event) {
       text: form.text.value,
     }),
   });
+  state.noteSearch = "";
   form.reset();
   await loadNotes();
   await openNote(note.id);
   await loadSummary();
   showMessage("Заметка сохранена.");
+}
+
+async function handleNoteSearch(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  state.noteSearch = form.search.value.trim();
+  state.selectedNoteId = null;
+  state.editingNoteId = null;
+  $("#noteDetailPanel").classList.add("hidden");
+  await loadNotes();
 }
 
 async function handleNoteUpdate(event) {
@@ -2476,6 +2497,12 @@ async function handleAction(event) {
     } else if (action === "open-note") {
       state.editingNoteId = null;
       await openNote(id);
+    } else if (action === "clear-note-search") {
+      state.noteSearch = "";
+      state.selectedNoteId = null;
+      state.editingNoteId = null;
+      $("#noteDetailPanel").classList.add("hidden");
+      await loadNotes();
     } else if (action === "remind-list") {
       await switchSection("reminders");
       prefillReminderFromList(id);
@@ -2711,6 +2738,7 @@ function bindEvents() {
     .catch((error) => showMessage(error.message, true)));
   bindFormSubmit("#listCreateForm", handleListCreate, "Создание...");
   bindFormSubmit("#noteCreateForm", handleNoteCreate, "Сохранение...");
+  bindFormSubmit("#noteSearchForm", handleNoteSearch, "Поиск...");
   bindFormSubmit("#reminderCreateForm", handleReminderCreate, "Создание...");
   bindFormSubmit("#medicationCreateForm", handleMedicationCreate, "Создание...");
   bindFormSubmit("#vehicleCreateForm", handleVehicleCreate, "Добавление...");

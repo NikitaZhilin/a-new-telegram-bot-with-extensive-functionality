@@ -33,6 +33,7 @@ from src.bot.handlers.lists import (
 from src.bot.handlers.notes import (
     note_create_conv,
     note_edit_conv,
+    notes_search_conv,
 )
 from src.bot.handlers.medications import (
     medication_create_conv,
@@ -74,6 +75,7 @@ __all__ = [
     # Notes
     "note_create_conv",
     "note_edit_conv",
+    "notes_search_conv",
     # Medications
     "medication_create_conv",
     "medication_edit_conv",

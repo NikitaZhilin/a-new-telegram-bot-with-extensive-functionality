@@ -883,6 +883,7 @@ async def get_me_summary(
 async def get_my_notes(
     include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=100),
+    search: Optional[str] = Query(None, max_length=120),
     current_user: User = Depends(get_current_web_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[NoteResponse]:
@@ -893,6 +894,7 @@ async def get_my_notes(
         page=0,
         page_size=limit,
         include_archived=include_archived,
+        search_query=search,
     )
     return [_note_response(note) for note in notes]
 

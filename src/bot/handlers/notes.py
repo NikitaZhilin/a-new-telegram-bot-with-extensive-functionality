@@ -57,6 +57,12 @@ def _store_prompt_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data["note_prompt_message_id"] = query.message.message_id
 
 
+def _clear_prompt_context(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Forget stored prompt message after a one-step text flow."""
+    context.user_data.pop("note_prompt_chat_id", None)
+    context.user_data.pop("note_prompt_message_id", None)
+
+
 async def _edit_prompt_or_reply(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -98,32 +104,51 @@ def _render_note_text(note) -> str:
     return f"📝 {note.title}\n\n{truncate(body, 3500)}"
 
 
-async def _render_notes_page(user_id: int, page: int) -> tuple[str, object]:
+async def _render_notes_page(
+    user_id: int,
+    page: int,
+    *,
+    search_query: str | None = None,
+) -> tuple[str, object]:
     """Build notes list text and keyboard."""
     page = max(page, 0)
+    search_value = (search_query or "").strip()
     async with async_session_maker() as session:
         notes, total = await NoteService(session).list_notes(
             user_id,
             page=page,
             page_size=NOTES_PER_PAGE,
+            search_query=search_value,
         )
     if not notes and page > 0:
-        return await _render_notes_page(user_id, page - 1)
+        return await _render_notes_page(user_id, page - 1, search_query=search_value)
 
     if not notes:
-        text = (
-            "📝 Заметки\n\n"
-            "Заметок пока нет. Создайте первую заметку для рецепта, инструкции или любого текста, который нужно просто хранить и читать."
-        )
+        if search_value:
+            text = f"📝 Заметки\n\nПо запросу «{search_value}» ничего не найдено."
+        else:
+            text = (
+                "📝 Заметки\n\n"
+                "Заметок пока нет. Создайте первую заметку для рецепта, инструкции или любого текста, который нужно просто хранить и читать."
+            )
     else:
         current_page = page + 1
         total_pages = max(1, (total + NOTES_PER_PAGE - 1) // NOTES_PER_PAGE)
-        text = f"📝 Заметки ({total} всего)\nСтраница {current_page}/{total_pages}"
+        if search_value:
+            text = (
+                f"📝 Заметки\n"
+                f"Поиск: «{search_value}»\n"
+                f"Найдено: {total}\n"
+                f"Страница {current_page}/{total_pages}"
+            )
+        else:
+            text = f"📝 Заметки ({total} всего)\nСтраница {current_page}/{total_pages}"
 
     return text, get_notes_list_keyboard(
         notes,
         page=page,
         has_next=(page + 1) * NOTES_PER_PAGE < total,
+        search_active=bool(search_value),
     )
 
 
@@ -145,7 +170,8 @@ async def notes_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
 
-    text, keyboard = await _render_notes_page(user_id, page=0)
+    search_query = context.user_data.get("notes_search_query")
+    text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query)
     if query:
         await query.edit_message_text(text, reply_markup=keyboard)
     else:
@@ -162,7 +188,61 @@ async def notes_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
 
-    text, keyboard = await _render_notes_page(user_id, page=page)
+    search_query = context.user_data.get("notes_search_query")
+    text, keyboard = await _render_notes_page(user_id, page=page, search_query=search_query)
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def notes_search_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for a note search query."""
+    query = update.callback_query
+    await query.answer()
+    _store_prompt_message(update, context)
+    await query.edit_message_text(
+        "🔎 Поиск по заметкам\n\nВведите слово или фразу из названия или текста заметки.",
+        reply_markup=get_cancel_inline_keyboard(),
+    )
+    return NoteStates.WAIT_SEARCH
+
+
+async def notes_search_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save search query and show filtered notes."""
+    search_query = (update.message.text or "").strip()
+    await _delete_user_message(update)
+    if not search_query:
+        await _edit_prompt_or_reply(
+            update,
+            context,
+            "❌ Поисковый запрос не может быть пустым. Введите слово или фразу.",
+            get_cancel_inline_keyboard(),
+        )
+        return NoteStates.WAIT_SEARCH
+
+    context.user_data["notes_search_query"] = search_query
+    try:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+        text, keyboard = await _render_notes_page(user_id, page=0, search_query=search_query)
+    except ValueError as exc:
+        await _edit_prompt_or_reply(update, context, f"❌ {exc}", get_cancel_inline_keyboard())
+        return NoteStates.WAIT_SEARCH
+
+    await _edit_prompt_or_reply(update, context, text, keyboard)
+    _clear_prompt_context(context)
+    return ConversationHandler.END
+
+
+async def notes_search_clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Clear current note search filter."""
+    query = update.callback_query
+    await query.answer("Поиск сброшен")
+    context.user_data.pop("notes_search_query", None)
+
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+
+    text, keyboard = await _render_notes_page(user_id, page=0)
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
 
@@ -408,6 +488,20 @@ note_create_conv = ConversationHandler(
         ],
         NoteStates.WAIT_TEXT: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, note_save_text),
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel_handler),
+        CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+    ],
+)
+
+
+notes_search_conv = ConversationHandler(
+    entry_points=[CallbackQueryHandler(notes_search_start, pattern="^notes_search$")],
+    states={
+        NoteStates.WAIT_SEARCH: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, notes_search_save),
         ],
     },
     fallbacks=[

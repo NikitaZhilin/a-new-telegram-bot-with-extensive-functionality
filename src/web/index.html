@@ -103,6 +103,11 @@
           </div>
           <div class="panel">
             <h2>Заметки</h2>
+            <form id="noteSearchForm" class="form-grid compact-form">
+              <input name="search" type="search" placeholder="Поиск по названию и тексту">
+              <button class="secondary" type="submit">Найти</button>
+              <button class="secondary" type="button" data-action="clear-note-search">Сбросить</button>
+            </form>
             <div id="notesContainer" class="item-list"></div>
           </div>
         </div>

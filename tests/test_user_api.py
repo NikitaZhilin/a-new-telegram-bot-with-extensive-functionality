@@ -85,6 +85,8 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
         summary_response = await client.get("/me/summary", headers=headers)
         lists_response = await client.get("/me/lists", headers=headers)
         notes_response = await client.get("/me/notes", headers=headers)
+        notes_search_response = await client.get("/me/notes?search=web", headers=headers)
+        notes_miss_response = await client.get("/me/notes?search=hidden", headers=headers)
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
         medications_response = await client.get("/me/medications", headers=headers)
         driver_response = await client.get("/me/driver", headers=headers)
@@ -93,6 +95,8 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     assert summary_response.status_code == 200
     assert lists_response.status_code == 200
     assert notes_response.status_code == 200
+    assert notes_search_response.status_code == 200
+    assert notes_miss_response.status_code == 200
     assert reminders_response.status_code == 200
     assert medications_response.status_code == 200
     assert driver_response.status_code == 200
@@ -103,6 +107,8 @@ async def test_user_api_returns_isolated_current_user_data(db_session):
     assert summary_response.json()["app_info"]["version"] == settings.APP_VERSION
     assert [item["title"] for item in lists_response.json()] == ["Web list"]
     assert [item["title"] for item in notes_response.json()] == ["Web note"]
+    assert [item["title"] for item in notes_search_response.json()] == ["Web note"]
+    assert notes_miss_response.json() == []
     assert [item["text"] for item in reminders_response.json()] == ["Web reminder"]
     assert medications_response.json()[0]["name"] == "Web medication"
     assert driver_response.json()["vehicles"][0]["title"] == "Web car"
@@ -628,6 +634,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
 
         lists_response = await client.get("/me/lists", headers=headers)
         notes_response = await client.get("/me/notes", headers=headers)
+        notes_search_response = await client.get("/me/notes?search=updated", headers=headers)
         deleted_note_response = await client.delete(f"/me/notes/{note_id}", headers=headers)
         notes_after_delete_response = await client.get("/me/notes", headers=headers)
         list_detail_response = await client.get(f"/me/lists/{list_id}", headers=headers)
@@ -699,6 +706,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert manual_journal_response.json()["vehicle_id"] == vehicle_id
     assert lists_response.json()[0]["title"] == "Web CRUD"
     assert notes_response.json()[0]["title"] == "Recipe note updated"
+    assert notes_search_response.json()[0]["title"] == "Recipe note updated"
     assert deleted_note_response.json()["ok"] is True
     assert notes_after_delete_response.json() == []
     assert next(item for item in list_detail_response.json()["items"] if item["id"] == second_item_id)["is_completed"] is False

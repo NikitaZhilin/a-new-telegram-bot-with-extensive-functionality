@@ -222,6 +222,7 @@ def test_web_notes_have_dedicated_section_and_inline_crud():
 
     assert 'data-section="notes"' in html
     assert 'id="noteCreateForm"' in html
+    assert 'id="noteSearchForm"' in html
     assert 'id="notesContainer"' in html
     assert 'id="noteDetailPanel"' in html
     assert '"/me/notes"' in script
@@ -229,6 +230,9 @@ def test_web_notes_have_dedicated_section_and_inline_crud():
     assert '`/me/notes/${id}`' in script
     assert "handleNoteCreate" in script
     assert "handleNoteUpdate" in script
+    assert "handleNoteSearch" in script
+    assert "clear-note-search" in script
+    assert 'params.set("search"' in script
     assert "openNote" in script
     assert "Заметки" in script
 

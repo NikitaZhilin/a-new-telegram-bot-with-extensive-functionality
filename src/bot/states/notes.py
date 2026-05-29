@@ -8,5 +8,6 @@ class NoteStates(StatesGroup):
 
     WAIT_TITLE = State("NOTE_WAIT_TITLE")
     WAIT_TEXT = State("NOTE_WAIT_TEXT")
+    WAIT_SEARCH = State("NOTE_WAIT_SEARCH")
     WAIT_EDIT_TITLE = State("NOTE_WAIT_EDIT_TITLE")
     WAIT_EDIT_TEXT = State("NOTE_WAIT_EDIT_TEXT")

@@ -95,6 +95,8 @@ from src.bot.handlers.notes import (
     note_view_callback,
     notes_list_callback,
     notes_page_callback,
+    notes_search_clear_callback,
+    notes_search_conv,
 )
 from src.bot.handlers.medications import (
     medications_list_callback,
@@ -212,6 +214,7 @@ def create_application() -> Application:
 
     # Notes
     application.add_handler(note_create_conv)
+    application.add_handler(notes_search_conv)
     application.add_handler(note_edit_conv)
 
     # Medications
@@ -243,6 +246,7 @@ def create_application() -> Application:
     # Notes callbacks
     application.add_handler(CallbackQueryHandler(notes_list_callback, pattern="^notes_list$"))
     application.add_handler(CallbackQueryHandler(notes_page_callback, pattern="^notes_page:"))
+    application.add_handler(CallbackQueryHandler(notes_search_clear_callback, pattern="^notes_search_clear$"))
     application.add_handler(CallbackQueryHandler(note_view_callback, pattern="^note_view:"))
     application.add_handler(CallbackQueryHandler(note_delete_confirm_callback, pattern="^note_delete_confirm:"))
     application.add_handler(CallbackQueryHandler(note_delete_callback, pattern="^note_delete:"))

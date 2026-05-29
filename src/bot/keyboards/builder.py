@@ -894,6 +894,7 @@ def get_notes_list_keyboard(
     notes: List,
     page: int = 0,
     has_next: bool = False,
+    search_active: bool = False,
 ) -> InlineKeyboardMarkup:
     """Keyboard for notes list with pagination."""
     keyboard = []
@@ -913,7 +914,12 @@ def get_notes_list_keyboard(
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([InlineKeyboardButton("➕ Создать", callback_data="note_create")])
+    keyboard.append([
+        InlineKeyboardButton("➕ Создать", callback_data="note_create"),
+        InlineKeyboardButton("🔎 Поиск", callback_data="notes_search"),
+    ])
+    if search_active:
+        keyboard.append([InlineKeyboardButton("↩️ Все заметки", callback_data="notes_search_clear")])
     keyboard.append([InlineKeyboardButton("🏠 В меню", callback_data="home")])
     return InlineKeyboardMarkup(keyboard)
 

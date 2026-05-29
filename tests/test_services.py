@@ -37,6 +37,18 @@ async def test_note_service_enforces_ownership_and_archiving(db_session):
     assert [item.id for item in notes] == [note.id]
     assert await service.get_note(other_note.id, user.id) is None
 
+    title_matches, title_total = await service.list_notes(user.id, search_query="rec")
+    assert title_total == 1
+    assert [item.id for item in title_matches] == [note.id]
+
+    text_matches, text_total = await service.list_notes(user.id, search_query="step 2")
+    assert text_total == 1
+    assert [item.id for item in text_matches] == [note.id]
+
+    hidden_matches, hidden_total = await service.list_notes(user.id, search_query="hidden")
+    assert hidden_matches == []
+    assert hidden_total == 0
+
     updated = await service.update_note(note.id, user.id, title="Updated", text="New text")
     assert updated is not None
     assert updated.title == "Updated"
