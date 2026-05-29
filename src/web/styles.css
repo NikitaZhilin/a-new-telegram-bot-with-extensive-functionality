@@ -1029,6 +1029,46 @@ details[open] > summary::after {
   overflow-wrap: anywhere;
 }
 
+.note-formatted {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+  line-height: 1.62;
+  overflow-wrap: anywhere;
+}
+
+.note-formatted p,
+.note-formatted ul {
+  margin: 0;
+}
+
+.note-formatted h3,
+.note-formatted h4 {
+  margin: 8px 0 0;
+  color: var(--text);
+  letter-spacing: 0;
+}
+
+.note-formatted h3 {
+  font-size: 22px;
+}
+
+.note-formatted h4 {
+  font-size: 18px;
+}
+
+.note-list {
+  padding-left: 22px;
+}
+
+.note-list li + li {
+  margin-top: 6px;
+}
+
+.note-empty {
+  color: var(--muted);
+}
+
 .mini-summary {
   display: grid;
   gap: 6px;

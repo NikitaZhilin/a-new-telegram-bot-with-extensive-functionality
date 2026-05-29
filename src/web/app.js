@@ -105,6 +105,61 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function renderFormattedNoteText(text) {
+  const value = String(text || "").replace(/\r\n?/g, "\n").trim();
+  if (!value) {
+    return `<div class="note-formatted"><p class="note-empty">Текст заметки пока пуст.</p></div>`;
+  }
+
+  const blocks = [];
+  let paragraph = [];
+  let listItems = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p>${paragraph.map((line) => escapeHtml(line)).join("<br>")}</p>`);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    blocks.push(`<ul class="note-list">${listItems.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`);
+    listItems = [];
+  };
+
+  for (const line of value.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(heading[1].length + 2, 4);
+      blocks.push(`<h${level}>${escapeHtml(heading[2].trim())}</h${level}>`);
+      continue;
+    }
+
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      listItems.push(bullet[1].trim());
+      continue;
+    }
+
+    flushList();
+    paragraph.push(trimmed);
+  }
+
+  flushParagraph();
+  flushList();
+  return `<div class="note-formatted">${blocks.join("")}</div>`;
+}
+
 function formatNoteCategory(value) {
   return noteCategories.find(([key]) => key === value)?.[1] || "Другое";
 }
@@ -1408,7 +1463,8 @@ function renderNoteEditForm(note) {
     <form class="note-edit-form stack compact-form" data-id="${note.id}">
       <input name="title" type="text" value="${escapeHtml(note.title)}" required>
       <select name="category">${renderNoteCategoryOptions(note.category || "other")}</select>
-      <textarea name="text" rows="10">${escapeHtml(note.text || "")}</textarea>
+      <textarea name="text" rows="10" placeholder="# Заголовок&#10;- пункт списка&#10;Обычный текст">${escapeHtml(note.text || "")}</textarea>
+      <p class="hint">Поддерживаются переносы строк, # Заголовок и - пункт списка. HTML не используется.</p>
       <div class="button-row">
         <button class="small action-save" type="submit">Сохранить</button>
         <button class="secondary small action-cancel" type="button" data-action="cancel-note-edit">Отмена</button>
@@ -1436,7 +1492,7 @@ async function openNote(noteId) {
         <button class="danger small action-danger" data-action="delete-note" data-id="${note.id}">Удалить</button>
       </div>
     </div>
-    ${state.editingNoteId === note.id ? renderNoteEditForm(note) : `<div class="item-text note-full-text">${escapeHtml(note.text || "Текст заметки пока пуст.")}</div>`}
+    ${state.editingNoteId === note.id ? renderNoteEditForm(note) : renderFormattedNoteText(note.text)}
   `;
   $(".note-edit-form")?.addEventListener("submit", (event) => handleNoteUpdate(event).catch((error) => showMessage(error.message, true)));
 }

@@ -259,6 +259,23 @@ def test_web_notes_have_dedicated_section_and_inline_crud():
     assert "Заметки" in script
 
 
+def test_web_notes_render_plain_text_formatting_safely():
+    """Note formatting should be client-side plain-text rendering with escaping."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    styles = Path("src/web/styles.css").read_text(encoding="utf-8")
+
+    assert "renderFormattedNoteText" in script
+    assert "note-formatted" in script
+    assert "note-list" in script
+    assert "escapeHtml(heading" in script
+    assert "escapeHtml(line)" in script
+    assert "Поддерживаются переносы строк" in html
+    assert "Поддерживаются переносы строк" in script
+    assert ".note-formatted" in styles
+    assert ".note-list" in styles
+
+
 def test_web_navigation_has_dynamic_badges_and_admin_gate():
     """Top navigation should be rendered from state with badges and admin gating."""
     script = Path("src/web/app.js").read_text(encoding="utf-8")
