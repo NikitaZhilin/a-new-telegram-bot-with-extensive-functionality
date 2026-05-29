@@ -219,8 +219,10 @@ async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
     await db_session.flush()
 
     list_service = ListService(db_session)
+    note_service = NoteService(db_session)
     general_list = await list_service.create_list(user.id, "Покупки")
     driver_list = await list_service.create_list(user.id, "Проверка авто", source_module="driver")
+    note = await note_service.create_note(user.id, "Рецепт", "Текст заметки", category="recipe")
     await db_session.commit()
 
     app = create_application()
@@ -264,6 +266,25 @@ async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
                 "list_id": driver_list.id,
             },
         )
+        note_response = await client.post(
+            "/me/reminders",
+            headers=headers,
+            json={
+                "text": "Напомнить про заметку",
+                "remind_at_local": "2026-05-26T10:00:00",
+                "note_id": note.id,
+            },
+        )
+        conflict_response = await client.post(
+            "/me/reminders",
+            headers=headers,
+            json={
+                "text": "Two links",
+                "remind_at_local": "2026-05-26T10:00:00",
+                "list_id": general_list.id,
+                "note_id": note.id,
+            },
+        )
 
     assert created_response.status_code == 201
     assert created_response.json()["source_module"] == "list"
@@ -273,6 +294,10 @@ async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
     assert unlinked_response.json()["source_module"] == "general"
     assert unlinked_response.json()["list_id"] is None
     assert rejected_response.status_code == 404
+    assert note_response.status_code == 201
+    assert note_response.json()["source_module"] == "note"
+    assert note_response.json()["note_id"] == note.id
+    assert conflict_response.status_code == 400
 
 
 @pytest.mark.asyncio

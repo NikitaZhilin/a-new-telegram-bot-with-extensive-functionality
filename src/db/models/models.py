@@ -229,6 +229,11 @@ class Note(Base):
 
     # Relationships
     user = relationship("User", back_populates="notes")
+    reminders = relationship(
+        "Reminder",
+        back_populates="note",
+        lazy="selectin",
+    )
 
     def __repr__(self) -> str:
         return f"<Note(id={self.id}, user_id={self.user_id}, category='{self.category}', title='{self.title}')>"
@@ -971,6 +976,12 @@ class Reminder(Base):
         nullable=True,
         index=True
     )
+    note_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("notes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     medication_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("medications.id", ondelete="SET NULL"),
@@ -1025,6 +1036,7 @@ class Reminder(Base):
     # Relationships
     user = relationship("User", back_populates="reminders")
     todo_list = relationship("TodoList", back_populates="reminders")
+    note = relationship("Note", back_populates="reminders")
     medication = relationship("Medication", back_populates="reminders")
     driver_document = relationship("DriverDocument", back_populates="reminders")
 
@@ -1033,6 +1045,7 @@ class Reminder(Base):
         Index("ix_reminders_user_status", "user_id", "status"),
         Index("ix_reminders_remind_at_status", "remind_at_utc", "status"),
         Index("ix_reminders_user_source_status", "user_id", "source_module", "status"),
+        Index("ix_reminders_note_status", "note_id", "status"),
         Index("ix_reminders_driver_document_status", "driver_document_id", "status"),
     )
 

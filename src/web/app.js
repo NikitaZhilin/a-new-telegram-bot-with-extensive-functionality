@@ -1032,10 +1032,48 @@ function renderReminderListOptions(selectedId = "") {
   ].join("");
 }
 
+function renderReminderNoteOptions(selectedId = "") {
+  const current = selectedId ? String(selectedId) : "";
+  return [
+    `<option value="" ${current ? "" : "selected"}>Без привязки к заметке</option>`,
+    ...state.notes.map((item) => `
+      <option value="${item.id}" ${String(item.id) === current ? "selected" : ""}>
+        Заметка: ${escapeHtml(item.title)}
+      </option>
+    `),
+  ].join("");
+}
+
 function updateReminderListSelects() {
   $$("select[name='list_id']").forEach((select) => {
     const current = select.value;
     select.innerHTML = renderReminderListOptions(current);
+  });
+}
+
+function updateReminderNoteSelects() {
+  $$("select[name='note_id']").forEach((select) => {
+    const current = select.value;
+    select.innerHTML = renderReminderNoteOptions(current);
+  });
+}
+
+function bindReminderLinkSelects(root = document) {
+  root.querySelectorAll("select[name='list_id']").forEach((select) => {
+    select.addEventListener("change", () => {
+      if (select.value) {
+        const form = select.closest("form");
+        if (form?.note_id) form.note_id.value = "";
+      }
+    });
+  });
+  root.querySelectorAll("select[name='note_id']").forEach((select) => {
+    select.addEventListener("change", () => {
+      if (select.value) {
+        const form = select.closest("form");
+        if (form?.list_id) form.list_id.value = "";
+      }
+    });
   });
 }
 
@@ -1045,16 +1083,38 @@ function reminderListTitle(listId) {
   return item?.title || `список #${listId}`;
 }
 
+function reminderNoteTitle(noteId) {
+  if (!noteId) return "";
+  const item = state.notes.find((noteItem) => Number(noteItem.id) === Number(noteId));
+  return item?.title || `заметка #${noteId}`;
+}
+
 function prefillReminderFromList(listId) {
   const form = $("#reminderCreateForm");
   if (!form) return;
   const title = reminderListTitle(listId);
   form.list_id.value = String(listId);
+  if (form.note_id) form.note_id.value = "";
   if (!form.title.value.trim()) {
     form.title.value = `Список: ${title}`;
   }
   if (!form.text.value.trim()) {
     form.text.value = `Напомнить про список: ${title}`;
+  }
+  form.remind_at_local.focus();
+}
+
+function prefillReminderFromNote(noteId) {
+  const form = $("#reminderCreateForm");
+  if (!form) return;
+  const title = reminderNoteTitle(noteId);
+  form.note_id.value = String(noteId);
+  if (form.list_id) form.list_id.value = "";
+  if (!form.title.value.trim()) {
+    form.title.value = `Заметка: ${title}`;
+  }
+  if (!form.text.value.trim()) {
+    form.text.value = `Напомнить про заметку: ${title}`;
   }
   form.remind_at_local.focus();
 }
@@ -1081,6 +1141,7 @@ function renderReminderEditForm(item) {
       <input name="title" type="text" value="${escapeHtml(item.title || "")}" placeholder="Заголовок">
       <textarea name="text" rows="3" placeholder="Текст напоминания" required>${escapeHtml(item.text || "")}</textarea>
       <select name="list_id">${renderReminderListOptions(item.list_id || "")}</select>
+      <select name="note_id">${renderReminderNoteOptions(item.note_id || "")}</select>
       <input name="remind_at_local" type="text" inputmode="numeric" value="${escapeHtml(formatLocalDatetimeText(item.remind_at_utc))}" placeholder="28.05.2026 12:00" required>
       ${renderChoiceGroup("repeat_rule", item.repeat_rule || "none", repeatChoices, "Повтор напоминания")}
       <div class="button-row">
@@ -1282,6 +1343,7 @@ async function loadLists() {
   $$(".list-rename-form").forEach((form) => {
     form.addEventListener("submit", (event) => handleListRename(event).catch((error) => showMessage(error.message, true)));
   });
+  updateReminderListSelects();
 }
 
 async function loadNotes() {
@@ -1320,6 +1382,7 @@ async function loadNotes() {
       </article>
     `).join("")
     : `<div class="item-meta">${state.noteSearch.trim() || state.noteCategoryFilter ? "По текущему фильтру ничего не найдено." : "Заметок пока нет. Сохраните рецепт, инструкцию или любой справочный текст."}</div>`;
+  updateReminderNoteSelects();
 }
 
 function notePreview(text) {
@@ -1353,6 +1416,7 @@ async function openNote(noteId) {
           <div class="item-meta">категория: ${escapeHtml(formatNoteCategory(note.category))} · создано: ${formatDate(note.created_at)} · обновлено: ${formatDate(note.updated_at)}</div>
       </div>
       <div class="panel-heading-actions">
+        <button class="secondary small action-open" data-action="remind-note" data-id="${note.id}">Напомнить</button>
         <button class="secondary small action-edit" data-action="edit-note" data-id="${note.id}">Изменить</button>
         <button class="danger small action-danger" data-action="delete-note" data-id="${note.id}">Удалить</button>
       </div>
@@ -1538,7 +1602,9 @@ function renderListMembersPanel(members) {
 
 async function loadReminders() {
   state.lists = await api("/me/lists");
+  state.notes = await api("/me/notes");
   updateReminderListSelects();
+  updateReminderNoteSelects();
   state.reminders = await api("/me/reminders?active_only=false");
   $("#remindersContainer").innerHTML = state.reminders.length
     ? state.reminders.map((item) => `
@@ -1548,6 +1614,7 @@ async function loadReminders() {
             <div class="item-title">${escapeHtml(item.title || "Напоминание")}</div>
             <div class="item-meta">${formatDate(item.remind_at_utc)} · ${formatRepeat(item.repeat_rule)} · ${formatReminderStatus(item.status)}</div>
             ${item.list_id ? `<div class="item-meta">Список: ${escapeHtml(reminderListTitle(item.list_id))}</div>` : ""}
+            ${item.note_id ? `<div class="item-meta">Заметка: ${escapeHtml(reminderNoteTitle(item.note_id))}</div>` : ""}
           </div>
         </div>
         <details>
@@ -1556,6 +1623,7 @@ async function loadReminders() {
           ${state.editingReminderId === item.id ? renderReminderEditForm(item) : `
             <div class="item-actions">
               ${item.list_id ? `<button class="secondary small action-open" data-action="open-reminder-list" data-id="${item.list_id}">Открыть список</button>` : ""}
+              ${item.note_id ? `<button class="secondary small action-open" data-action="open-reminder-note" data-id="${item.note_id}">Открыть заметку</button>` : ""}
               <button class="small action-done" data-action="done-reminder" data-id="${item.id}">Выполнено</button>
               <button class="secondary small action-edit" data-action="edit-reminder" data-id="${item.id}">Изменить</button>
               <button class="secondary small action-cancel" data-action="cancel-reminder" data-id="${item.id}">Отменить</button>
@@ -1567,6 +1635,7 @@ async function loadReminders() {
     `).join("")
     : `<div class="item-meta">Напоминаний пока нет.</div>`;
   $$(".reminder-edit-form").forEach((form) => {
+    bindReminderLinkSelects(form);
     form.addEventListener("submit", (event) => handleReminderUpdate(event).catch((error) => showMessage(error.message, true)));
   });
 }
@@ -2161,6 +2230,7 @@ async function handleReminderCreate(event) {
       title: form.title.value,
       text: form.text.value,
       list_id: form.list_id.value ? Number(form.list_id.value) : null,
+      note_id: form.note_id.value ? Number(form.note_id.value) : null,
       remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
     }),
@@ -2181,6 +2251,7 @@ async function handleReminderUpdate(event) {
       title: form.title.value,
       text: form.text.value,
       list_id: form.list_id.value ? Number(form.list_id.value) : null,
+      note_id: form.note_id.value ? Number(form.note_id.value) : null,
       remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
     }),
@@ -2542,9 +2613,16 @@ async function handleAction(event) {
       await switchSection("reminders");
       prefillReminderFromList(id);
       showMessage("Выберите дату и время напоминания по списку.");
+    } else if (action === "remind-note") {
+      await switchSection("reminders");
+      prefillReminderFromNote(id);
+      showMessage("Выберите дату и время напоминания по заметке.");
     } else if (action === "open-reminder-list") {
       await switchSection("lists");
       await openList(id);
+    } else if (action === "open-reminder-note") {
+      await switchSection("notes");
+      await openNote(id);
     } else if (action === "start-checklist-run") {
       state.activeChecklistRun = await api(`/me/lists/${id}/checklist-runs`, { method: "POST" });
       await openList(id);
@@ -2775,6 +2853,7 @@ function bindEvents() {
   bindFormSubmit("#noteCreateForm", handleNoteCreate, "Сохранение...");
   bindFormSubmit("#noteSearchForm", handleNoteSearch, "Поиск...");
   bindFormSubmit("#reminderCreateForm", handleReminderCreate, "Создание...");
+  bindReminderLinkSelects($("#reminderCreateForm"));
   bindFormSubmit("#medicationCreateForm", handleMedicationCreate, "Создание...");
   bindFormSubmit("#vehicleCreateForm", handleVehicleCreate, "Добавление...");
   bindFormSubmit("#fuelCreateForm", handleFuelCreate, "Сохранение...");

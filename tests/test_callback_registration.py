@@ -140,6 +140,7 @@ def test_important_callback_patterns_are_registered():
         "^note_edit_title:",
         "^note_edit_text:",
         "^note_edit_category:",
+        "^note_remind:",
         "^note_category_set:",
         "^note_delete:",
         "^note_delete_confirm:",

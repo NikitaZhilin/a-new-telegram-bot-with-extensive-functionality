@@ -345,6 +345,8 @@ class ReminderWorkerService:
 
         list_id = getattr(reminder, "list_id", None)
         todo_list = getattr(reminder, "todo_list", None)
+        note_id = getattr(reminder, "note_id", None)
+        note = getattr(reminder, "note", None)
         medication_id = getattr(reminder, "medication_id", None)
         medication = getattr(reminder, "medication", None)
         driver_document_id = getattr(reminder, "driver_document_id", None)
@@ -355,6 +357,12 @@ class ReminderWorkerService:
                 message += f"\n\n📋 Список: {html.escape(todo_list.title)}"
             else:
                 message += "\n\n📋 Связанный список был удален"
+
+        if note_id:
+            if note:
+                message += f"\n\n📝 Заметка: {html.escape(note.title)}"
+            else:
+                message += "\n\n📝 Связанная заметка была удалена"
 
         if medication_id:
             if medication:
@@ -403,6 +411,8 @@ class ReminderWorkerService:
         medication = getattr(reminder, "medication", None)
         list_id = getattr(reminder, "list_id", None)
         todo_list = getattr(reminder, "todo_list", None)
+        note_id = getattr(reminder, "note_id", None)
+        note = getattr(reminder, "note", None)
         driver_document_id = getattr(reminder, "driver_document_id", None)
         driver_document = getattr(reminder, "driver_document", None)
 
@@ -438,6 +448,16 @@ class ReminderWorkerService:
                     InlineKeyboardButton(
                         "📄 Открыть документ",
                         callback_data=f"driver_document_view:{driver_document_id}",
+                    ),
+                ],
+            ])
+
+        if note_id and note:
+            return InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "📝 Открыть заметку",
+                        callback_data=f"note_view:{note_id}",
                     ),
                 ],
             ])

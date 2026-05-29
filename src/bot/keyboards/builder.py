@@ -939,6 +939,9 @@ def get_note_view_keyboard(note_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏷 Категория", callback_data=f"note_edit_category:{note_id}"),
         ],
         [
+            InlineKeyboardButton("⏰ Напомнить", callback_data=f"note_remind:{note_id}"),
+        ],
+        [
             InlineKeyboardButton("🗑 Удалить", callback_data=f"note_delete:{note_id}"),
         ],
         [
@@ -1707,6 +1710,7 @@ def get_reminder_view_keyboard(
     status: str = "active",
     list_id: Optional[int] = None,
     source_module: Optional[str] = "general",
+    note_id: Optional[int] = None,
 ) -> InlineKeyboardMarkup:
     """Keyboard for viewing a single reminder."""
     keyboard = []
@@ -1725,6 +1729,11 @@ def get_reminder_view_keyboard(
         keyboard.append([
             InlineKeyboardButton("📋 Открыть список", callback_data=f"list_view:{list_id}"),
             InlineKeyboardButton("▶️ Чек-лист", callback_data=f"checklist_start:{list_id}"),
+        ])
+
+    if note_id:
+        keyboard.append([
+            InlineKeyboardButton("📝 Открыть заметку", callback_data=f"note_view:{note_id}"),
         ])
 
     keyboard.append([

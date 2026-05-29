@@ -55,6 +55,7 @@ class ReminderRepository(BaseRepository[Reminder]):
             .options(
                 selectinload(Reminder.user),
                 selectinload(Reminder.todo_list),
+                selectinload(Reminder.note),
                 selectinload(Reminder.medication),
                 selectinload(Reminder.driver_document),
             )
@@ -165,6 +166,7 @@ class ReminderRepository(BaseRepository[Reminder]):
             title=reminder.title,
             text=reminder.text,
             list_id=reminder.list_id,
+            note_id=reminder.note_id,
             medication_id=reminder.medication_id,
             driver_document_id=reminder.driver_document_id,
             source_module=reminder.source_module,
@@ -207,6 +209,7 @@ class ReminderRepository(BaseRepository[Reminder]):
             .options(
                 selectinload(Reminder.user),
                 selectinload(Reminder.todo_list),
+                selectinload(Reminder.note),
                 selectinload(Reminder.medication),
                 selectinload(Reminder.driver_document),
             )

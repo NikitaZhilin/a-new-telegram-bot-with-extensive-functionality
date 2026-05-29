@@ -215,6 +215,19 @@ def test_web_reminders_can_link_general_lists():
     assert "list_id: form.list_id.value ? Number(form.list_id.value) : null" in script
 
 
+def test_web_reminders_can_link_notes():
+    """Web reminder UI should expose note linking without turning notes into lists."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert '<select name="note_id">' in html
+    assert "renderReminderNoteOptions" in script
+    assert "prefillReminderFromNote" in script
+    assert 'data-action="remind-note"' in script
+    assert 'data-action="open-reminder-note"' in script
+    assert "note_id: form.note_id.value ? Number(form.note_id.value) : null" in script
+
+
 def test_web_notes_have_dedicated_section_and_inline_crud():
     """Notes should be a standalone web section, not a checklist/list subtype."""
     html = Path("src/web/index.html").read_text(encoding="utf-8")

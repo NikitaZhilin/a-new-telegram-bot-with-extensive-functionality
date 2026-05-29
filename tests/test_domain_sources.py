@@ -7,6 +7,7 @@ import pytest
 from src.db.models import Medication, ReminderStatus, RepeatRule, User
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
+from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.services.settings_service import SettingsService
 
@@ -47,8 +48,10 @@ async def test_generic_reminders_hide_list_medication_and_driver_domains(db_sess
     await db_session.flush()
 
     list_service = ListService(db_session)
+    note_service = NoteService(db_session)
     reminder_service = ReminderService(db_session)
     todo_list = await list_service.create_list(user.id, "Список")
+    note = await note_service.create_note(user.id, "Заметка", "Текст", category="other")
     medication = Medication(user_id=user.id, name="Лекарство", importance="normal")
     db_session.add(medication)
     await db_session.flush()
@@ -65,6 +68,12 @@ async def test_generic_reminders_hide_list_medication_and_driver_domains(db_sess
         text="Напомнить про список",
         remind_at_utc=remind_at,
         list_id=todo_list.id,
+    )
+    note_reminder = await reminder_service.create_reminder(
+        user_id=user.id,
+        text="Напомнить про заметку",
+        remind_at_utc=remind_at,
+        note_id=note.id,
     )
     med_reminder = await reminder_service.create_reminder(
         user_id=user.id,
@@ -85,12 +94,14 @@ async def test_generic_reminders_hide_list_medication_and_driver_domains(db_sess
     assert total == 1
     assert [item.id for item in reminders] == [general.id]
     assert list_reminder.source_module == "list"
+    assert note_reminder.source_module == "note"
     assert med_reminder.source_module == "medication"
     assert driver_reminder.source_module == "driver"
-    assert all_total == 4
+    assert all_total == 5
     assert {item.id for item in all_reminders} == {
         general.id,
         list_reminder.id,
+        note_reminder.id,
         med_reminder.id,
         driver_reminder.id,
     }

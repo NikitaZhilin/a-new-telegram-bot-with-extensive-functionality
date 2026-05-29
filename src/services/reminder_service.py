@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple
 import pytz
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 
 from src.db.models import Reminder, ReminderStatus, RepeatRule, User
 from src.repositories.medication_repo import MedicationRepository
@@ -35,6 +36,7 @@ class ReminderService:
         title: Optional[str] = None,
         repeat_rule: RepeatRule = RepeatRule.NONE,
         list_id: Optional[int] = None,
+        note_id: Optional[int] = None,
         medication_id: Optional[int] = None,
         source_module: Optional[str] = None,
     ) -> Optional[Reminder]:
@@ -48,12 +50,26 @@ class ReminderService:
             title: Optional title
             repeat_rule: Repeat rule
             list_id: Optional linked TodoList ID owned by the same user
+            note_id: Optional linked Note ID owned by the same user
             medication_id: Optional linked Medication ID owned by the same user
             source_module: Domain that owns the reminder in user-facing lists
             
         Returns:
             Created Reminder
         """
+        linked_targets = sum(1 for value in (list_id, note_id, medication_id) if value is not None)
+        if linked_targets > 1:
+            logger.warning(
+                "Tried to create reminder with multiple linked domain targets",
+                extra={
+                    "user_id": user_id,
+                    "list_id": list_id,
+                    "note_id": note_id,
+                    "medication_id": medication_id,
+                },
+            )
+            return None
+
         if list_id is not None:
             from src.services.list_service import ListService
 
@@ -61,6 +77,17 @@ class ReminderService:
                 logger.warning(
                     "Tried to create reminder for a list without access or missing",
                     extra={"user_id": user_id, "list_id": list_id},
+                )
+                return None
+
+        if note_id is not None:
+            from src.services.note_service import NoteService
+
+            note = await NoteService(self.db).get_note(note_id, user_id)
+            if not note:
+                logger.warning(
+                    "Tried to create reminder for a note owned by another user, archived, or missing",
+                    extra={"user_id": user_id, "note_id": note_id},
                 )
                 return None
 
@@ -81,6 +108,8 @@ class ReminderService:
         if source_module is None:
             if medication_id is not None:
                 source_module = "medication"
+            elif note_id is not None:
+                source_module = "note"
             elif list_id is not None:
                 source_module = "list"
             else:
@@ -91,6 +120,7 @@ class ReminderService:
             title=title,
             text=text,
             list_id=list_id,
+            note_id=note_id,
             medication_id=medication_id,
             source_module=source_module,
             remind_at_utc=remind_at_utc,
@@ -106,8 +136,15 @@ class ReminderService:
 
     async def get_reminder(self, reminder_id: int, user_id: int) -> Optional[Reminder]:
         """Get reminder by ID (must belong to user)."""
-        query = select(Reminder).where(
-            and_(Reminder.id == reminder_id, Reminder.user_id == user_id)
+        query = (
+            select(Reminder)
+            .options(
+                selectinload(Reminder.todo_list),
+                selectinload(Reminder.note),
+                selectinload(Reminder.medication),
+                selectinload(Reminder.driver_document),
+            )
+            .where(and_(Reminder.id == reminder_id, Reminder.user_id == user_id))
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()

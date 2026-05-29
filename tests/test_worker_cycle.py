@@ -182,6 +182,46 @@ async def test_worker_sends_open_list_button_for_linked_reminder():
 
 
 @pytest.mark.asyncio
+async def test_worker_sends_open_note_button_for_linked_reminder():
+    now = datetime(2026, 5, 22, 12, 0, tzinfo=timezone.utc)
+    session = FakeSession()
+    bot = FakeBot()
+    reminder = SimpleNamespace(
+        id=49,
+        user_id=7,
+        title=None,
+        text="Напомнить про заметку: Recipe",
+        remind_at_utc=now,
+        repeat_rule=RepeatRule.NONE,
+        list_id=None,
+        todo_list=None,
+        note_id=55,
+        note=SimpleNamespace(id=55, title="Recipe"),
+        medication_id=None,
+        medication=None,
+        user=SimpleNamespace(telegram_id=123456),
+    )
+    repo = FakeReminderRepository(session, [reminder])
+
+    worker = ReminderWorkerService(
+        bot=bot,
+        batch_size=10,
+        poll_interval=1,
+        session_factory=lambda: session,
+        repository_factory=lambda db_session: repo,
+        clock=lambda: now,
+    )
+
+    result = await worker.process_cycle()
+
+    assert result == WorkerCycleResult(total=1, processed=1, failed=0)
+    assert "Заметка: Recipe" in bot.messages[0]["text"]
+    button = bot.messages[0]["reply_markup"].inline_keyboard[0][0]
+    assert button.text == "📝 Открыть заметку"
+    assert button.callback_data == "note_view:55"
+
+
+@pytest.mark.asyncio
 async def test_worker_sends_medication_actions_for_linked_reminder():
     now = datetime(2026, 5, 22, 12, 0, tzinfo=timezone.utc)
     session = FakeSession()

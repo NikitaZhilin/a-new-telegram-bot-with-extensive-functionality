@@ -127,6 +127,7 @@ Checklist-run не использует `ListItem.is_completed`. Исходны�
 - мягкое удаление через архивирование;
 - ownership checks: пользователь видит и меняет только свои заметки;
 - отдельный раздел в Telegram, `/web` и `/miniapp`;
+- связь с напоминаниями через `reminders.note_id` и `source_module="note"` без превращения заметки в список;
 - учет заметок в пользовательской статистике и admin records.
 
 Заметки не смешиваются со списками и напоминаниями. Их задача - хранить текст, который нужно открыть и прочитать: рецепты, инструкции, идеи, справочную информацию. Категория хранится в таблице `notes` как компактное поле `category`; свободные теги можно добавить отдельной таблицей позже, если появится реальная потребность.
@@ -146,6 +147,7 @@ Checklist-run не использует `ListItem.is_completed`. Исходны�
 - date/time parsing;
 - UTC storage и local timezone display;
 - repeat rules;
+- optional domain links: `list_id`, `note_id`, `medication_id`, `driver_document_id`;
 - worker-cycle без tight loop.
 
 ### Medications

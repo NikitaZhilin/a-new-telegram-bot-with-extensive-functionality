@@ -332,6 +332,9 @@ async def get_user_records(
                 "title": item.title,
                 "status": item.status.value if hasattr(item.status, "value") else item.status,
                 "remind_at_utc": item.remind_at_utc.isoformat(),
+                "list_id": item.list_id,
+                "note_id": item.note_id,
+                "source_module": item.source_module,
                 "text": item.text[:200],
             }
             for item in reminders

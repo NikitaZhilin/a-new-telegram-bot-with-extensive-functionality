@@ -39,6 +39,7 @@ from src.config import settings
 from src.db.session import async_session_maker
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
+from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.repositories.user_repo import UserRepository
 from src.db.models import RepeatRule
@@ -48,6 +49,19 @@ from src.utils.labels import reminder_status_label, repeat_rule_label
 logger = logging.getLogger(__name__)
 
 ITEMS_PER_PAGE = 20
+
+
+def _clear_linked_reminder_context(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove domain links from reminder creation context."""
+    for key in (
+        "linked_list_id",
+        "linked_list_title",
+        "linked_note_id",
+        "linked_note_title",
+        "reminder_source_module",
+        "driver_reminder_template",
+    ):
+        context.user_data.pop(key, None)
 
 
 async def _delete_user_message(update: Update) -> None:
@@ -383,8 +397,7 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
         from src.bot.handlers.driver import DRIVER_REMINDER_TEMPLATES
 
         template_key = query.data.split(":", 1)[1]
-        context.user_data.pop("linked_list_id", None)
-        context.user_data.pop("linked_list_title", None)
+        _clear_linked_reminder_context(context)
         context.user_data["reminder_source_module"] = "driver"
         context.user_data["driver_reminder_template"] = template_key
         context.user_data["reminder_time_rollover_if_past"] = True
@@ -419,6 +432,7 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
 
+        _clear_linked_reminder_context(context)
         context.user_data["linked_list_id"] = list_id
         context.user_data["linked_list_title"] = list_obj.title
         context.user_data["reminder_source_module"] = "list"
@@ -430,9 +444,35 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ReminderStates.WAIT_DATE
 
-    context.user_data.pop("linked_list_id", None)
-    context.user_data.pop("linked_list_title", None)
-    context.user_data.pop("reminder_source_module", None)
+    if query and query.data.startswith("note_remind:"):
+        await query.answer()
+        note_id = int(query.data.split(":", 1)[1])
+
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            context.user_data["user_timezone"] = await _get_user_timezone(update, session)
+            note = await NoteService(session).get_note(note_id, user_id)
+
+        if not note:
+            await query.edit_message_text(
+                "❌ Заметка не найдена",
+                reply_markup=get_back_home_inline_keyboard(),
+            )
+            return ConversationHandler.END
+
+        _clear_linked_reminder_context(context)
+        context.user_data["linked_note_id"] = note_id
+        context.user_data["linked_note_title"] = note.title
+        context.user_data["reminder_source_module"] = "note"
+        context.user_data["reminder_text"] = f"Напомнить про заметку: {note.title}"
+
+        await query.edit_message_text(
+            f"⏰ Напоминание о заметке\n\n📝 {note.title}\n\nКогда напомнить?",
+            reply_markup=get_reminder_date_keyboard(),
+        )
+        return ReminderStates.WAIT_DATE
+
+    _clear_linked_reminder_context(context)
 
     async with async_session_maker() as session:
         context.user_data["user_timezone"] = await _get_user_timezone(update, session)
@@ -684,11 +724,14 @@ def _build_confirmation_text(
 ) -> str:
     """Build confirmation text, including linked list context when present."""
     linked_list_title = context.user_data.get("linked_list_title")
+    linked_note_title = context.user_data.get("linked_note_title")
     list_line = f"📋 Список: {linked_list_title}\n" if linked_list_title else ""
+    note_line = f"📝 Заметка: {linked_note_title}\n" if linked_note_title else ""
     return (
         f"{prefix}"
         f"⏰ Подтверждение\n\n"
         f"{list_line}"
+        f"{note_line}"
         f"Когда: {_format_remind_at(context, remind_at)}\n\n"
         f"Подтвердить создание?"
     )
@@ -714,6 +757,7 @@ async def _create_reminder_from_context(
     remind_at_str = context.user_data.get("remind_at_utc")
     repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
     linked_list_id = context.user_data.get("linked_list_id")
+    linked_note_id = context.user_data.get("linked_note_id")
     source_module = context.user_data.get("reminder_source_module")
 
     if not remind_at_str:
@@ -739,6 +783,7 @@ async def _create_reminder_from_context(
             remind_at_utc=remind_at_utc,
             repeat_rule=repeat_rule,
             list_id=linked_list_id,
+            note_id=linked_note_id,
             source_module=source_module,
         )
         if reminder is None:
@@ -746,7 +791,7 @@ async def _create_reminder_from_context(
             await _show_reminder_message(
                 update,
                 context,
-                "❌ Не удалось создать напоминание: список не найден.",
+                "❌ Не удалось создать напоминание: связанный объект не найден.",
                 get_back_home_inline_keyboard(),
             )
             context.user_data.clear()
@@ -777,6 +822,7 @@ async def _create_reminder_from_context(
         get_reminder_view_keyboard(
             reminder.id,
             list_id=linked_list_id,
+            note_id=linked_note_id,
             source_module=source_module,
         ),
     )
@@ -795,6 +841,7 @@ async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_
     remind_at_str = context.user_data.get("remind_at_utc")
     repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
     linked_list_id = context.user_data.get("linked_list_id")
+    linked_note_id = context.user_data.get("linked_note_id")
     source_module = context.user_data.get("reminder_source_module")
     
     if not remind_at_str:
@@ -814,12 +861,13 @@ async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_
             remind_at_utc=remind_at_utc,
             repeat_rule=repeat_rule,
             list_id=linked_list_id,
+            note_id=linked_note_id,
             source_module=source_module,
         )
         if reminder is None:
             await session.rollback()
             await query.edit_message_text(
-                "❌ Не удалось создать напоминание: список не найден",
+                "❌ Не удалось создать напоминание: связанный объект не найден",
                 reply_markup=get_back_home_inline_keyboard(),
             )
             context.user_data.clear()
@@ -830,7 +878,12 @@ async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_
         f"✅ Напоминание создано!\n\n"
         f"📝 {text[:100]}{'...' if len(text) > 100 else ''}\n\n"
         f"⏰ {_format_remind_at(context, remind_at_utc)}",
-        reply_markup=get_reminder_view_keyboard(reminder.id),
+        reply_markup=get_reminder_view_keyboard(
+            reminder.id,
+            list_id=linked_list_id,
+            note_id=linked_note_id,
+            source_module=source_module,
+        ),
     )
     
     context.user_data.clear()
@@ -973,10 +1026,19 @@ async def _render_reminder_screen(
         remind_at = remind_at.replace(tzinfo=timezone.utc)
     time_str = remind_at.astimezone(ZoneInfo(user_timezone)).strftime("%d.%m.%Y %H:%M")
     status_value = reminder.status.value if hasattr(reminder.status, "value") else reminder.status
+    linked_lines = []
+    if reminder.list_id:
+        linked_title = reminder.todo_list.title if getattr(reminder, "todo_list", None) else "список удален"
+        linked_lines.append(f"📋 Список: {linked_title}")
+    if reminder.note_id:
+        linked_title = reminder.note.title if getattr(reminder, "note", None) else "заметка удалена"
+        linked_lines.append(f"📝 Заметка: {linked_title}")
+    linked_block = ("\n".join(linked_lines) + "\n") if linked_lines else ""
 
     text = (
         f"⏰ Напоминание #{reminder.id}\n\n"
         f"{reminder.text}\n\n"
+        f"{linked_block}"
         f"📅 Запланировано: {time_str} ({user_timezone})\n"
         f"🔁 Повтор: {repeat_rule_label(reminder.repeat_rule)}\n"
         f"⏰ Статус: {reminder_status_label(status_value)}"
@@ -987,6 +1049,7 @@ async def _render_reminder_screen(
         status_value,
         reminder.list_id,
         reminder.source_module,
+        note_id=reminder.note_id,
     )
 
 
@@ -1293,6 +1356,7 @@ reminder_create_conv = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(reminder_create_start, pattern="^reminder_create$"),
         CallbackQueryHandler(reminder_create_start, pattern="^list_remind:"),
+        CallbackQueryHandler(reminder_create_start, pattern="^note_remind:"),
         CallbackQueryHandler(reminder_create_start, pattern="^driver_reminder_template:"),
     ],
     states={

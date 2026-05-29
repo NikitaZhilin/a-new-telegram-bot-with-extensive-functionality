@@ -215,6 +215,48 @@ async def test_reminder_service_links_only_accessible_lists(db_session):
 
 
 @pytest.mark.asyncio
+async def test_reminder_service_links_only_user_notes(db_session):
+    """Note-linked reminders should stay scoped to the note owner and active notes."""
+    user = User(telegram_id=4051, timezone="UTC")
+    other_user = User(telegram_id=4052, timezone="UTC")
+    db_session.add_all([user, other_user])
+    await db_session.flush()
+
+    note_service = NoteService(db_session)
+    reminder_service = ReminderService(db_session)
+    note = await note_service.create_note(user.id, "Recipe", "Steps", category="recipe")
+    other_note = await note_service.create_note(other_user.id, "Hidden", "Other")
+    archived_note = await note_service.create_note(user.id, "Archived", "Old")
+    await note_service.archive_note(archived_note.id, user.id)
+    remind_at = datetime(2026, 5, 23, 10, 0, tzinfo=timezone.utc)
+
+    reminder = await reminder_service.create_reminder(
+        user_id=user.id,
+        text="Напомнить про заметку: Recipe",
+        remind_at_utc=remind_at,
+        note_id=note.id,
+    )
+    blocked_other = await reminder_service.create_reminder(
+        user_id=user.id,
+        text="Bad note",
+        remind_at_utc=remind_at,
+        note_id=other_note.id,
+    )
+    blocked_archived = await reminder_service.create_reminder(
+        user_id=user.id,
+        text="Archived note",
+        remind_at_utc=remind_at,
+        note_id=archived_note.id,
+    )
+
+    assert reminder is not None
+    assert reminder.note_id == note.id
+    assert reminder.source_module == "note"
+    assert blocked_other is None
+    assert blocked_archived is None
+
+
+@pytest.mark.asyncio
 async def test_reminder_service_updates_keep_ownership(db_session):
     """Reminder edit operations should be scoped to the owner."""
     user = User(telegram_id=4011, timezone="UTC")
