@@ -26,6 +26,7 @@ from src.bot.keyboards import (
     get_reminder_date_keyboard,
     get_reminder_time_keyboard,
     get_reminder_confirm_keyboard,
+    get_reminder_notify_offsets_keyboard,
     get_reminder_repeat_keyboard,
     get_reminder_edit_keyboard,
     get_reminder_edit_repeat_keyboard,
@@ -42,8 +43,8 @@ from src.services.list_service import ListService
 from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.repositories.user_repo import UserRepository
-from src.db.models import RepeatRule
-from src.utils.date_parser import parse_datetime
+from src.db.models import ReminderNotificationStatus, RepeatRule
+from src.utils.date_parser import parse_datetime, parse_time_fragment
 from src.utils.labels import reminder_status_label, repeat_rule_label
 
 logger = logging.getLogger(__name__)
@@ -200,25 +201,7 @@ def _selected_date(context: ContextTypes.DEFAULT_TYPE, tz_name: str) -> date:
 
 def _parse_time_on_date(value: str, selected_date: date, tz_name: str) -> datetime:
     """Parse a compact time input and return UTC datetime."""
-    raw = value.strip().lower().replace(".", ":").replace(",", ":")
-    raw = re.sub(r"\s+", " ", raw)
-
-    match = re.fullmatch(r"(\d{1,2})(?::(\d{1,2}))?", raw)
-    spaced_match = re.fullmatch(r"(\d{1,2})\s+(\d{1,2})", raw)
-    if not match and re.fullmatch(r"\d{3,4}", raw):
-        hour = int(raw[:-2])
-        minute = int(raw[-2:])
-    elif spaced_match:
-        hour = int(spaced_match.group(1))
-        minute = int(spaced_match.group(2))
-    elif match:
-        hour = int(match.group(1))
-        minute = int(match.group(2) or 0)
-    else:
-        raise ValueError(f"Invalid time: {value}")
-
-    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-        raise ValueError(f"Invalid time: {value}")
+    hour, minute = parse_time_fragment(value)
 
     local_dt = datetime(
         selected_date.year,
@@ -277,14 +260,42 @@ def _parse_date_only(value: str, context: ContextTypes.DEFAULT_TYPE) -> date:
 
 def _looks_like_full_datetime(value: str) -> bool:
     """Detect inputs that include both date intent and time intent."""
-    raw = value.strip().lower()
-    if "через" in raw:
+    raw = value.strip().lower().replace("ё", "е")
+    if "через" in raw or "спустя" in raw:
         return True
-    if any(word in raw for word in ("сегодня", "завтра", "послезавтра")) and re.search(r"\d", raw):
+    time_words = (
+        "утро",
+        "утром",
+        "день",
+        "днем",
+        "днём",
+        "обед",
+        "обедом",
+        "вечер",
+        "вечером",
+        "ночь",
+        "ночью",
+        "полдень",
+        "полночь",
+    )
+    has_named_day = any(word in raw for word in ("сегодня", "завтра", "послезавтра"))
+    has_time_word = any(word in raw for word in time_words)
+    if has_named_day and (re.search(r"\d", raw) or has_time_word):
         return True
     if re.search(r"\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?\s+\d{1,2}", raw):
         return True
-    if re.search(r"\d{1,2}:\d{1,2}", raw):
+    if re.search(r"\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?\s+(?:утром|днем|вечером|ночью|полдень|полночь)", raw):
+        return True
+    month_names = (
+        "январ", "феврал", "март", "апрел", "мая", "май", "июн",
+        "июл", "август", "сентябр", "октябр", "ноябр", "декабр",
+    )
+    if any(month in raw for month in month_names):
+        if has_time_word:
+            return True
+        if re.search(r"\b\d{1,2}\s+[а-я]+\s+(?:\d{4}\s+)?(?:в\s+)?\d{1,2}(?::|\.|,|\s|$)\d{0,2}\b", raw):
+            return True
+    if re.search(r"\d{1,2}[:.,]\d{1,2}", raw):
         return True
     return False
 
@@ -294,6 +305,109 @@ def _format_remind_at(context: ContextTypes.DEFAULT_TYPE, remind_at_utc: datetim
     tz_name = _context_timezone(context)
     local_dt = remind_at_utc.astimezone(ZoneInfo(tz_name))
     return f"{local_dt.strftime('%d.%m.%Y %H:%M')} ({tz_name})"
+
+
+def _normalize_notify_offsets(values) -> list[int]:
+    """Normalize notification offsets and always include the final delivery."""
+    offsets: set[int] = {0}
+    for value in values or []:
+        offset = int(value)
+        if offset < 0:
+            raise ValueError("Notification offset must be non-negative")
+        offsets.add(offset)
+    return sorted(offsets, reverse=True)
+
+
+def _parse_notify_offsets_callback(data: str) -> list[int]:
+    """Parse rem_notify callback payload into minute offsets."""
+    payload = data.split(":", 1)[1] if ":" in data else "0"
+    if not payload:
+        return [0]
+    return _normalize_notify_offsets(
+        int(part)
+        for part in payload.split(",")
+        if part.strip()
+    )
+
+
+def _notify_offset_label(offset: int) -> str:
+    """Human label for one notification offset."""
+    labels = {
+        0: "в выбранное время",
+        30: "за 30 минут",
+        60: "за 1 час",
+        120: "за 2 часа",
+        1440: "за сутки",
+    }
+    if offset in labels:
+        return labels[offset]
+    if offset % 1440 == 0:
+        days = offset // 1440
+        return f"за {days} дн."
+    if offset % 60 == 0:
+        hours = offset // 60
+        return f"за {hours} ч."
+    return f"за {offset} мин."
+
+
+def _format_notify_offsets(offsets: list[int]) -> str:
+    """Format selected notification offsets for user-facing text."""
+    normalized = _normalize_notify_offsets(offsets)
+    return ", ".join(_notify_offset_label(offset) for offset in normalized)
+
+
+def _context_notify_offsets(context: ContextTypes.DEFAULT_TYPE) -> list[int]:
+    """Return selected notification offsets from FSM context."""
+    return _normalize_notify_offsets(context.user_data.get("notify_offsets_minutes") or [0])
+
+
+def _build_notification_plan_text(
+    context: ContextTypes.DEFAULT_TYPE,
+    remind_at: datetime,
+) -> str:
+    """Build the final pre-create reminder delivery plan screen."""
+    repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
+    linked_list_title = context.user_data.get("linked_list_title")
+    linked_note_title = context.user_data.get("linked_note_title")
+    list_line = f"📋 Список: {linked_list_title}\n" if linked_list_title else ""
+    note_line = f"📝 Заметка: {linked_note_title}\n" if linked_note_title else ""
+    return (
+        "🔔 Когда прислать уведомление?\n\n"
+        f"{list_line}"
+        f"{note_line}"
+        f"Когда: {_format_remind_at(context, remind_at)}\n"
+        f"Повтор: {repeat_rule_label(repeat_rule)}\n\n"
+        "Основное уведомление придет в выбранное время. "
+        "Можно добавить предварительное напоминание."
+    )
+
+
+async def _show_notification_plan_step(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Show notification offset choices after event time is selected."""
+    remind_at_str = context.user_data.get("remind_at_utc")
+    if not remind_at_str:
+        await _show_reminder_message(
+            update,
+            context,
+            "❌ Не указано время напоминания.",
+            get_back_home_inline_keyboard(),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    remind_at = datetime.fromisoformat(remind_at_str)
+    repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
+    repeat_value = repeat_rule.value if hasattr(repeat_rule, "value") else str(repeat_rule)
+    await _show_reminder_message(
+        update,
+        context,
+        _build_notification_plan_text(context, remind_at),
+        get_reminder_notify_offsets_keyboard(repeat_value),
+    )
+    return ReminderStates.WAIT_NOTIFY
 
 
 async def reminders_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -585,6 +699,8 @@ async def reminder_date_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         "Примеры:\n"
         "25.12.2026\n"
         "25.12\n"
+        "28 мая 15\n"
+        "послезавтра вечером\n"
         "завтра 10\n"
         "через 2 часа",
         reply_markup=get_cancel_inline_keyboard(),
@@ -602,7 +718,7 @@ async def reminder_save_custom_date(update: Update, context: ContextTypes.DEFAUL
             remind_at = _parse_flexible_datetime(date_str, context)
             context.user_data["remind_at_utc"] = remind_at.isoformat()
             await _delete_user_message(update)
-            return await _create_reminder_from_context(update, context)
+            return await _show_notification_plan_step(update, context)
 
         selected_date = _parse_date_only(date_str, context)
         context.user_data["selected_date"] = selected_date.isoformat()
@@ -619,7 +735,7 @@ async def reminder_save_custom_date(update: Update, context: ContextTypes.DEFAUL
         return ReminderStates.WAIT_TIME
     except (ValueError, IndexError):
         await update.message.reply_text(
-            "❌ Не понял дату. Попробуйте так: 25.12, завтра 10, через 2 часа",
+            "❌ Не понял дату. Попробуйте так: 25.12, 28 мая 15, послезавтра вечером, через 2 часа",
             reply_markup=get_cancel_keyboard(),
         )
         return ReminderStates.WAIT_DATE
@@ -655,7 +771,7 @@ async def reminder_time_preset(update: Update, context: ContextTypes.DEFAULT_TYP
     remind_at = _roll_forward_if_needed(remind_at, context)
     context.user_data["remind_at_utc"] = remind_at.isoformat()
 
-    return await _create_reminder_from_context(update, context)
+    return await _show_notification_plan_step(update, context)
 
 
 async def reminder_time_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -691,6 +807,8 @@ async def reminder_time_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         "Примеры:\n"
         "10\n"
         "10:30\n"
+        "15,00\n"
+        "вечером\n"
         "завтра 10\n"
         "через 2 часа",
         reply_markup=get_cancel_inline_keyboard(),
@@ -708,10 +826,10 @@ async def reminder_save_custom_time(update: Update, context: ContextTypes.DEFAUL
         remind_at = _roll_forward_if_needed(remind_at, context)
         context.user_data["remind_at_utc"] = remind_at.isoformat()
         await _delete_user_message(update)
-        return await _create_reminder_from_context(update, context)
+        return await _show_notification_plan_step(update, context)
     except (ValueError, IndexError):
         await update.message.reply_text(
-            "❌ Не понял время. Попробуйте так: 10, 10:30, завтра 10, через 2 часа",
+            "❌ Не понял время. Попробуйте так: 10, 10:30, 15,00, вечером, завтра 10, через 2 часа",
             reply_markup=get_cancel_keyboard(),
         )
         return ReminderStates.WAIT_TIME_CUSTOM
@@ -759,6 +877,7 @@ async def _create_reminder_from_context(
     linked_list_id = context.user_data.get("linked_list_id")
     linked_note_id = context.user_data.get("linked_note_id")
     source_module = context.user_data.get("reminder_source_module")
+    notify_offsets = _context_notify_offsets(context)
 
     if not remind_at_str:
         await _show_reminder_message(
@@ -785,6 +904,7 @@ async def _create_reminder_from_context(
             list_id=linked_list_id,
             note_id=linked_note_id,
             source_module=source_module,
+            notify_offsets_minutes=notify_offsets,
         )
         if reminder is None:
             await session.rollback()
@@ -818,12 +938,14 @@ async def _create_reminder_from_context(
         context,
         f"✅ Напоминание создано!\n\n"
         f"📝 {text[:100]}{'...' if len(text) > 100 else ''}\n\n"
-        f"⏰ {_format_remind_at(context, remind_at_utc)}",
+        f"⏰ {_format_remind_at(context, remind_at_utc)}\n"
+        f"🔔 {_format_notify_offsets(notify_offsets)}",
         get_reminder_view_keyboard(
             reminder.id,
             list_id=linked_list_id,
             note_id=linked_note_id,
             source_module=source_module,
+            can_complete=False,
         ),
     )
 
@@ -832,62 +954,10 @@ async def _create_reminder_from_context(
 
 
 async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Confirm and create reminder."""
+    """Backward-compatible handler for old confirmation buttons."""
     query = update.callback_query
     await query.answer()
-    
-    user_id = update.effective_user.id
-    text = context.user_data.get("reminder_text", "")
-    remind_at_str = context.user_data.get("remind_at_utc")
-    repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
-    linked_list_id = context.user_data.get("linked_list_id")
-    linked_note_id = context.user_data.get("linked_note_id")
-    source_module = context.user_data.get("reminder_source_module")
-    
-    if not remind_at_str:
-        await query.edit_message_text("❌ Ошибка: не указано время")
-        return ConversationHandler.END
-    
-    remind_at_utc = datetime.fromisoformat(remind_at_str)
-    
-    async with async_session_maker() as session:
-        user_repo = UserRepository(session)
-        user = await user_repo.get_by_telegram_id(user_id)
-        
-        reminder_service = ReminderService(session)
-        reminder = await reminder_service.create_reminder(
-            user_id=user.id if user else user_id,
-            text=text,
-            remind_at_utc=remind_at_utc,
-            repeat_rule=repeat_rule,
-            list_id=linked_list_id,
-            note_id=linked_note_id,
-            source_module=source_module,
-        )
-        if reminder is None:
-            await session.rollback()
-            await query.edit_message_text(
-                "❌ Не удалось создать напоминание: связанный объект не найден",
-                reply_markup=get_back_home_inline_keyboard(),
-            )
-            context.user_data.clear()
-            return ConversationHandler.END
-        await session.commit()
-    
-    await query.edit_message_text(
-        f"✅ Напоминание создано!\n\n"
-        f"📝 {text[:100]}{'...' if len(text) > 100 else ''}\n\n"
-        f"⏰ {_format_remind_at(context, remind_at_utc)}",
-        reply_markup=get_reminder_view_keyboard(
-            reminder.id,
-            list_id=linked_list_id,
-            note_id=linked_note_id,
-            source_module=source_module,
-        ),
-    )
-    
-    context.user_data.clear()
-    return ConversationHandler.END
+    return await _create_reminder_from_context(update, context)
 
 
 async def reminder_cancel_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -919,6 +989,24 @@ async def reminder_repeat_set(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ReminderStates.WAIT_REPEAT
 
 
+async def reminder_notify_offsets_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save notification offsets and create the reminder."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        context.user_data["notify_offsets_minutes"] = _parse_notify_offsets_callback(query.data)
+    except (ValueError, IndexError):
+        await query.edit_message_text(
+            "❌ Не удалось разобрать настройки уведомления.",
+            reply_markup=get_back_home_inline_keyboard(),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    return await _create_reminder_from_context(update, context)
+
+
 async def driver_reminder_repeat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Save repeat rule for a ready-made driver reminder and ask only for time."""
     query = update.callback_query
@@ -943,19 +1031,11 @@ async def driver_reminder_repeat_callback(update: Update, context: ContextTypes.
 
 
 async def reminder_back_to_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Return from repeat settings to confirmation."""
+    """Return from repeat settings to notification plan."""
     query = update.callback_query
     await query.answer()
 
-    remind_at_str = context.user_data.get("remind_at_utc")
-    remind_at = datetime.fromisoformat(remind_at_str) if remind_at_str else datetime.now(timezone.utc)
-
-    await query.edit_message_text(
-        _build_confirmation_text(context, remind_at),
-        reply_markup=get_reminder_confirm_keyboard(remind_at),
-    )
-
-    return ReminderStates.WAIT_CONFIRM
+    return await _show_notification_plan_step(update, context)
 
 
 async def reminder_save_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -973,16 +1053,8 @@ async def reminder_save_repeat(update: Update, context: ContextTypes.DEFAULT_TYP
     selected = query.data
     repeat_rule = rule_map.get(selected, RepeatRule.NONE)
     context.user_data["repeat_rule"] = repeat_rule
-    
-    remind_at_str = context.user_data.get("remind_at_utc")
-    remind_at = datetime.fromisoformat(remind_at_str) if remind_at_str else datetime.now(timezone.utc)
-    
-    await query.edit_message_text(
-        _build_confirmation_text(context, remind_at, prefix=f"🔁 Повтор: {repeat_rule_label(repeat_rule)}\n\n"),
-        reply_markup=get_reminder_confirm_keyboard(remind_at, repeat_rule.value),
-    )
-    
-    return ReminderStates.WAIT_CONFIRM
+
+    return await _show_notification_plan_step(update, context)
 
 
 async def reminder_change_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1017,6 +1089,10 @@ async def _render_reminder_screen(
     async with async_session_maker() as session:
         reminder_service = ReminderService(session)
         reminder = await reminder_service.get_reminder(reminder_id, user_id)
+        can_complete = await reminder_service.can_complete_reminder(
+            reminder_id,
+            user_id,
+        )
 
     if not reminder:
         return None, None
@@ -1034,12 +1110,27 @@ async def _render_reminder_screen(
         linked_title = reminder.note.title if getattr(reminder, "note", None) else "заметка удалена"
         linked_lines.append(f"📝 Заметка: {linked_title}")
     linked_block = ("\n".join(linked_lines) + "\n") if linked_lines else ""
+    notification_offsets = [
+        notification.offset_minutes
+        for notification in reminder.notifications
+        if (
+            notification.status.value
+            if hasattr(notification.status, "value")
+            else str(notification.status)
+        )
+        in {
+            ReminderNotificationStatus.PENDING.value,
+            ReminderNotificationStatus.SENT.value,
+        }
+    ]
+    notify_line = f"🔔 Уведомления: {_format_notify_offsets(notification_offsets)}\n"
 
     text = (
         f"⏰ Напоминание #{reminder.id}\n\n"
         f"{reminder.text}\n\n"
         f"{linked_block}"
         f"📅 Запланировано: {time_str} ({user_timezone})\n"
+        f"{notify_line}"
         f"🔁 Повтор: {repeat_rule_label(reminder.repeat_rule)}\n"
         f"⏰ Статус: {reminder_status_label(status_value)}"
     )
@@ -1050,6 +1141,7 @@ async def _render_reminder_screen(
         reminder.list_id,
         reminder.source_module,
         note_id=reminder.note_id,
+        can_complete=can_complete,
     )
 
 
@@ -1157,7 +1249,7 @@ async def reminder_edit_time_start(update: Update, context: ContextTypes.DEFAULT
         context.user_data["user_timezone"] = await _get_user_timezone(update, session)
 
     await query.edit_message_text(
-        "🕒 Введите новое время или фразу:\n\n10\n10:30\nзавтра 10\nчерез 2 часа",
+        "🕒 Введите новое время или фразу:\n\n10\n10:30\n15,00\nвечером\nзавтра 10\nчерез 2 часа",
         reply_markup=get_cancel_inline_keyboard(),
     )
     _remember_reminder_message(context, query.message.chat_id, query.message.message_id)
@@ -1180,7 +1272,7 @@ async def reminder_edit_time_save(update: Update, context: ContextTypes.DEFAULT_
         await _show_reminder_message(
             update,
             context,
-            "❌ Не понял время. Попробуйте так: 10, 10:30, завтра 10, через 2 часа",
+            "❌ Не понял время. Попробуйте так: 10, 10:30, 15,00, вечером, завтра 10, через 2 часа",
             get_cancel_inline_keyboard(),
         )
         return ReminderStates.WAIT_EDIT_TIME
@@ -1380,6 +1472,12 @@ reminder_create_conv = ConversationHandler(
         ReminderStates.WAIT_TIME_CUSTOM: [
             CallbackQueryHandler(reminder_time_back, pattern="^rem_time_back$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_save_custom_time),
+        ],
+        ReminderStates.WAIT_NOTIFY: [
+            CallbackQueryHandler(reminder_notify_offsets_callback, pattern="^rem_notify:"),
+            CallbackQueryHandler(reminder_repeat_set, pattern="^rem_repeat_set$"),
+            CallbackQueryHandler(reminder_change_time, pattern="^rem_time_change$"),
+            CallbackQueryHandler(reminder_cancel_create, pattern="^rem_cancel_create$"),
         ],
         ReminderStates.WAIT_CONFIRM: [
             CallbackQueryHandler(reminder_confirm_create, pattern="^rem_confirm_create$"),

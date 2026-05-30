@@ -229,6 +229,8 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
         f"• Выполненные: {stats['reminders']['done']}\n"
         f"• Отмененные: {stats['reminders']['canceled']}\n"
         f"• Пропущенные: {stats['reminders']['missed']}\n"
+        f"• Запланированные уведомления: {stats['reminders'].get('pending_notifications', 0)}\n"
+        f"• Ошибки доставки: {stats['reminders'].get('failed_notifications', 0)}\n"
     )
 
     if admin_activity:
@@ -264,7 +266,9 @@ async def settings_stats_callback(update: Update, context: ContextTypes.DEFAULT_
             f"• Заметки ведут: {_people(admin_activity['notes']['other_users'])}; "
             f"активных заметок: {_records(admin_activity['notes']['records'])}\n"
             f"• Напоминания используют: {_people(admin_activity['reminders']['other_users'])}; "
-            f"создано: {_records(admin_activity['reminders']['records'])}\n"
+            f"создано: {_records(admin_activity['reminders']['records'])}; "
+            f"ожидающих уведомлений: {admin_activity['reminders'].get('pending_notifications', 0)}; "
+            f"ошибок доставки: {admin_activity['reminders'].get('failed_notifications', 0)}\n"
             f"• Чек-листы проходили: {_people(admin_activity['checklists']['other_users'])}; "
             f"запусков: {_records(admin_activity['checklists']['records'])}\n"
             f"• Лекарства ведут: {_people(admin_activity['medications']['other_users'])}; "

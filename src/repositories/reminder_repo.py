@@ -9,7 +9,14 @@ from sqlalchemy import select, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db.models import Reminder, ReminderStatus, RepeatRule, User
+from src.db.models import (
+    Reminder,
+    ReminderNotification,
+    ReminderNotificationStatus,
+    ReminderStatus,
+    RepeatRule,
+    User,
+)
 from src.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -77,6 +84,51 @@ class ReminderRepository(BaseRepository[Reminder]):
         result = await self.db.execute(query)
         return result.scalars().all()
 
+    async def get_due_notifications_locked(
+        self,
+        now: datetime,
+        limit: int = 100,
+    ) -> Sequence[ReminderNotification]:
+        """
+        Get due notification deliveries with row-level locking.
+
+        The worker idempotency unit is ReminderNotification, not Reminder:
+        one reminder event can have several deliveries, for example one day
+        before, one hour before, and at the exact event time.
+        """
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+
+        reminder_load = selectinload(ReminderNotification.reminder)
+        query = (
+            select(ReminderNotification)
+            .join(Reminder, Reminder.id == ReminderNotification.reminder_id)
+            .options(
+                reminder_load.selectinload(Reminder.user),
+                reminder_load.selectinload(Reminder.todo_list),
+                reminder_load.selectinload(Reminder.note),
+                reminder_load.selectinload(Reminder.medication),
+                reminder_load.selectinload(Reminder.driver_document),
+                reminder_load.selectinload(Reminder.notifications),
+            )
+            .where(
+                and_(
+                    ReminderNotification.status == ReminderNotificationStatus.PENDING,
+                    ReminderNotification.notify_at_utc <= now,
+                    Reminder.status == ReminderStatus.ACTIVE,
+                )
+            )
+            .order_by(ReminderNotification.notify_at_utc.asc(), ReminderNotification.id.asc())
+            .limit(limit)
+            .with_for_update(
+                skip_locked=True,
+                nowait=False,
+            )
+        )
+
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
     async def mark_as_notified(
         self,
         reminder_id: int,
@@ -114,6 +166,113 @@ class ReminderRepository(BaseRepository[Reminder]):
         await self.db.flush()
         return result.scalar_one_or_none()
 
+    async def mark_notification_sent(
+        self,
+        notification_id: int,
+        sent_at: datetime,
+    ) -> Optional[ReminderNotification]:
+        """Mark a single notification delivery as sent."""
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+
+        query = (
+            update(ReminderNotification)
+            .where(ReminderNotification.id == notification_id)
+            .values(
+                status=ReminderNotificationStatus.SENT,
+                sent_at_utc=sent_at,
+                last_error=None,
+            )
+            .returning(ReminderNotification)
+        )
+
+        result = await self.db.execute(query)
+        await self.db.flush()
+        return result.scalar_one_or_none()
+
+    async def mark_notification_canceled(
+        self,
+        notification_id: int,
+        canceled_at: datetime,
+        reason: Optional[str] = None,
+    ) -> Optional[ReminderNotification]:
+        """Mark a single pending notification as canceled."""
+        if canceled_at.tzinfo is None:
+            canceled_at = canceled_at.replace(tzinfo=timezone.utc)
+
+        query = (
+            update(ReminderNotification)
+            .where(ReminderNotification.id == notification_id)
+            .values(
+                status=ReminderNotificationStatus.CANCELED,
+                last_error=reason,
+            )
+            .returning(ReminderNotification)
+        )
+
+        result = await self.db.execute(query)
+        await self.db.flush()
+        return result.scalar_one_or_none()
+
+    async def mark_notification_failed(
+        self,
+        notification_id: int,
+        error: str,
+    ) -> Optional[ReminderNotification]:
+        """Close a notification after a permanent delivery failure."""
+        query = (
+            update(ReminderNotification)
+            .where(ReminderNotification.id == notification_id)
+            .values(
+                status=ReminderNotificationStatus.FAILED,
+                last_error=error[:1000],
+            )
+            .returning(ReminderNotification)
+        )
+
+        result = await self.db.execute(query)
+        await self.db.flush()
+        return result.scalar_one_or_none()
+
+    async def remember_notification_error(
+        self,
+        notification_id: int,
+        error: str,
+    ) -> Optional[ReminderNotification]:
+        """Save a retryable error while keeping the notification pending."""
+        query = (
+            update(ReminderNotification)
+            .where(ReminderNotification.id == notification_id)
+            .values(last_error=error[:1000])
+            .returning(ReminderNotification)
+        )
+
+        result = await self.db.execute(query)
+        await self.db.flush()
+        return result.scalar_one_or_none()
+
+    async def cancel_pending_notifications(
+        self,
+        reminder_id: int,
+        reason: Optional[str] = None,
+    ) -> None:
+        """Cancel all future deliveries for a reminder."""
+        query = (
+            update(ReminderNotification)
+            .where(
+                and_(
+                    ReminderNotification.reminder_id == reminder_id,
+                    ReminderNotification.status == ReminderNotificationStatus.PENDING,
+                )
+            )
+            .values(
+                status=ReminderNotificationStatus.CANCELED,
+                last_error=reason,
+            )
+        )
+        await self.db.execute(query)
+        await self.db.flush()
+
     async def mark_status(
         self,
         reminder_id: int,
@@ -143,7 +302,8 @@ class ReminderRepository(BaseRepository[Reminder]):
     async def create_next_occurrence(
         self,
         reminder: Reminder,
-        next_time: datetime
+        next_time: datetime,
+        notify_offsets_minutes: Optional[Sequence[int]] = None,
     ) -> Reminder:
         """
         Create next occurrence of a recurring reminder.
@@ -176,6 +336,23 @@ class ReminderRepository(BaseRepository[Reminder]):
         )
         
         self.db.add(new_reminder)
+        await self.db.flush()
+
+        offsets = _normalize_notification_offsets(
+            notify_offsets_minutes
+            if notify_offsets_minutes is not None
+            else _notification_offsets_from_reminder(reminder)
+        )
+        for offset in offsets:
+            self.db.add(
+                ReminderNotification(
+                    reminder_id=new_reminder.id,
+                    notify_at_utc=next_time - timedelta(minutes=offset),
+                    offset_minutes=offset,
+                    status=ReminderNotificationStatus.PENDING,
+                )
+            )
+        await self.db.flush()
         return new_reminder
 
     async def get_active_by_user(
@@ -271,3 +448,46 @@ def _add_one_month_preserving_wall_time(value: datetime) -> datetime:
         day = min(value.day, target_last_day)
 
     return value.replace(year=year, month=month, day=day)
+
+
+def _as_status_value(value) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _as_offset(value: int) -> int:
+    offset = int(value)
+    if offset < 0:
+        raise ValueError("Notification offset must be non-negative")
+    return offset
+
+
+def _notification_status_is_active(status) -> bool:
+    return _as_status_value(status) in {
+        ReminderNotificationStatus.PENDING.value,
+        ReminderNotificationStatus.SENT.value,
+    }
+
+
+def _dedupe_offsets(offsets: Sequence[int]) -> list[int]:
+    values = {_as_offset(item) for item in offsets}
+    values.add(0)
+    return sorted(values, reverse=True)
+
+
+def _loaded_notifications(reminder: Reminder) -> list[ReminderNotification]:
+    notifications = getattr(reminder, "notifications", None)
+    return list(notifications or [])
+
+
+def _notification_offsets_from_reminder(reminder: Reminder) -> list[int]:
+    notifications = _loaded_notifications(reminder)
+    offsets = [
+        item.offset_minutes
+        for item in notifications
+        if _notification_status_is_active(item.status)
+    ]
+    return _dedupe_offsets(offsets or [0])
+
+
+def _normalize_notification_offsets(offsets: Optional[Sequence[int]]) -> list[int]:
+    return _dedupe_offsets(offsets or [0])

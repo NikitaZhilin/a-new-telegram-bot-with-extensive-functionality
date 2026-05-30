@@ -17,7 +17,6 @@ from src.db.models import (
     DriverVehicle,
     Reminder,
     ReminderStatus,
-    RepeatRule,
 )
 
 
@@ -757,17 +756,15 @@ class DriverService:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
 
         remind_at = expires_at - timedelta(days=document.remind_before_days)
-        self.db.add(
-            Reminder(
-                user_id=document.user_id,
-                title=f"Документ: {document.title}"[:255],
-                text=self._format_document_reminder_text(document, expires_at),
-                driver_document_id=document.id,
-                source_module="driver",
-                remind_at_utc=remind_at,
-                repeat_rule=RepeatRule.NONE,
-                status=ReminderStatus.ACTIVE,
-            )
+        from src.services.reminder_service import ReminderService
+
+        await ReminderService(self.db).create_reminder(
+            user_id=document.user_id,
+            title=f"Документ: {document.title}"[:255],
+            text=self._format_document_reminder_text(document, expires_at),
+            driver_document_id=document.id,
+            source_module="driver",
+            remind_at_utc=remind_at,
         )
         await self.db.flush()
 
@@ -783,7 +780,9 @@ class DriverService:
             )
         )
         for reminder in result.scalars().all():
-            reminder.status = ReminderStatus.CANCELED
+            from src.services.reminder_service import ReminderService
+
+            await ReminderService(self.db).mark_reminder_canceled(reminder.id, user_id)
         await self.db.flush()
 
     def _format_document_reminder_text(

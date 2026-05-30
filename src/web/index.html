@@ -152,6 +152,14 @@
                 <button class="choice-button" type="button" data-value="weekly">Каждую неделю</button>
                 <button class="choice-button" type="button" data-value="monthly">Каждый месяц</button>
               </div>
+              <div class="choice-group" data-field="notify_offsets_preset" role="group" aria-label="Уведомления напоминания">
+                <input name="notify_offsets_preset" type="hidden" value="0">
+                <button class="choice-button active" type="button" data-value="0">В выбранное время</button>
+                <button class="choice-button" type="button" data-value="30">За 30 минут</button>
+                <button class="choice-button" type="button" data-value="60">За 1 час</button>
+                <button class="choice-button" type="button" data-value="1440">За сутки</button>
+                <button class="choice-button" type="button" data-value="1440,60">Сутки + час</button>
+              </div>
               <button class="action-save" type="submit">Создать</button>
             </form>
           </div>

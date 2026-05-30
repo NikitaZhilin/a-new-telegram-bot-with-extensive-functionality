@@ -7,14 +7,22 @@ All times are stored in UTC.
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import pytz
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 
-from src.db.models import Reminder, ReminderStatus, RepeatRule, User
+from src.db.models import (
+    DriverDocument,
+    Reminder,
+    ReminderNotification,
+    ReminderNotificationStatus,
+    ReminderStatus,
+    RepeatRule,
+    User,
+)
 from src.repositories.medication_repo import MedicationRepository
 from src.repositories.reminder_repo import ReminderRepository
 
@@ -38,7 +46,9 @@ class ReminderService:
         list_id: Optional[int] = None,
         note_id: Optional[int] = None,
         medication_id: Optional[int] = None,
+        driver_document_id: Optional[int] = None,
         source_module: Optional[str] = None,
+        notify_offsets_minutes: Optional[Sequence[int]] = None,
     ) -> Optional[Reminder]:
         """
         Create a new reminder.
@@ -52,12 +62,18 @@ class ReminderService:
             list_id: Optional linked TodoList ID owned by the same user
             note_id: Optional linked Note ID owned by the same user
             medication_id: Optional linked Medication ID owned by the same user
+            driver_document_id: Optional linked DriverDocument ID owned by the same user
             source_module: Domain that owns the reminder in user-facing lists
+            notify_offsets_minutes: Notification offsets before the reminder event
             
         Returns:
             Created Reminder
         """
-        linked_targets = sum(1 for value in (list_id, note_id, medication_id) if value is not None)
+        linked_targets = sum(
+            1
+            for value in (list_id, note_id, medication_id, driver_document_id)
+            if value is not None
+        )
         if linked_targets > 1:
             logger.warning(
                 "Tried to create reminder with multiple linked domain targets",
@@ -66,6 +82,7 @@ class ReminderService:
                     "list_id": list_id,
                     "note_id": note_id,
                     "medication_id": medication_id,
+                    "driver_document_id": driver_document_id,
                 },
             )
             return None
@@ -101,13 +118,28 @@ class ReminderService:
                 )
                 return None
 
+        if driver_document_id is not None:
+            result = await self.db.execute(
+                select(DriverDocument).where(
+                    DriverDocument.id == driver_document_id,
+                    DriverDocument.user_id == user_id,
+                )
+            )
+            if not result.scalar_one_or_none():
+                logger.warning(
+                    "Tried to create reminder for a driver document owned by another user or missing",
+                    extra={"user_id": user_id, "driver_document_id": driver_document_id},
+                )
+                return None
+
         # Ensure UTC timezone
-        if remind_at_utc.tzinfo is None:
-            remind_at_utc = remind_at_utc.replace(tzinfo=timezone.utc)
+        remind_at_utc = self._ensure_utc(remind_at_utc)
 
         if source_module is None:
             if medication_id is not None:
                 source_module = "medication"
+            elif driver_document_id is not None:
+                source_module = "driver"
             elif note_id is not None:
                 source_module = "note"
             elif list_id is not None:
@@ -122,12 +154,18 @@ class ReminderService:
             list_id=list_id,
             note_id=note_id,
             medication_id=medication_id,
+            driver_document_id=driver_document_id,
             source_module=source_module,
             remind_at_utc=remind_at_utc,
             repeat_rule=repeat_rule,
             status=ReminderStatus.ACTIVE,
         )
         self.db.add(reminder)
+        await self.db.flush()
+        self._add_notification_plan(
+            reminder,
+            notify_offsets_minutes,
+        )
         await self.db.flush()
         await self.db.refresh(reminder)
         
@@ -143,6 +181,7 @@ class ReminderService:
                 selectinload(Reminder.note),
                 selectinload(Reminder.medication),
                 selectinload(Reminder.driver_document),
+                selectinload(Reminder.notifications),
             )
             .where(and_(Reminder.id == reminder_id, Reminder.user_id == user_id))
         )
@@ -194,16 +233,23 @@ class ReminderService:
         reminder_id: int,
         user_id: int,
         new_time_utc: datetime,
+        notify_offsets_minutes: Optional[Sequence[int]] = None,
     ) -> Optional[Reminder]:
         """Update reminder time."""
         reminder = await self.get_reminder(reminder_id, user_id)
         if not reminder:
             return None
         
-        if new_time_utc.tzinfo is None:
-            new_time_utc = new_time_utc.replace(tzinfo=timezone.utc)
+        new_time_utc = self._ensure_utc(new_time_utc)
+        offsets = (
+            self._normalize_notification_offsets(notify_offsets_minutes)
+            if notify_offsets_minutes is not None
+            else self._active_notification_offsets(reminder)
+        )
         
         reminder.remind_at_utc = new_time_utc
+        self._cancel_pending_notifications(reminder)
+        self._add_notification_plan(reminder, offsets)
         await self.db.flush()
         await self.db.refresh(reminder)
         
@@ -246,6 +292,26 @@ class ReminderService:
         logger.info(f"Updated reminder {reminder_id} repeat rule to {repeat_rule}")
         return reminder
 
+    async def update_notification_plan(
+        self,
+        reminder_id: int,
+        user_id: int,
+        notify_offsets_minutes: Sequence[int],
+    ) -> Optional[Reminder]:
+        """Replace pending notification deliveries without changing reminder time."""
+        reminder = await self.get_reminder(reminder_id, user_id)
+        if not reminder:
+            return None
+
+        offsets = self._normalize_notification_offsets(notify_offsets_minutes)
+        self._cancel_pending_notifications(reminder)
+        self._add_notification_plan(reminder, offsets)
+        await self.db.flush()
+        await self.db.refresh(reminder)
+
+        logger.info(f"Updated reminder {reminder_id} notification plan")
+        return reminder
+
     async def mark_reminder_done(
         self,
         reminder_id: int,
@@ -257,6 +323,7 @@ class ReminderService:
             return None
         
         reminder.status = ReminderStatus.DONE
+        self._cancel_pending_notifications(reminder)
         await self.db.flush()
         await self.db.refresh(reminder)
         
@@ -274,6 +341,7 @@ class ReminderService:
             return None
         
         reminder.status = ReminderStatus.CANCELED
+        self._cancel_pending_notifications(reminder)
         await self.db.flush()
         await self.db.refresh(reminder)
         
@@ -291,6 +359,28 @@ class ReminderService:
         
         logger.info(f"Deleted reminder {reminder_id}")
         return True
+
+    async def can_complete_reminder(
+        self,
+        reminder_id: int,
+        user_id: int,
+        now_utc: Optional[datetime] = None,
+        action_window: timedelta = timedelta(hours=2),
+    ) -> bool:
+        """Return whether user-facing UI should expose the done action."""
+        reminder = await self.get_reminder(reminder_id, user_id)
+        if not reminder or reminder.status != ReminderStatus.ACTIVE:
+            return False
+
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+        remind_at = self._ensure_utc(reminder.remind_at_utc)
+        if now_utc >= remind_at - action_window:
+            return True
+
+        return any(
+            notification.status == ReminderNotificationStatus.SENT
+            for notification in reminder.notifications
+        )
 
     async def get_user(self, user_id: int) -> Optional[User]:
         """Get user for timezone lookup."""
@@ -342,3 +432,60 @@ class ReminderService:
         """
         tz = pytz.timezone(user_timezone)
         return dt_utc.astimezone(tz)
+
+    @staticmethod
+    def _ensure_utc(value: datetime) -> datetime:
+        """Normalize datetime to timezone-aware UTC."""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _normalize_notification_offsets(
+        offsets: Optional[Sequence[int]],
+    ) -> list[int]:
+        """Return distinct non-negative notification offsets."""
+        if not offsets:
+            return [0]
+
+        normalized: set[int] = {0}
+        for value in offsets:
+            offset = int(value)
+            if offset < 0:
+                raise ValueError("Notification offset must be non-negative")
+            normalized.add(offset)
+        return sorted(normalized, reverse=True) or [0]
+
+    def _add_notification_plan(
+        self,
+        reminder: Reminder,
+        offsets: Optional[Sequence[int]],
+    ) -> None:
+        """Attach notification rows to one reminder event."""
+        remind_at = self._ensure_utc(reminder.remind_at_utc)
+        for offset in self._normalize_notification_offsets(offsets):
+            self.db.add(
+                ReminderNotification(
+                    reminder_id=reminder.id,
+                    notify_at_utc=remind_at - timedelta(minutes=offset),
+                    offset_minutes=offset,
+                    status=ReminderNotificationStatus.PENDING,
+                )
+            )
+
+    @staticmethod
+    def _active_notification_offsets(reminder: Reminder) -> list[int]:
+        """Preserve pending notification offsets when only the event time changes."""
+        offsets = [
+            item.offset_minutes
+            for item in reminder.notifications
+            if item.status == ReminderNotificationStatus.PENDING
+        ]
+        return sorted(set(offsets), reverse=True) or [0]
+
+    @staticmethod
+    def _cancel_pending_notifications(reminder: Reminder) -> None:
+        """Cancel future notification rows while preserving sent history."""
+        for notification in reminder.notifications:
+            if notification.status == ReminderNotificationStatus.PENDING:
+                notification.status = ReminderNotificationStatus.CANCELED

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from src.db.models import Reminder, ReminderStatus, User
+from src.db.models import Reminder, ReminderNotification, ReminderNotificationStatus, ReminderStatus, User
 from src.services.checklist_service import ChecklistService
 from src.services.driver_service import DriverService
 from src.services.list_service import ListService
@@ -439,6 +439,13 @@ async def test_driver_document_syncs_active_reminder(db_session):
     assert reminder.source_module == "driver"
     assert _as_utc(reminder.remind_at_utc) == expires_at - timedelta(days=10)
     assert "OSAGO" in reminder.text
+    result = await db_session.execute(
+        select(ReminderNotification).where(ReminderNotification.reminder_id == reminder.id)
+    )
+    notification = result.scalar_one()
+    assert notification.offset_minutes == 0
+    assert notification.status == ReminderNotificationStatus.PENDING
+    assert _as_utc(notification.notify_at_utc) == expires_at - timedelta(days=10)
 
     updated_expires_at = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
     await service.update_document(
@@ -459,6 +466,10 @@ async def test_driver_document_syncs_active_reminder(db_session):
     assert len(active) == 1
     assert len(canceled) == 1
     assert _as_utc(active[0].remind_at_utc) == updated_expires_at - timedelta(days=7)
+    result = await db_session.execute(
+        select(ReminderNotification).where(ReminderNotification.reminder_id == canceled[0].id)
+    )
+    assert {item.status for item in result.scalars().all()} == {ReminderNotificationStatus.CANCELED}
 
     assert await service.delete_document(document.id, user.id) is True
     result = await db_session.execute(

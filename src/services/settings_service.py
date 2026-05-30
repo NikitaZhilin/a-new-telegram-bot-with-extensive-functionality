@@ -77,6 +77,8 @@ class SettingsService:
             Medication,
             Note,
             Reminder,
+            ReminderNotification,
+            ReminderNotificationStatus,
             ReminderStatus,
             TodoList,
         )
@@ -140,6 +142,24 @@ class SettingsService:
                 Reminder.source_module == "general",
             )
         )
+        reminder_notifications_pending = await count(
+            select(func.count(ReminderNotification.id))
+            .join(Reminder, Reminder.id == ReminderNotification.reminder_id)
+            .where(
+                Reminder.user_id == user_id,
+                Reminder.source_module == "general",
+                ReminderNotification.status == ReminderNotificationStatus.PENDING,
+            )
+        )
+        reminder_notifications_failed = await count(
+            select(func.count(ReminderNotification.id))
+            .join(Reminder, Reminder.id == ReminderNotification.reminder_id)
+            .where(
+                Reminder.user_id == user_id,
+                Reminder.source_module == "general",
+                ReminderNotification.status == ReminderNotificationStatus.FAILED,
+            )
+        )
 
         medications_active = await count(
             select(func.count(Medication.id)).where(
@@ -187,6 +207,8 @@ class SettingsService:
                 "done": reminders_done,
                 "canceled": reminders_canceled,
                 "missed": reminders_missed,
+                "pending_notifications": reminder_notifications_pending,
+                "failed_notifications": reminder_notifications_failed,
             },
             "medications": {
                 "active": medications_active,
@@ -213,6 +235,8 @@ class SettingsService:
             Medication,
             Note,
             Reminder,
+            ReminderNotification,
+            ReminderNotificationStatus,
             TodoList,
         )
 
@@ -256,6 +280,22 @@ class SettingsService:
             select(func.count(distinct(Reminder.user_id))).where(
                 Reminder.source_module == "general",
                 Reminder.user_id != current_user_id,
+            )
+        )
+        reminder_notifications_pending = await count(
+            select(func.count(ReminderNotification.id))
+            .join(Reminder, Reminder.id == ReminderNotification.reminder_id)
+            .where(
+                Reminder.source_module == "general",
+                ReminderNotification.status == ReminderNotificationStatus.PENDING,
+            )
+        )
+        reminder_notifications_failed = await count(
+            select(func.count(ReminderNotification.id))
+            .join(Reminder, Reminder.id == ReminderNotification.reminder_id)
+            .where(
+                Reminder.source_module == "general",
+                ReminderNotification.status == ReminderNotificationStatus.FAILED,
             )
         )
         checklist_runs_total = await count(select(func.count(ChecklistRun.id)))
@@ -320,6 +360,8 @@ class SettingsService:
             "reminders": {
                 "records": reminders_total,
                 "other_users": reminders_users,
+                "pending_notifications": reminder_notifications_pending,
+                "failed_notifications": reminder_notifications_failed,
             },
             "checklists": {
                 "records": checklist_runs_total,

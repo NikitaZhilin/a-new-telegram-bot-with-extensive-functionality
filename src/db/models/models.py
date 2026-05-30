@@ -41,6 +41,14 @@ class ReminderStatus(str, Enum):
     MISSED = "missed"
 
 
+class ReminderNotificationStatus(str, Enum):
+    """Delivery status for one reminder notification."""
+    PENDING = "pending"
+    SENT = "sent"
+    CANCELED = "canceled"
+    FAILED = "failed"
+
+
 class RepeatRule(str, Enum):
     """Reminder repeat rule."""
     NONE = "none"
@@ -1040,6 +1048,13 @@ class Reminder(Base):
     note = relationship("Note", back_populates="reminders")
     medication = relationship("Medication", back_populates="reminders")
     driver_document = relationship("DriverDocument", back_populates="reminders")
+    notifications = relationship(
+        "ReminderNotification",
+        back_populates="reminder",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by=lambda: ReminderNotification.notify_at_utc.asc(),
+    )
 
     # Indexes
     __table_args__ = (
@@ -1052,6 +1067,60 @@ class Reminder(Base):
 
     def __repr__(self) -> str:
         return f"<Reminder(id={self.id}, user_id={self.user_id}, status={self.status})>"
+
+
+class ReminderNotification(Base):
+    """One scheduled delivery for a reminder event."""
+
+    __tablename__ = "reminder_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    reminder_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("reminders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    notify_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    offset_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[ReminderNotificationStatus] = mapped_column(
+        SQLAlchemyEnum(ReminderNotificationStatus),
+        default=ReminderNotificationStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+    sent_at_utc: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    reminder = relationship("Reminder", back_populates="notifications")
+
+    __table_args__ = (
+        Index("ix_reminder_notifications_status_notify", "status", "notify_at_utc"),
+        Index("ix_reminder_notifications_reminder_status", "reminder_id", "status"),
+        Index("ix_reminder_notifications_reminder_notify", "reminder_id", "notify_at_utc"),
+        CheckConstraint("offset_minutes >= 0", name="ck_reminder_notifications_offset_non_negative"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ReminderNotification(id={self.id}, reminder_id={self.reminder_id}, "
+            f"status={self.status})>"
+        )
 
 
 class Medication(Base):

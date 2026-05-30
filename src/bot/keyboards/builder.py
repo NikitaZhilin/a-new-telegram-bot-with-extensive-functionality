@@ -1725,15 +1725,17 @@ def get_reminder_view_keyboard(
     list_id: Optional[int] = None,
     source_module: Optional[str] = "general",
     note_id: Optional[int] = None,
+    can_complete: bool = True,
 ) -> InlineKeyboardMarkup:
     """Keyboard for viewing a single reminder."""
     keyboard = []
 
     if status == "active":
-        keyboard.append([
-            InlineKeyboardButton("✅ Выполнено", callback_data=f"reminder_done:{reminder_id}"),
-            InlineKeyboardButton("✏️ Изменить", callback_data=f"reminder_edit_menu:{reminder_id}"),
-        ])
+        action_row = []
+        if can_complete:
+            action_row.append(InlineKeyboardButton("✅ Выполнено", callback_data=f"reminder_done:{reminder_id}"))
+        action_row.append(InlineKeyboardButton("✏️ Изменить", callback_data=f"reminder_edit_menu:{reminder_id}"))
+        keyboard.append(action_row)
         if source_module in (None, "general"):
             keyboard.append([
                 InlineKeyboardButton("➕ Следующее напоминание", callback_data="reminder_create"),
@@ -1871,6 +1873,44 @@ def get_reminder_confirm_keyboard(
         ],
         [
             InlineKeyboardButton("🔁 Повтор", callback_data="rem_repeat_set"),
+            InlineKeyboardButton("🕒 Изменить время", callback_data="rem_time_change"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="rem_cancel_create"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_reminder_notify_offsets_keyboard(current_repeat: str = "none") -> InlineKeyboardMarkup:
+    """Keyboard for selecting notification offsets before reminder creation."""
+    repeat_labels = {
+        "none": "без повтора",
+        "daily": "ежедневно",
+        "weekly": "еженедельно",
+        "monthly": "ежемесячно",
+    }
+    repeat_label = repeat_labels.get(current_repeat, "без повтора")
+    keyboard = [
+        [
+            InlineKeyboardButton("Только в выбранное время", callback_data="rem_notify:0"),
+        ],
+        [
+            InlineKeyboardButton("За 30 минут", callback_data="rem_notify:30"),
+            InlineKeyboardButton("За 1 час", callback_data="rem_notify:60"),
+        ],
+        [
+            InlineKeyboardButton("За 2 часа", callback_data="rem_notify:120"),
+            InlineKeyboardButton("За сутки", callback_data="rem_notify:1440"),
+        ],
+        [
+            InlineKeyboardButton("За сутки и за час", callback_data="rem_notify:1440,60"),
+        ],
+        [
+            InlineKeyboardButton("За сутки, 2 часа и 1 час", callback_data="rem_notify:1440,120,60"),
+        ],
+        [
+            InlineKeyboardButton(f"🔁 Повтор: {repeat_label}", callback_data="rem_repeat_set"),
             InlineKeyboardButton("🕒 Изменить время", callback_data="rem_time_change"),
         ],
         [

@@ -7,7 +7,17 @@ import pytest
 
 from src.api.app import create_application
 from src.config import settings
-from src.db.models import Medication, Note, Reminder, ReminderStatus, RepeatRule, TodoList, User
+from src.db.models import (
+    Medication,
+    Note,
+    Reminder,
+    ReminderNotification,
+    ReminderNotificationStatus,
+    ReminderStatus,
+    RepeatRule,
+    TodoList,
+    User,
+)
 from src.db.session import get_db
 from src.services.driver_service import DriverService
 from src.services.activity_service import ActivityService
@@ -37,6 +47,23 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     medication = Medication(user_id=user.id, name="API visible medication", importance="normal")
     note = Note(user_id=user.id, title="API visible note", text="Admin-visible note text")
     db_session.add_all([todo_list, note, reminder, medication])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ReminderNotification(
+                reminder_id=reminder.id,
+                notify_at_utc=reminder.remind_at_utc - timedelta(minutes=60),
+                offset_minutes=60,
+                status=ReminderNotificationStatus.PENDING,
+            ),
+            ReminderNotification(
+                reminder_id=reminder.id,
+                notify_at_utc=reminder.remind_at_utc,
+                offset_minutes=0,
+                status=ReminderNotificationStatus.PENDING,
+            ),
+        ]
+    )
     await db_session.flush()
     driver_service = DriverService(db_session)
     vehicle = await driver_service.create_vehicle(user.id, "API visible vehicle", current_mileage_km=1000)
@@ -103,6 +130,8 @@ async def test_admin_user_endpoints_serialize_datetimes(db_session):
     assert records_payload["lists"][0]["title"] == "API visible list"
     assert records_payload["notes"][0]["title"] == "API visible note"
     assert records_payload["reminders"][0]["text"] == "API visible reminder"
+    assert records_payload["reminders"][0]["notify_offsets_minutes"] == [60, 0]
+    assert len(records_payload["reminders"][0]["notification_times_utc"]) == 2
     assert records_payload["medications"][0]["name"] == "API visible medication"
     assert records_payload["driver"]["overview"]["vehicles_count"] == 1
     assert records_payload["driver"]["overview"]["fuel_entries_count"] == 1
@@ -144,6 +173,39 @@ async def test_admin_stats_week_is_last_seven_days_with_notes(db_session):
         ]
     )
     await db_session.flush()
+    due_reminder = Reminder(
+        user_id=user.id,
+        text="Due via notification row",
+        remind_at_utc=now + timedelta(hours=2),
+        repeat_rule=RepeatRule.NONE,
+        status=ReminderStatus.ACTIVE,
+    )
+    failed_reminder = Reminder(
+        user_id=user.id,
+        text="Failed notification row",
+        remind_at_utc=now + timedelta(hours=3),
+        repeat_rule=RepeatRule.NONE,
+        status=ReminderStatus.ACTIVE,
+    )
+    db_session.add_all([due_reminder, failed_reminder])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ReminderNotification(
+                reminder_id=due_reminder.id,
+                notify_at_utc=now + timedelta(minutes=30),
+                offset_minutes=90,
+                status=ReminderNotificationStatus.PENDING,
+            ),
+            ReminderNotification(
+                reminder_id=failed_reminder.id,
+                notify_at_utc=now + timedelta(minutes=45),
+                offset_minutes=135,
+                status=ReminderNotificationStatus.FAILED,
+            ),
+        ]
+    )
+    await db_session.flush()
 
     app = create_application()
 
@@ -156,8 +218,10 @@ async def test_admin_stats_week_is_last_seven_days_with_notes(db_session):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/admin/stats", headers=headers)
+        due_response = await client.get("/admin/reminders/due", headers=headers)
 
     assert response.status_code == 200
+    assert due_response.status_code == 200
     payload = response.json()
     assert payload["notes"]["total"] == 3
     assert payload["notes"]["created_today"] == 1
@@ -165,3 +229,11 @@ async def test_admin_stats_week_is_last_seven_days_with_notes(db_session):
     assert payload["lists"]["total"] == 3
     assert payload["lists"]["created_today"] == 1
     assert payload["lists"]["created_week"] == 2
+    assert payload["reminders"]["due_soon"] == 1
+    assert payload["reminders"]["pending_notifications"] == 1
+    assert payload["reminders"]["failed_notifications"] == 1
+    due_payload = due_response.json()
+    assert due_payload["count"] == 1
+    assert due_payload["reminders"][0]["id"] == due_reminder.id
+    assert due_payload["reminders"][0]["notification_id"]
+    assert due_payload["reminders"][0]["offset_minutes"] == 90

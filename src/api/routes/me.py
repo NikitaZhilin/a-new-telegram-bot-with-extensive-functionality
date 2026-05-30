@@ -20,6 +20,7 @@ from src.db.models import (
     Medication,
     Note,
     Reminder,
+    ReminderNotificationStatus,
     ReminderStatus,
     TodoList,
     User,
@@ -214,6 +215,9 @@ class ReminderSummaryResponse(BaseModel):
     status: str
     remind_at_utc: datetime
     repeat_rule: str
+    notify_offsets_minutes: List[int] = Field(default_factory=list)
+    notification_times_utc: List[datetime] = Field(default_factory=list)
+    can_complete: bool = False
 
 
 class ReminderCreateRequest(BaseModel):
@@ -225,6 +229,7 @@ class ReminderCreateRequest(BaseModel):
     repeat_rule: str = "none"
     list_id: Optional[int] = None
     note_id: Optional[int] = None
+    notify_offsets_minutes: Optional[List[int]] = None
 
 
 class ReminderUpdateRequest(BaseModel):
@@ -236,6 +241,7 @@ class ReminderUpdateRequest(BaseModel):
     repeat_rule: Optional[str] = None
     list_id: Optional[int] = None
     note_id: Optional[int] = None
+    notify_offsets_minutes: Optional[List[int]] = None
 
 
 class MedicationTodaySlotResponse(BaseModel):
@@ -663,6 +669,34 @@ async def _fresh_list(db: AsyncSession, list_id: int) -> Optional[TodoList]:
 
 def _reminder_response(reminder: Reminder) -> ReminderSummaryResponse:
     """Serialize Reminder ORM object."""
+    active_notifications = [
+        item
+        for item in getattr(reminder, "notifications", []) or []
+        if (
+            item.status.value
+            if hasattr(item.status, "value")
+            else str(item.status)
+        )
+        in {
+            ReminderNotificationStatus.PENDING.value,
+            ReminderNotificationStatus.SENT.value,
+        }
+    ]
+    notify_offsets = sorted(
+        {int(item.offset_minutes) for item in active_notifications} or {0},
+        reverse=True,
+    )
+    now_utc = datetime.now(timezone.utc)
+    remind_at = reminder.remind_at_utc
+    if remind_at.tzinfo is None:
+        remind_at = remind_at.replace(tzinfo=timezone.utc)
+    can_complete = (
+        reminder.status == ReminderStatus.ACTIVE
+        and (
+            now_utc >= remind_at - timedelta(hours=2)
+            or any(item.status == ReminderNotificationStatus.SENT for item in active_notifications)
+        )
+    )
     return ReminderSummaryResponse(
         id=reminder.id,
         title=reminder.title,
@@ -673,6 +707,9 @@ def _reminder_response(reminder: Reminder) -> ReminderSummaryResponse:
         status=reminder.status.value if hasattr(reminder.status, "value") else reminder.status,
         remind_at_utc=reminder.remind_at_utc,
         repeat_rule=reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule,
+        notify_offsets_minutes=notify_offsets,
+        notification_times_utc=[item.notify_at_utc for item in active_notifications],
+        can_complete=can_complete,
     )
 
 
@@ -1413,6 +1450,7 @@ async def get_my_reminders(
         conditions.append(Reminder.status == ReminderStatus.ACTIVE)
     result = await db.execute(
         select(Reminder)
+        .options(selectinload(Reminder.notifications))
         .where(*conditions)
         .order_by(Reminder.remind_at_utc.asc())
         .limit(limit)
@@ -1437,21 +1475,26 @@ async def create_my_reminder(
     list_id = await _validate_web_reminder_list_id(db, current_user.id, payload.list_id)
     note_id = await _validate_web_reminder_note_id(db, current_user.id, payload.note_id)
     source_module = "note" if note_id is not None else "list" if list_id is not None else "general"
-    reminder = await service.create_reminder(
-        user_id=current_user.id,
-        text=payload.text.strip(),
-        title=payload.title.strip() if payload.title else None,
-        remind_at_utc=_local_datetime_to_utc(payload.remind_at_local, current_user.timezone),
-        repeat_rule=_repeat_rule(payload.repeat_rule),
-        list_id=list_id,
-        note_id=note_id,
-        source_module=source_module,
-    )
+    try:
+        reminder = await service.create_reminder(
+            user_id=current_user.id,
+            text=payload.text.strip(),
+            title=payload.title.strip() if payload.title else None,
+            remind_at_utc=_local_datetime_to_utc(payload.remind_at_local, current_user.timezone),
+            repeat_rule=_repeat_rule(payload.repeat_rule),
+            list_id=list_id,
+            note_id=note_id,
+            source_module=source_module,
+            notify_offsets_minutes=payload.notify_offsets_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not reminder:
         raise HTTPException(status_code=400, detail="Reminder was not created")
+    reminder_id = reminder.id
     await db.commit()
-    await db.refresh(reminder)
-    return _reminder_response(reminder)
+    loaded = await service.get_reminder(reminder_id, current_user.id)
+    return _reminder_response(loaded or reminder)
 
 
 @router.patch("/me/reminders/{reminder_id}", response_model=ReminderSummaryResponse)
@@ -1476,11 +1519,26 @@ async def update_my_reminder(
     if payload.text is not None:
         reminder = await service.update_reminder_text(reminder_id, current_user.id, payload.text.strip())
     if payload.remind_at_local is not None:
-        reminder = await service.update_reminder_time(
-            reminder_id,
-            current_user.id,
-            _local_datetime_to_utc(payload.remind_at_local, current_user.timezone),
-        )
+        try:
+            reminder = await service.update_reminder_time(
+                reminder_id,
+                current_user.id,
+                _local_datetime_to_utc(payload.remind_at_local, current_user.timezone),
+                notify_offsets_minutes=payload.notify_offsets_minutes
+                if "notify_offsets_minutes" in payload.model_fields_set
+                else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    elif "notify_offsets_minutes" in payload.model_fields_set and payload.notify_offsets_minutes is not None:
+        try:
+            reminder = await service.update_notification_plan(
+                reminder_id,
+                current_user.id,
+                payload.notify_offsets_minutes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if payload.repeat_rule is not None:
         reminder = await service.update_reminder_repeat(reminder_id, current_user.id, _repeat_rule(payload.repeat_rule))
     if payload.title is not None and reminder is not None:
@@ -1495,8 +1553,8 @@ async def update_my_reminder(
     if not reminder:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     await db.commit()
-    await db.refresh(reminder)
-    return _reminder_response(reminder)
+    loaded = await service.get_reminder(reminder_id, current_user.id)
+    return _reminder_response(loaded or reminder)
 
 
 @router.post("/me/reminders/{reminder_id}/done", response_model=ReminderSummaryResponse)
@@ -1514,8 +1572,8 @@ async def mark_my_reminder_done(
     if not reminder:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     await db.commit()
-    await db.refresh(reminder)
-    return _reminder_response(reminder)
+    loaded = await service.get_reminder(reminder_id, current_user.id)
+    return _reminder_response(loaded or reminder)
 
 
 @router.post("/me/reminders/{reminder_id}/cancel", response_model=ReminderSummaryResponse)
@@ -1533,8 +1591,8 @@ async def cancel_my_reminder(
     if not reminder:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reminder not found")
     await db.commit()
-    await db.refresh(reminder)
-    return _reminder_response(reminder)
+    loaded = await service.get_reminder(reminder_id, current_user.id)
+    return _reminder_response(loaded or reminder)
 
 
 @router.delete("/me/reminders/{reminder_id}", response_model=MutationResponse)

@@ -142,12 +142,16 @@ Checklist-run не использует `ListItem.is_completed`. Исходны�
 - `src/services/reminder_service.py`
 - `src/repositories/reminder_repo.py`
 - `src/worker/reminder_worker.py`
+- `reminders`
+- `reminder_notifications`
 
 Ключевые возможности:
 
 - создание, редактирование, выполнение, отмена, удаление;
 - date/time parsing;
 - UTC storage и local timezone display;
+- отдельные delivery rows для предварительных и финальных уведомлений;
+- worker обрабатывает `reminder_notifications`, а не только `reminders.notified_at`;
 - repeat rules;
 - optional domain links: `list_id`, `note_id`, `medication_id`, `driver_document_id`;
 - worker-cycle без tight loop.

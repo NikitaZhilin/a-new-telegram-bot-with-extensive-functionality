@@ -228,6 +228,19 @@ def test_web_reminders_can_link_notes():
     assert "note_id: form.note_id.value ? Number(form.note_id.value) : null" in script
 
 
+def test_web_reminders_expose_notification_offsets():
+    """Web reminder UI should select advance notifications and hide early done actions."""
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+
+    assert 'data-field="notify_offsets_preset"' in html
+    assert "reminderNotifyChoices" in script
+    assert "parseReminderNotifyOffsets" in script
+    assert "formatReminderNotifyOffsets" in script
+    assert "notify_offsets_minutes: parseReminderNotifyOffsets(form.notify_offsets_preset.value)" in script
+    assert "item.can_complete ? `<button class=\"small action-done\"" in script
+
+
 def test_web_notes_have_dedicated_section_and_inline_crud():
     """Notes should be a standalone web section, not a checklist/list subtype."""
     html = Path("src/web/index.html").read_text(encoding="utf-8")

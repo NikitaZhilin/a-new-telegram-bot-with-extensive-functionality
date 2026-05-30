@@ -11,10 +11,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.api.auth import require_admin
 from src.db.session import get_db
-from src.db.models import Medication, Note, TodoList, Reminder, ReminderStatus, User
+from src.db.models import (
+    Medication,
+    Note,
+    TodoList,
+    Reminder,
+    ReminderNotification,
+    ReminderNotificationStatus,
+    ReminderStatus,
+    User,
+)
 from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
 from src.services.restart_request_service import (
@@ -68,7 +78,9 @@ class StatsReminders(BaseModel):
     done: int
     canceled: int
     missed: int
-    due_soon: int  # Due in next hour
+    due_soon: int  # Active reminders with a pending delivery in the next hour
+    pending_notifications: int
+    failed_notifications: int
 
 
 class StatsResponse(BaseModel):
@@ -158,6 +170,32 @@ class RestartAcceptedResponse(BaseModel):
     operation_id: str
     target: str
     message: str
+
+
+def _notification_status_value(value) -> str:
+    """Return enum value for reminder notification status."""
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _active_notification_rows(reminder: Reminder) -> list[ReminderNotification]:
+    """Return active notification rows that should be visible in admin views."""
+    return [
+        item
+        for item in getattr(reminder, "notifications", []) or []
+        if _notification_status_value(item.status)
+        in {
+            ReminderNotificationStatus.PENDING.value,
+            ReminderNotificationStatus.SENT.value,
+        }
+    ]
+
+
+def _notification_offsets(reminder: Reminder) -> list[int]:
+    """Return normalized notification offsets for one reminder."""
+    return sorted(
+        {int(item.offset_minutes) for item in _active_notification_rows(reminder)} or {0},
+        reverse=True,
+    )
 
 
 # === Routes ===
@@ -287,6 +325,7 @@ async def get_user_records(
     )
     reminders_result = await db.execute(
         select(Reminder)
+        .options(selectinload(Reminder.notifications))
         .where(Reminder.user_id == user_id)
         .order_by(Reminder.remind_at_utc.desc())
         .limit(50)
@@ -335,6 +374,11 @@ async def get_user_records(
                 "list_id": item.list_id,
                 "note_id": item.note_id,
                 "source_module": item.source_module,
+                "notify_offsets_minutes": _notification_offsets(item),
+                "notification_times_utc": [
+                    notification.notify_at_utc.isoformat()
+                    for notification in _active_notification_rows(item)
+                ],
                 "text": item.text[:200],
             }
             for item in reminders
@@ -535,21 +579,33 @@ async def get_stats(
     reminders_canceled = await count_by_status(ReminderStatus.CANCELED)
     reminders_missed = await count_by_status(ReminderStatus.MISSED)
     
-    # Due soon (active, not notified, due in next hour)
+    # Due soon is now based on concrete notification deliveries, not legacy notified_at.
     one_hour_later = now + timedelta(hours=1)
-    
+
     due_soon_query = (
-        select(func.count(Reminder.id))
+        select(func.count(func.distinct(ReminderNotification.reminder_id)))
+        .join(Reminder, Reminder.id == ReminderNotification.reminder_id)
         .where(
             and_(
                 Reminder.status == ReminderStatus.ACTIVE,
-                Reminder.remind_at_utc <= one_hour_later,
-                Reminder.notified_at.is_(None),
+                ReminderNotification.status == ReminderNotificationStatus.PENDING,
+                ReminderNotification.notify_at_utc <= one_hour_later,
             )
         )
     )
     result = await db.execute(due_soon_query)
     reminders_due_soon = result.scalar() or 0
+
+    pending_notifications_query = select(func.count(ReminderNotification.id)).where(
+        ReminderNotification.status == ReminderNotificationStatus.PENDING
+    )
+    failed_notifications_query = select(func.count(ReminderNotification.id)).where(
+        ReminderNotification.status == ReminderNotificationStatus.FAILED
+    )
+    pending_result = await db.execute(pending_notifications_query)
+    failed_result = await db.execute(failed_notifications_query)
+    pending_notifications = pending_result.scalar() or 0
+    failed_notifications = failed_result.scalar() or 0
     
     return StatsResponse(
         users=StatsCount(
@@ -574,6 +630,8 @@ async def get_stats(
             canceled=reminders_canceled,
             missed=reminders_missed,
             due_soon=reminders_due_soon,
+            pending_notifications=pending_notifications,
+            failed_notifications=failed_notifications,
         ),
         generated_at=now.isoformat(),
     )
@@ -604,32 +662,39 @@ async def get_due_reminders(
     one_hour_later = now + timedelta(hours=1)
     
     query = (
-        select(Reminder)
+        select(ReminderNotification)
+        .join(Reminder, Reminder.id == ReminderNotification.reminder_id)
+        .options(
+            selectinload(ReminderNotification.reminder).selectinload(Reminder.user),
+        )
         .where(
             and_(
                 Reminder.status == ReminderStatus.ACTIVE,
-                Reminder.remind_at_utc <= one_hour_later,
-                Reminder.notified_at.is_(None),
+                ReminderNotification.status == ReminderNotificationStatus.PENDING,
+                ReminderNotification.notify_at_utc <= one_hour_later,
             )
         )
-        .order_by(Reminder.remind_at_utc.asc())
+        .order_by(ReminderNotification.notify_at_utc.asc(), ReminderNotification.id.asc())
         .limit(limit)
     )
     
     result = await db.execute(query)
-    reminders = result.scalars().all()
+    notifications = result.scalars().all()
     
     return {
         "reminders": [
             {
-                "id": r.id,
-                "user_id": r.user_id,
-                "text": r.text[:100] + "..." if len(r.text) > 100 else r.text,
-                "remind_at_utc": r.remind_at_utc.isoformat(),
-                "repeat_rule": r.repeat_rule.value,
+                "id": notification.reminder.id,
+                "notification_id": notification.id,
+                "user_id": notification.reminder.user_id,
+                "text": notification.reminder.text[:100] + "..." if len(notification.reminder.text) > 100 else notification.reminder.text,
+                "remind_at_utc": notification.reminder.remind_at_utc.isoformat(),
+                "notify_at_utc": notification.notify_at_utc.isoformat(),
+                "offset_minutes": notification.offset_minutes,
+                "repeat_rule": notification.reminder.repeat_rule.value,
             }
-            for r in reminders
+            for notification in notifications
         ],
-        "count": len(reminders),
+        "count": len(notifications),
         "generated_at": now.isoformat(),
     }

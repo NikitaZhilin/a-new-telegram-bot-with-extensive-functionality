@@ -1069,12 +1069,56 @@ const repeatChoices = [
   { value: "monthly", label: "Каждый месяц" },
 ];
 
+const reminderNotifyChoices = [
+  { value: "0", label: "В выбранное время" },
+  { value: "30", label: "За 30 минут" },
+  { value: "60", label: "За 1 час" },
+  { value: "1440", label: "За сутки" },
+  { value: "1440,60", label: "Сутки + час" },
+  { value: "1440,120,60", label: "Сутки + 2 часа + час" },
+];
+
 const importanceChoices = [
   { value: "supplement", label: "БАД" },
   { value: "normal", label: "Обычное" },
   { value: "important", label: "Важное" },
   { value: "critical", label: "Критичное" },
 ];
+
+function normalizeReminderNotifyValue(offsets = []) {
+  const values = new Set((offsets || []).map((item) => Number(item)).filter((item) => Number.isFinite(item) && item >= 0));
+  values.add(0);
+  return Array.from(values).sort((a, b) => b - a).join(",");
+}
+
+function parseReminderNotifyOffsets(value) {
+  const values = String(value || "0")
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((item) => Number.isFinite(item) && item >= 0);
+  if (!values.includes(0)) values.push(0);
+  return Array.from(new Set(values)).sort((a, b) => b - a);
+}
+
+function formatReminderNotifyOffset(offset) {
+  const labels = {
+    0: "в выбранное время",
+    30: "за 30 минут",
+    60: "за 1 час",
+    120: "за 2 часа",
+    1440: "за сутки",
+  };
+  if (labels[offset]) return labels[offset];
+  if (offset % 1440 === 0) return `за ${offset / 1440} дн.`;
+  if (offset % 60 === 0) return `за ${offset / 60} ч.`;
+  return `за ${offset} мин.`;
+}
+
+function formatReminderNotifyOffsets(offsets = []) {
+  return parseReminderNotifyOffsets(normalizeReminderNotifyValue(offsets))
+    .map(formatReminderNotifyOffset)
+    .join(", ");
+}
 
 function renderReminderListOptions(selectedId = "") {
   const current = selectedId ? String(selectedId) : "";
@@ -1200,6 +1244,7 @@ function renderReminderEditForm(item) {
       <select name="note_id">${renderReminderNoteOptions(item.note_id || "")}</select>
       <input name="remind_at_local" type="text" inputmode="numeric" value="${escapeHtml(formatLocalDatetimeText(item.remind_at_utc))}" placeholder="28.05.2026 12:00" required>
       ${renderChoiceGroup("repeat_rule", item.repeat_rule || "none", repeatChoices, "Повтор напоминания")}
+      ${renderChoiceGroup("notify_offsets_preset", normalizeReminderNotifyValue(item.notify_offsets_minutes || [0]), reminderNotifyChoices, "Уведомления напоминания")}
       <div class="button-row">
         <button class="small action-save" type="submit">Сохранить</button>
         <button class="secondary small action-cancel" type="button" data-action="cancel-reminder-edit">Отмена</button>
@@ -1684,6 +1729,7 @@ async function loadReminders() {
           <div>
             <div class="item-title">${escapeHtml(item.title || "Напоминание")}</div>
             <div class="item-meta">${formatDate(item.remind_at_utc)} · ${formatRepeat(item.repeat_rule)} · ${formatReminderStatus(item.status)}</div>
+            <div class="item-meta">Уведомления: ${escapeHtml(formatReminderNotifyOffsets(item.notify_offsets_minutes || [0]))}</div>
             ${item.list_id ? `<div class="item-meta">Список: ${escapeHtml(reminderListTitle(item.list_id))}</div>` : ""}
             ${item.note_id ? `<div class="item-meta">Заметка: ${escapeHtml(reminderNoteTitle(item.note_id))}</div>` : ""}
           </div>
@@ -1695,7 +1741,7 @@ async function loadReminders() {
             <div class="item-actions">
               ${item.list_id ? `<button class="secondary small action-open" data-action="open-reminder-list" data-id="${item.list_id}">Открыть список</button>` : ""}
               ${item.note_id ? `<button class="secondary small action-open" data-action="open-reminder-note" data-id="${item.note_id}">Открыть заметку</button>` : ""}
-              <button class="small action-done" data-action="done-reminder" data-id="${item.id}">Выполнено</button>
+              ${item.can_complete ? `<button class="small action-done" data-action="done-reminder" data-id="${item.id}">Выполнено</button>` : ""}
               <button class="secondary small action-edit" data-action="edit-reminder" data-id="${item.id}">Изменить</button>
               <button class="secondary small action-cancel" data-action="cancel-reminder" data-id="${item.id}">Отменить</button>
               <button class="danger small action-danger" data-action="delete-reminder" data-id="${item.id}">Удалить</button>
@@ -2305,9 +2351,11 @@ async function handleReminderCreate(event) {
       note_id: form.note_id.value ? Number(form.note_id.value) : null,
       remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
+      notify_offsets_minutes: parseReminderNotifyOffsets(form.notify_offsets_preset.value),
     }),
   });
   form.reset();
+  resetChoiceGroups(form);
   form.remind_at_local.value = defaultReminderTime();
   await loadReminders();
   await loadSummary();
@@ -2326,6 +2374,7 @@ async function handleReminderUpdate(event) {
       note_id: form.note_id.value ? Number(form.note_id.value) : null,
       remind_at_local: normalizeLocalDatetimeInput(form.remind_at_local.value),
       repeat_rule: form.repeat_rule.value,
+      notify_offsets_minutes: parseReminderNotifyOffsets(form.notify_offsets_preset.value),
     }),
   });
   state.editingReminderId = null;
@@ -2638,6 +2687,16 @@ function handleChoiceButton(event) {
   }
   group.querySelectorAll(".choice-button").forEach((item) => {
     item.classList.toggle("active", item === button);
+  });
+}
+
+function resetChoiceGroups(root) {
+  root.querySelectorAll(".choice-group").forEach((group) => {
+    const input = group.querySelector("input[type='hidden']");
+    const value = input?.value || "";
+    group.querySelectorAll(".choice-button").forEach((item) => {
+      item.classList.toggle("active", item.dataset.value === value);
+    });
   });
 }
 

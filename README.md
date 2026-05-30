@@ -26,7 +26,7 @@ README намеренно не содержит токенов, адресов �
 
 - Списки: личные и общие списки, пункты, bulk add, голосовое создание/пополнение списка, интерактивное прохождение чек-листа, роли `owner/editor/viewer`, токены копии и приглашения.
 - Заметки: автономные текстовые записи без чек-листов и отметок, просмотр, редактирование и архивирование.
-- Напоминания: быстрые даты/время, ручные фразы, повторы, редактирование, выполнение, отмена.
+- Напоминания: быстрые даты/время, ручные фразы, предварительные уведомления за 30 минут/час/сутки, повторы, редактирование, выполнение, отмена.
 - Лекарства: карточки препаратов, дозировка, инструкция, важность, напоминания 1-3 раза в день, отметки приема.
 - Водитель: авто, presets, пробег, ТО, заправки, расходы, документы, напоминания по документам, статистика.
 - Настройки: timezone, статистика, подписка, web-ключ, версия, changelog, служебный статус.
@@ -185,7 +185,7 @@ Old stage reports and provider-specific notes are kept in `docs/archive` and are
 
 - Lists: personal and shared lists, items, bulk add, voice-to-list creation/appending, interactive checklist runs, `owner/editor/viewer` roles, copy and collaboration tokens.
 - Notes: standalone text records without checklist state, with viewing, editing, and archiving.
-- Reminders: quick date/time presets, natural phrases, repeats, editing, done/cancel/delete actions.
+- Reminders: quick date/time presets, natural phrases, advance notifications 30 minutes / 1 hour / 1 day before, repeats, editing, done/cancel/delete actions.
 - Medications: medication cards, dosage, instructions, importance, 1-3 daily reminders, intake tracking.
 - Driver: vehicles, presets, mileage, service plan, fuel, expenses, documents, document reminders, statistics.
 - Settings: timezone, stats, subscription, web key, version, changelog, technical status.

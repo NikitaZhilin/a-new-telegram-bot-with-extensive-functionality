@@ -1,8 +1,9 @@
 """Service tests."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from src.bot.keyboards.builder import get_list_view_keyboard
 from src.db.models import (
@@ -10,6 +11,8 @@ from src.db.models import (
     Medication,
     Note,
     Reminder,
+    ReminderNotification,
+    ReminderNotificationStatus,
     ReminderStatus,
     RepeatRule,
     User,
@@ -17,6 +20,11 @@ from src.db.models import (
 from src.services.list_service import ListService
 from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
+
+
+def _as_utc(value: datetime) -> datetime:
+    """SQLite test backend may return timezone-aware columns as naive UTC."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 @pytest.mark.asyncio
@@ -332,6 +340,137 @@ async def test_reminder_service_updates_keep_ownership(db_session):
 
 
 @pytest.mark.asyncio
+async def test_reminder_service_creates_notification_plan(db_session):
+    """Reminder creation should attach a delivery plan to the event."""
+    user = User(telegram_id=4061, timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    event_at = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+    service = ReminderService(db_session)
+    reminder = await service.create_reminder(
+        user_id=user.id,
+        text="Проверить страховку",
+        remind_at_utc=event_at,
+        notify_offsets_minutes=[1440, 60, 0, 60],
+    )
+
+    result = await db_session.execute(
+        select(ReminderNotification)
+        .where(ReminderNotification.reminder_id == reminder.id)
+        .order_by(ReminderNotification.notify_at_utc.asc())
+    )
+    notifications = result.scalars().all()
+
+    assert [item.offset_minutes for item in notifications] == [1440, 60, 0]
+    assert [_as_utc(item.notify_at_utc) for item in notifications] == [
+        event_at.replace(tzinfo=timezone.utc) - timedelta(minutes=1440),
+        event_at.replace(tzinfo=timezone.utc) - timedelta(minutes=60),
+        event_at.replace(tzinfo=timezone.utc),
+    ]
+    assert {item.status for item in notifications} == {ReminderNotificationStatus.PENDING}
+
+
+@pytest.mark.asyncio
+async def test_reminder_service_update_time_rebuilds_pending_notifications(db_session):
+    """Changing event time should cancel old pending rows and create a new plan."""
+    user = User(telegram_id=4062, timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = ReminderService(db_session)
+    old_at = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+    new_at = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
+    reminder = await service.create_reminder(
+        user_id=user.id,
+        text="Событие",
+        remind_at_utc=old_at,
+        notify_offsets_minutes=[60, 0],
+    )
+    await service.update_reminder_time(reminder.id, user.id, new_at)
+
+    result = await db_session.execute(
+        select(ReminderNotification)
+        .where(ReminderNotification.reminder_id == reminder.id)
+        .order_by(ReminderNotification.id.asc())
+    )
+    notifications = result.scalars().all()
+    canceled = [item for item in notifications if item.status == ReminderNotificationStatus.CANCELED]
+    pending = [item for item in notifications if item.status == ReminderNotificationStatus.PENDING]
+
+    assert [item.offset_minutes for item in canceled] == [60, 0]
+    assert [item.offset_minutes for item in pending] == [60, 0]
+    assert [_as_utc(item.notify_at_utc) for item in pending] == [
+        new_at.replace(tzinfo=timezone.utc) - timedelta(minutes=60),
+        new_at.replace(tzinfo=timezone.utc),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reminder_service_done_and_cancel_close_pending_notifications(db_session):
+    """Done/canceled reminders should not leave pending delivery rows behind."""
+    user = User(telegram_id=4063, timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = ReminderService(db_session)
+    event_at = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+    done_reminder = await service.create_reminder(
+        user_id=user.id,
+        text="Done",
+        remind_at_utc=event_at,
+        notify_offsets_minutes=[60, 0],
+    )
+    canceled_reminder = await service.create_reminder(
+        user_id=user.id,
+        text="Cancel",
+        remind_at_utc=event_at,
+        notify_offsets_minutes=[60, 0],
+    )
+
+    await service.mark_reminder_done(done_reminder.id, user.id)
+    await service.mark_reminder_canceled(canceled_reminder.id, user.id)
+
+    result = await db_session.execute(
+        select(ReminderNotification).where(
+            ReminderNotification.reminder_id.in_([done_reminder.id, canceled_reminder.id])
+        )
+    )
+    notifications = result.scalars().all()
+
+    assert notifications
+    assert {item.status for item in notifications} == {ReminderNotificationStatus.CANCELED}
+
+
+@pytest.mark.asyncio
+async def test_reminder_service_completion_window(db_session):
+    """The done action should be available only close to the event or after delivery."""
+    user = User(telegram_id=4064, timezone="UTC")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = ReminderService(db_session)
+    event_at = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.utc)
+    reminder = await service.create_reminder(
+        user_id=user.id,
+        text="Window",
+        remind_at_utc=event_at,
+        notify_offsets_minutes=[60, 0],
+    )
+
+    assert await service.can_complete_reminder(
+        reminder.id,
+        user.id,
+        now_utc=datetime(2026, 5, 30, 8, 0, tzinfo=timezone.utc),
+    ) is False
+    assert await service.can_complete_reminder(
+        reminder.id,
+        user.id,
+        now_utc=datetime(2026, 5, 30, 10, 0, tzinfo=timezone.utc),
+    ) is True
+
+
+@pytest.mark.asyncio
 async def test_list_share_token_imports_copy_for_another_user(db_session):
     """Sharing should copy a list without granting access to the original."""
     owner = User(telegram_id=7001, timezone="UTC")
@@ -521,6 +660,8 @@ async def test_settings_stats_cover_visible_domains(db_session):
     assert stats["checklists"] == {"active": 0, "completed": 0, "canceled": 0}
     assert stats["reminders"]["active"] == 1
     assert stats["reminders"]["done"] == 1
+    assert stats["reminders"]["pending_notifications"] == 0
+    assert stats["reminders"]["failed_notifications"] == 0
     assert stats["driver"]["vehicles_count"] == 1
     assert stats["driver"]["fuel_entries_count"] == 2
     assert stats["driver"]["fuel_total_cost"] == pytest.approx(4500)

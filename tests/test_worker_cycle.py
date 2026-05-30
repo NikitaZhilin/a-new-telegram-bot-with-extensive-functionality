@@ -7,7 +7,13 @@ from types import SimpleNamespace
 import pytest
 from telegram.error import BadRequest, NetworkError
 
-from src.db.models import Reminder, ReminderStatus, RepeatRule, User
+from src.db.models import (
+    Reminder,
+    ReminderNotificationStatus,
+    ReminderStatus,
+    RepeatRule,
+    User,
+)
 from src.repositories.reminder_repo import ReminderRepository
 from src.worker.reminder_worker import ReminderWorkerService, WorkerCycleResult
 
@@ -47,24 +53,92 @@ class FakeSession:
 class FakeReminderRepository:
     def __init__(self, session, reminders):
         self.session = session
-        self.reminders = reminders
+        self.notifications = [
+            self._as_notification(index + 1, item)
+            for index, item in enumerate(reminders)
+        ]
         self.marked = []
         self.statuses = []
         self.next_occurrences = []
+        self.sent_notifications = []
+        self.canceled_notifications = []
+        self.failed_notifications = []
+        self.notification_errors = []
+        self.canceled_reminders = []
 
-    async def get_due_reminders_locked(self, now, limit=100):
-        return self.reminders[:limit]
+    @staticmethod
+    def _as_notification(notification_id, item):
+        if hasattr(item, "reminder"):
+            notification = item
+            if not hasattr(notification, "id"):
+                notification.id = notification_id
+            if not hasattr(notification, "status"):
+                notification.status = ReminderNotificationStatus.PENDING
+            return notification
+
+        notification = SimpleNamespace(
+            id=notification_id,
+            reminder=item,
+            notify_at_utc=item.remind_at_utc,
+            offset_minutes=0,
+            status=ReminderNotificationStatus.PENDING,
+            sent_at_utc=None,
+            last_error=None,
+        )
+        item.notifications = [notification]
+        return notification
+
+    async def get_due_notifications_locked(self, now, limit=100):
+        return self.notifications[:limit]
 
     async def mark_as_notified(self, reminder_id, notified_at):
         self.marked.append((reminder_id, notified_at))
         return None
 
+    async def mark_notification_sent(self, notification_id, sent_at):
+        self.sent_notifications.append((notification_id, sent_at))
+        for notification in self.notifications:
+            if notification.id == notification_id:
+                notification.status = ReminderNotificationStatus.SENT
+                notification.sent_at_utc = sent_at
+                return notification
+        return None
+
+    async def mark_notification_canceled(self, notification_id, canceled_at, reason=None):
+        self.canceled_notifications.append((notification_id, reason))
+        for notification in self.notifications:
+            if notification.id == notification_id:
+                notification.status = ReminderNotificationStatus.CANCELED
+                notification.last_error = reason
+                return notification
+        return None
+
+    async def mark_notification_failed(self, notification_id, error):
+        self.failed_notifications.append((notification_id, error))
+        for notification in self.notifications:
+            if notification.id == notification_id:
+                notification.status = ReminderNotificationStatus.FAILED
+                notification.last_error = error
+                return notification
+        return None
+
+    async def remember_notification_error(self, notification_id, error):
+        self.notification_errors.append((notification_id, error))
+        return None
+
+    async def cancel_pending_notifications(self, reminder_id, reason=None):
+        self.canceled_reminders.append((reminder_id, reason))
+        for notification in self.notifications:
+            if notification.reminder.id == reminder_id and notification.status == ReminderNotificationStatus.PENDING:
+                notification.status = ReminderNotificationStatus.CANCELED
+                notification.last_error = reason
+
     async def mark_status(self, reminder_id, status):
         self.statuses.append((reminder_id, status))
         return None
 
-    async def create_next_occurrence(self, reminder, next_time):
-        self.next_occurrences.append((reminder.id, next_time))
+    async def create_next_occurrence(self, reminder, next_time, notify_offsets_minutes=None):
+        self.next_occurrences.append((reminder.id, next_time, notify_offsets_minutes))
         return None
 
 
@@ -130,6 +204,7 @@ async def test_worker_process_cycle_sends_and_marks_without_telegram_api():
 
     assert result == WorkerCycleResult(total=1, processed=1, failed=0)
     assert session.committed is True
+    assert repo.sent_notifications == [(1, now)]
     assert repo.marked == [(42, now)]
     assert len(bot.messages) == 1
     assert bot.messages[0]["chat_id"] == 123456
@@ -138,6 +213,63 @@ async def test_worker_process_cycle_sends_and_marks_without_telegram_api():
     assert "Check worker tick" in bot.messages[0]["text"]
     assert "22.05.2026 15:00 (Europe/Moscow)" in bot.messages[0]["text"]
     assert bot.messages[0]["reply_markup"] is None
+
+
+@pytest.mark.asyncio
+async def test_worker_early_notification_does_not_close_reminder_event():
+    now = datetime(2026, 5, 22, 11, 0, tzinfo=timezone.utc)
+    event_at = datetime(2026, 5, 22, 12, 0, tzinfo=timezone.utc)
+    session = FakeSession()
+    bot = FakeBot()
+    reminder = SimpleNamespace(
+        id=50,
+        user_id=7,
+        title="Early notice",
+        text="Prepare before event",
+        remind_at_utc=event_at,
+        repeat_rule=RepeatRule.NONE,
+        list_id=None,
+        medication_id=None,
+        medication=None,
+        todo_list=None,
+        user=SimpleNamespace(telegram_id=123456),
+    )
+    early_notification = SimpleNamespace(
+        id=501,
+        reminder=reminder,
+        notify_at_utc=now,
+        offset_minutes=60,
+        status=ReminderNotificationStatus.PENDING,
+        sent_at_utc=None,
+        last_error=None,
+    )
+    final_notification = SimpleNamespace(
+        id=502,
+        reminder=reminder,
+        notify_at_utc=event_at,
+        offset_minutes=0,
+        status=ReminderNotificationStatus.PENDING,
+        sent_at_utc=None,
+        last_error=None,
+    )
+    reminder.notifications = [early_notification, final_notification]
+    repo = FakeReminderRepository(session, [early_notification])
+
+    worker = ReminderWorkerService(
+        bot=bot,
+        batch_size=10,
+        poll_interval=1,
+        session_factory=lambda: session,
+        repository_factory=lambda db_session: repo,
+        clock=lambda: now,
+    )
+
+    result = await worker.process_cycle()
+
+    assert result == WorkerCycleResult(total=1, processed=1, failed=0)
+    assert repo.sent_notifications == [(501, now)]
+    assert repo.marked == []
+    assert repo.next_occurrences == []
 
 
 @pytest.mark.asyncio
@@ -339,7 +471,7 @@ async def test_worker_recurring_reminder_uses_user_timezone_for_next_occurrence(
 
     assert result == WorkerCycleResult(total=1, processed=1, failed=0)
     assert repo.next_occurrences == [
-        (48, datetime(2026, 3, 8, 13, 0, tzinfo=timezone.utc))
+        (48, datetime(2026, 3, 8, 13, 0, tzinfo=timezone.utc), None)
     ]
 
 
@@ -377,6 +509,8 @@ async def test_worker_retries_transient_telegram_errors_without_marking_notified
     assert result == WorkerCycleResult(total=1, processed=0, failed=1)
     assert repo.marked == []
     assert repo.statuses == []
+    assert repo.sent_notifications == []
+    assert repo.notification_errors
 
 
 @pytest.mark.asyncio
@@ -412,6 +546,8 @@ async def test_worker_closes_permanent_telegram_errors_without_retry_loop():
 
     assert result == WorkerCycleResult(total=1, processed=1, failed=0)
     assert repo.marked == []
+    assert repo.failed_notifications == [(1, "Permanent Telegram delivery failure")]
+    assert repo.canceled_reminders == [(47, "Permanent Telegram delivery failure")]
     assert repo.statuses == [(47, ReminderStatus.MISSED)]
     assert repo.next_occurrences == []
 

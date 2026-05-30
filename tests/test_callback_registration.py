@@ -70,6 +70,7 @@ from src.bot.keyboards import (
     get_medication_view_keyboard,
     get_reminder_edit_keyboard,
     get_reminder_edit_repeat_keyboard,
+    get_reminder_notify_offsets_keyboard,
     get_reminder_view_keyboard,
     get_settings_keyboard,
     get_settings_back_home_keyboard,
@@ -199,6 +200,7 @@ def test_important_callback_patterns_are_registered():
         "^rem_date_next_week$",
         "^rem_time_back$",
         "^rem_time_custom$",
+        "^rem_notify:",
         "^rem_confirm_back$",
         "^settings_timezone$",
         "^settings_about$",
@@ -282,6 +284,7 @@ def test_medication_keyboards_have_registered_callbacks():
         get_reminder_view_keyboard(10),
         get_reminder_edit_keyboard(10),
         get_reminder_edit_repeat_keyboard(10),
+        get_reminder_notify_offsets_keyboard(),
     ]:
         callbacks.update(_collect_callback_data(keyboard))
 

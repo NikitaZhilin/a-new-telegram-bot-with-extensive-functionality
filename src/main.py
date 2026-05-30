@@ -217,6 +217,42 @@ async def _ensure_legacy_unversioned_schema() -> None:
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lists_source_module ON lists (source_module)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_source_module ON reminders (source_module)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_user_source_status ON reminders (user_id, source_module, status)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminder_notifications_status_notify ON reminder_notifications (status, notify_at_utc)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminder_notifications_reminder_status ON reminder_notifications (reminder_id, status)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminder_notifications_reminder_notify ON reminder_notifications (reminder_id, notify_at_utc)"))
+        await conn.execute(
+            text(
+                """
+                INSERT INTO reminder_notifications (
+                    reminder_id,
+                    notify_at_utc,
+                    offset_minutes,
+                    status,
+                    sent_at_utc,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    id,
+                    remind_at_utc,
+                    0,
+                    (CASE
+                        WHEN UPPER(status::text) IN ('CANCELED', 'MISSED') THEN 'CANCELED'
+                        WHEN notified_at IS NOT NULL OR UPPER(status::text) = 'DONE' THEN 'SENT'
+                        ELSE 'PENDING'
+                    END)::remindernotificationstatus,
+                    notified_at,
+                    created_at,
+                    updated_at
+                FROM reminders
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM reminder_notifications rn
+                    WHERE rn.reminder_id = reminders.id
+                )
+                """
+            )
+        )
         await conn.execute(
             text(
                 """

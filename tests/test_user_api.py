@@ -249,9 +249,10 @@ async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
             json={
                 "text": "Напомнить про список",
                 "title": "Список",
-                "remind_at_local": "2026-05-25T10:00:00",
+                "remind_at_local": "2026-12-25T10:00:00",
                 "repeat_rule": "none",
                 "list_id": general_list.id,
+                "notify_offsets_minutes": [1440, 60],
             },
         )
         reminders_response = await client.get("/me/reminders?active_only=false", headers=headers)
@@ -266,7 +267,7 @@ async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
             headers=headers,
             json={
                 "text": "Driver list must stay hidden",
-                "remind_at_local": "2026-05-25T10:00:00",
+                "remind_at_local": "2026-12-25T10:00:00",
                 "list_id": driver_list.id,
             },
         )
@@ -293,6 +294,8 @@ async def test_web_reminders_can_link_and_unlink_general_lists(db_session):
     assert created_response.status_code == 201
     assert created_response.json()["source_module"] == "list"
     assert created_response.json()["list_id"] == general_list.id
+    assert created_response.json()["notify_offsets_minutes"] == [1440, 60, 0]
+    assert created_response.json()["can_complete"] is False
     assert any(item["list_id"] == general_list.id for item in reminders_response.json())
     assert unlinked_response.status_code == 200
     assert unlinked_response.json()["source_module"] == "general"
@@ -498,6 +501,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
                 "title": "Web updated",
                 "remind_at_local": "2026-05-25T12:30:00",
                 "repeat_rule": "daily",
+                "notify_offsets_minutes": [30],
             },
         )
         canceled_reminder_response = await client.post(
@@ -714,6 +718,7 @@ async def test_web_ui_page_and_test_user_crud_api(db_session):
     assert reminder_response.status_code == 201
     assert updated_reminder_response.json()["text"] == "Web reminder updated"
     assert updated_reminder_response.json()["repeat_rule"] == "daily"
+    assert updated_reminder_response.json()["notify_offsets_minutes"] == [30, 0]
     assert canceled_reminder_response.json()["status"] == "canceled"
     assert medication_response.status_code == 201
     assert medication_response.json()["daily_times_local"] == ["09:00", "21:00"]

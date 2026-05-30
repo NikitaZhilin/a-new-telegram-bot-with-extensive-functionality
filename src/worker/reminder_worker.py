@@ -9,9 +9,9 @@ Sends due reminders to users with:
 Architecture:
 1. Worker polls database every N seconds
 2. Uses SELECT ... FOR UPDATE SKIP LOCKED to atomically claim reminders
-3. Sends notification via Telegram Bot API
-4. Marks reminder as notified (commits transaction)
-5. For recurring reminders, creates next occurrence
+3. Sends notification delivery via Telegram Bot API
+4. Marks the delivery as sent (commits transaction)
+5. On the final delivery, closes the reminder event and creates next occurrence
 """
 
 import asyncio
@@ -27,7 +27,13 @@ from telegram.error import BadRequest, Forbidden, NetworkError, TelegramError, T
 
 from src.config import settings
 from src.db.session import async_session_maker
-from src.db.models import Reminder, ReminderStatus, RepeatRule
+from src.db.models import (
+    Reminder,
+    ReminderNotification,
+    ReminderNotificationStatus,
+    ReminderStatus,
+    RepeatRule,
+)
 from src.repositories.reminder_repo import (
     ReminderRepository,
     calculate_next_occurrence,
@@ -132,8 +138,8 @@ class ReminderWorkerService:
         One iteration of the worker loop.
         
         1. Get current UTC time
-        2. Fetch due reminders with row-level locking
-        3. Process each reminder (send + mark + reschedule)
+        2. Fetch due notification deliveries with row-level locking
+        3. Process each delivery (send + mark + reschedule on final delivery)
         4. Commit transaction (atomic)
         """
         now = self.clock()
@@ -146,32 +152,33 @@ class ReminderWorkerService:
         async with self.session_factory() as session:
             repo = self.repository_factory(session)
             
-            # Atomically claim due reminders
+            # Atomically claim due notification deliveries
             # Other workers will skip these locked rows
-            due_reminders = await repo.get_due_reminders_locked(
+            due_notifications = await repo.get_due_notifications_locked(
                 now=now,
                 limit=self.batch_size,
             )
 
-            if not due_reminders:
-                logger.debug("No due reminders found")
+            if not due_notifications:
+                logger.debug("No due reminder notifications found")
                 return WorkerCycleResult()
 
             logger.info(
-                f"Processing {len(due_reminders)} due reminder(s)",
-                extra={"count": len(due_reminders)}
+                f"Processing {len(due_notifications)} due reminder notification(s)",
+                extra={"count": len(due_notifications)}
             )
 
             processed = 0
             failed = 0
 
-            for reminder in due_reminders:
+            for notification in due_notifications:
                 try:
-                    await self._process_reminder(session, repo, reminder, now)
+                    await self._process_notification(session, repo, notification, now)
                     processed += 1
                 except Exception as e:
+                    await repo.remember_notification_error(notification.id, str(e))
                     logger.exception(
-                        f"Failed to process reminder {reminder.id}: {e}"
+                        f"Failed to process reminder notification {notification.id}: {e}"
                     )
                     failed += 1
                     # Continue with next reminder, don't abort entire batch
@@ -181,7 +188,7 @@ class ReminderWorkerService:
                 extra={
                     "processed": processed,
                     "failed": failed,
-                    "total": len(due_reminders),
+                    "total": len(due_notifications),
                 }
             )
 
@@ -189,7 +196,7 @@ class ReminderWorkerService:
             await session.commit()
 
             return WorkerCycleResult(
-                total=len(due_reminders),
+                total=len(due_notifications),
                 processed=processed,
                 failed=failed,
             )
@@ -198,33 +205,41 @@ class ReminderWorkerService:
         """Backward-compatible alias for one worker cycle."""
         return await self.process_cycle()
 
-    async def _process_reminder(
+    async def _process_notification(
         self,
         session,
         repo: ReminderRepository,
-        reminder: Reminder,
+        notification: ReminderNotification,
         now: datetime,
     ) -> None:
         """
-        Process a single reminder.
+        Process a single reminder notification delivery.
         
         Steps:
         1. Send notification to user via Telegram
-        2. Mark reminder as notified (idempotency key)
-        3. If recurring, create next occurrence
+        2. Mark notification as sent (idempotency key)
+        3. If this is the final delivery, close/reschedule the reminder
         
         Args:
             session: Database session
             repo: Reminder repository
-            reminder: Reminder to process
+            notification: ReminderNotification to process
             now: Current UTC time
         """
+        reminder = notification.reminder
+        if reminder is None:
+            await repo.mark_notification_failed(notification.id, "Reminder was not loaded")
+            return
+
         logger.debug(
-            f"Processing reminder {reminder.id}",
+            f"Processing reminder notification {notification.id}",
             extra={
+                "notification_id": notification.id,
                 "reminder_id": reminder.id,
                 "user_id": reminder.user_id,
                 "remind_at": reminder.remind_at_utc.isoformat(),
+                "notify_at": notification.notify_at_utc.isoformat(),
+                "offset_minutes": notification.offset_minutes,
             }
         )
 
@@ -233,26 +248,44 @@ class ReminderWorkerService:
                 "Skipping medication reminder because current intake slot is already marked",
                 extra={"reminder_id": reminder.id, "medication_id": reminder.medication_id},
             )
+            await repo.mark_notification_canceled(
+                notification.id,
+                now,
+                "Medication intake slot is already marked",
+            )
+            await repo.cancel_pending_notifications(
+                reminder.id,
+                "Medication intake slot is already marked",
+            )
             await repo.mark_as_notified(reminder.id, now)
             if reminder.repeat_rule != RepeatRule.NONE:
                 await self._handle_recurring(session, repo, reminder, now)
             return
 
-        # Send notification. Retryable errors bubble up so the reminder stays due.
+        # Send notification. Retryable errors bubble up so the notification stays due.
         delivery_status = await self._send_notification(reminder)
 
         if delivery_status == "permanent_failure":
+            await repo.mark_notification_failed(
+                notification.id,
+                "Permanent Telegram delivery failure",
+            )
+            await repo.cancel_pending_notifications(
+                reminder.id,
+                "Permanent Telegram delivery failure",
+            )
             await repo.mark_status(reminder.id, ReminderStatus.MISSED)
             return
 
-        # Mark as notified (this is the idempotency guarantee)
-        await repo.mark_as_notified(reminder.id, now)
+        # Mark delivery as sent (this is the idempotency guarantee).
+        await repo.mark_notification_sent(notification.id, now)
 
-        # Handle recurring reminders
-        if reminder.repeat_rule != RepeatRule.NONE:
-            await self._handle_recurring(
-                session, repo, reminder, now
-            )
+        if self._is_final_notification(notification, reminder):
+            await repo.mark_as_notified(reminder.id, now)
+            if reminder.repeat_rule != RepeatRule.NONE:
+                await self._handle_recurring(
+                    session, repo, reminder, now
+                )
 
     async def _should_skip_medication_notification(
         self,
@@ -276,6 +309,31 @@ class ReminderWorkerService:
             now_utc=now,
         )
         return state.reason in {"slot_already_marked", "already_marked_today"}
+
+    @staticmethod
+    def _is_final_notification(
+        notification: ReminderNotification,
+        reminder: Reminder,
+    ) -> bool:
+        """Return whether this delivery is the last active delivery for the event."""
+        notify_at = notification.notify_at_utc
+        if notify_at.tzinfo is None:
+            notify_at = notify_at.replace(tzinfo=timezone.utc)
+
+        for item in getattr(reminder, "notifications", []) or []:
+            if item.id == notification.id:
+                continue
+            status = item.status.value if hasattr(item.status, "value") else item.status
+            if status != ReminderNotificationStatus.PENDING.value:
+                continue
+
+            item_notify_at = item.notify_at_utc
+            if item_notify_at.tzinfo is None:
+                item_notify_at = item_notify_at.replace(tzinfo=timezone.utc)
+            if item_notify_at > notify_at:
+                return False
+
+        return True
 
     async def _send_notification(self, reminder: Reminder) -> str:
         """
