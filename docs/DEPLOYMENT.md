@@ -341,8 +341,22 @@ the database volume.
 Backup example:
 
 ```bash
-docker exec rememberme_bot-postgres pg_dump -U postgres rememberme > /opt/bots/rememberme/backups/rememberme-$(date +%Y%m%d-%H%M%S).sql
+cd /opt/bots/rememberme
+PROJECT_DIR=/opt/bots/rememberme bash scripts/backup-vps.sh
 ```
+
+Regular VPS backups are installed through cron:
+
+```bash
+cd /opt/bots/rememberme
+PROJECT_DIR=/opt/bots/rememberme bash scripts/install-vps-backup-cron.sh
+```
+
+By default it writes compressed dumps to
+`/opt/bots/rememberme/backups/rememberme-YYYYMMDD-HHMMSS.sql.gz` every 6 hours
+and keeps them for 14 days. The script refuses container names outside the
+`rememberme_bot-*` prefix and does not touch VPN, MTProto, other bots, or Docker
+volumes.
 
 Restore only after stopping `bot`, `api`, and `worker`, and only into the
 intended production database.
