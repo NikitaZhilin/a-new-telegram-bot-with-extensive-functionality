@@ -17,13 +17,14 @@ Architecture:
 import asyncio
 import html
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest, Forbidden, NetworkError, TelegramError, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TelegramError, TimedOut
 
 from src.config import settings
 from src.db.session import async_session_maker
@@ -43,6 +44,34 @@ from src.utils.labels import repeat_rule_label
 from src.utils.timezones import safe_timezone_name
 
 logger = logging.getLogger(__name__)
+
+
+# A delivery that keeps failing with temporary errors is given up after this
+# long instead of being retried every minute forever.
+RETRY_GIVE_UP_AFTER = timedelta(hours=24)
+
+
+@asynccontextmanager
+async def _savepoint(session):
+    """Run a block in a SAVEPOINT when the session supports it.
+
+    One failing notification then rolls back only its own changes instead of
+    leaving the whole batch transaction broken (which un-marked every message
+    already sent in this cycle, so they were sent again a minute later).
+    """
+    begin_nested = getattr(session, "begin_nested", None)
+    if begin_nested is None:
+        yield
+        return
+    async with begin_nested():
+        yield
+
+
+def _retry_after_seconds(error: RetryAfter) -> float:
+    value = getattr(error, "retry_after", 0) or 0
+    if isinstance(value, timedelta):
+        return value.total_seconds()
+    return float(value)
 
 
 @dataclass(frozen=True)
@@ -92,6 +121,7 @@ class ReminderWorkerService:
         self.medication_action_checker = medication_action_checker
         self.heartbeat = heartbeat
         self._running = False
+        self._retry_after_seconds = 0.0
 
     async def start(self) -> None:
         """Start the worker loop."""
@@ -115,7 +145,9 @@ class ReminderWorkerService:
                     else:
                         self.heartbeat.mark_ok()
                 if self._running:
-                    await asyncio.sleep(self.poll_interval)
+                    pause = max(self.poll_interval, self._retry_after_seconds)
+                    self._retry_after_seconds = 0.0
+                    await asyncio.sleep(pause)
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
                 self._running = False
@@ -174,10 +206,20 @@ class ReminderWorkerService:
 
             for notification in due_notifications:
                 try:
-                    await self._process_notification(session, repo, notification, now)
+                    async with _savepoint(session):
+                        await self._process_notification(session, repo, notification, now)
                     processed += 1
+                except RetryAfter as e:
+                    # Telegram asked us to slow down: stop this batch and wait.
+                    self._retry_after_seconds = _retry_after_seconds(e)
+                    await self._record_failure(session, repo, notification, now, str(e))
+                    logger.warning(
+                        f"Telegram flood control, pausing {self._retry_after_seconds:.0f}s"
+                    )
+                    failed += 1
+                    break
                 except Exception as e:
-                    await repo.remember_notification_error(notification.id, str(e))
+                    await self._record_failure(session, repo, notification, now, str(e))
                     logger.exception(
                         f"Failed to process reminder notification {notification.id}: {e}"
                     )
@@ -201,6 +243,23 @@ class ReminderWorkerService:
                 processed=processed,
                 failed=failed,
             )
+
+    async def _record_failure(self, session, repo, notification, now: datetime, error: str) -> None:
+        """Keep a retryable delivery pending, or give up after RETRY_GIVE_UP_AFTER."""
+        notify_at = notification.notify_at_utc
+        if notify_at.tzinfo is None:
+            notify_at = notify_at.replace(tzinfo=timezone.utc)
+        try:
+            async with _savepoint(session):
+                if now - notify_at > RETRY_GIVE_UP_AFTER:
+                    await repo.mark_notification_failed(
+                        notification.id,
+                        f"Gave up after {RETRY_GIVE_UP_AFTER}: {error}",
+                    )
+                else:
+                    await repo.remember_notification_error(notification.id, error)
+        except Exception:
+            logger.exception(f"Could not record failure for notification {notification.id}")
 
     async def _process_cycle(self) -> WorkerCycleResult:
         """Backward-compatible alias for one worker cycle."""
@@ -603,36 +662,37 @@ class ReminderWorkerService:
             now: Current UTC time
         """
         try:
-            user_timezone = self._get_user_timezone(reminder)
-            day_of_month = self._monthly_anchor_day(reminder, user_timezone)
-            next_time = calculate_next_occurrence(
-                reminder.remind_at_utc,
-                reminder.repeat_rule,
-                user_timezone,
-                day_of_month=day_of_month,
-            )
-            # After downtime, jump straight to the first future occurrence
-            # instead of sending every missed repeat one per minute.
-            skipped = 0
-            while next_time <= now and skipped < 1000:
+            async with _savepoint(session):
+                user_timezone = self._get_user_timezone(reminder)
+                day_of_month = self._monthly_anchor_day(reminder, user_timezone)
                 next_time = calculate_next_occurrence(
-                    next_time,
+                    reminder.remind_at_utc,
                     reminder.repeat_rule,
                     user_timezone,
                     day_of_month=day_of_month,
                 )
-                skipped += 1
+                # After downtime, jump straight to the first future occurrence
+                # instead of sending every missed repeat one per minute.
+                skipped = 0
+                while next_time <= now and skipped < 1000:
+                    next_time = calculate_next_occurrence(
+                        next_time,
+                        reminder.repeat_rule,
+                        user_timezone,
+                        day_of_month=day_of_month,
+                    )
+                    skipped += 1
 
-            await repo.create_next_occurrence(reminder, next_time)
+                await repo.create_next_occurrence(reminder, next_time)
             
-            logger.info(
-                f"Created next occurrence for reminder {reminder.id}",
-                extra={
-                    "reminder_id": reminder.id,
-                    "next_time": next_time.isoformat(),
-                    "repeat_rule": reminder.repeat_rule.value,
-                }
-            )
+                logger.info(
+                    f"Created next occurrence for reminder {reminder.id}",
+                    extra={
+                        "reminder_id": reminder.id,
+                        "next_time": next_time.isoformat(),
+                        "repeat_rule": reminder.repeat_rule.value,
+                    }
+                )
         except Exception as e:
             logger.exception(
                 f"Failed to create next occurrence for reminder {reminder.id}: {e}"
