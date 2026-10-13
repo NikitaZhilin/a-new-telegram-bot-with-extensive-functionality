@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import settings
 from src.db.models import User, UserSubscription
 from src.repositories.base import BaseRepository
+from src.utils.timezones import normalize_user_timezone_choice, safe_timezone_name
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ class UserRepository(BaseRepository[User]):
             user.is_admin = telegram_id in settings.admin_telegram_id_set
             if user.timezone == "UTC" and settings.TIMEZONE_DEFAULT != "UTC":
                 user.timezone = settings.TIMEZONE_DEFAULT
+            else:
+                healed = safe_timezone_name(user.timezone, settings.TIMEZONE_DEFAULT)
+                if healed != user.timezone:
+                    user.timezone = healed
             # Update info if changed
             if username and username != user.username:
                 user.username = username
@@ -91,9 +96,12 @@ class UserRepository(BaseRepository[User]):
         timezone: str
     ) -> Optional[User]:
         """Set user's timezone."""
+        canonical = normalize_user_timezone_choice(timezone)
+        if canonical is None:
+            raise ValueError(f"Invalid timezone: {timezone}")
         user = await self.get(user_id)
         if user:
-            user.timezone = timezone
+            user.timezone = canonical
             await self.db.flush()
             await self.db.refresh(user)
         return user

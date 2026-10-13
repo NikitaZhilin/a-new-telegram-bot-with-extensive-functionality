@@ -5,12 +5,12 @@ Settings service for user preferences.
 import logging
 from typing import Optional
 
-import pytz
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import distinct, func, select
 
 from src.db.models import User
 from src.repositories.user_repo import UserRepository
+from src.utils.timezones import normalize_user_timezone_choice
 from src.services.activity_service import ActivityService
 from src.services.driver_service import DriverService
 
@@ -43,10 +43,10 @@ class SettingsService:
             ValueError: If timezone is invalid
         """
         # Validate timezone
-        try:
-            pytz.timezone(timezone_str)
-        except pytz.exceptions.UnknownTimeZoneError:
+        canonical = normalize_user_timezone_choice(timezone_str)
+        if canonical is None:
             raise ValueError(f"Invalid timezone: {timezone_str}")
+        timezone_str = canonical
         
         user = await self.repo.get(user_id)
         if not user:

@@ -40,6 +40,7 @@ from src.repositories.reminder_repo import (
 )
 from src.services.medication_service import MedicationService
 from src.utils.labels import repeat_rule_label
+from src.utils.timezones import safe_timezone_name
 
 logger = logging.getLogger(__name__)
 
@@ -458,10 +459,12 @@ class ReminderWorkerService:
         """Return reminder user's timezone with project default fallback."""
         timezone_name = getattr(getattr(reminder, "user", None), "timezone", None)
         if not timezone_name:
-            return settings.TIMEZONE_DEFAULT
+            return safe_timezone_name(settings.TIMEZONE_DEFAULT, "UTC")
         if timezone_name == "UTC" and settings.TIMEZONE_DEFAULT != "UTC":
-            return settings.TIMEZONE_DEFAULT
-        return timezone_name
+            return safe_timezone_name(settings.TIMEZONE_DEFAULT, "UTC")
+        # A hand-typed name like "europe/moscow" used to raise here on every
+        # cycle, so the reminder stayed pending forever and never arrived.
+        return safe_timezone_name(timezone_name, settings.TIMEZONE_DEFAULT)
 
     def _build_reminder_reply_markup(self, reminder: Reminder):
         """Build inline actions for reminder notifications."""
