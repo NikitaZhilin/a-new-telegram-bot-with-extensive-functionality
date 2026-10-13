@@ -1,6 +1,7 @@
 """Driver assistant handlers."""
 
 import logging
+import math
 import re
 from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -294,23 +295,25 @@ def _parse_callback_id(data: str, index: int = 1) -> int:
 
 def _parse_int(value: str, field_name: str, allow_zero: bool = True) -> int:
     """Parse integer from user input."""
-    cleaned = value.strip().replace(" ", "")
-    if not cleaned.isdigit():
+    cleaned = value.strip().replace(" ", "").replace("\u00a0", "")
+    if not cleaned.isdigit() or not cleaned.isascii():
         raise ValueError(field_name)
     parsed = int(cleaned)
-    if parsed < 0 or (parsed == 0 and not allow_zero):
+    if parsed < 0 or (parsed == 0 and not allow_zero) or parsed > 9_999_999:
         raise ValueError(field_name)
     return parsed
 
 
 def _parse_float(value: str, field_name: str) -> float:
     """Parse decimal number from user input."""
-    cleaned = value.strip().replace(" ", "").replace(",", ".")
+    cleaned = value.strip().replace(" ", "").replace("\u00a0", "").replace(",", ".")
     try:
         parsed = float(cleaned)
     except ValueError as exc:
         raise ValueError(field_name) from exc
-    if parsed <= 0:
+    # float() also accepts "nan", "inf" and "1e9": they used to be saved and
+    # broke totals and averages.
+    if not math.isfinite(parsed) or parsed <= 0:
         raise ValueError(field_name)
     return parsed
 

@@ -238,6 +238,16 @@ def _roll_forward_if_needed(remind_at_utc: datetime, context: ContextTypes.DEFAU
     return remind_at_utc
 
 
+PAST_TIME_TEXT = "⏳ Это время уже прошло. Выберите другое время или другую дату."
+
+
+def _is_in_past(remind_at_utc: datetime) -> bool:
+    """A reminder in the past would be sent the same minute without warning."""
+    if remind_at_utc.tzinfo is None:
+        remind_at_utc = remind_at_utc.replace(tzinfo=timezone.utc)
+    return remind_at_utc <= datetime.now(timezone.utc) - timedelta(minutes=1)
+
+
 def _parse_date_only(value: str, context: ContextTypes.DEFAULT_TYPE) -> date:
     """Parse a date without requiring a year."""
     tz_name = _context_timezone(context)
@@ -755,8 +765,7 @@ async def reminder_save_custom_date(update: Update, context: ContextTypes.DEFAUL
 async def reminder_time_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle time preset selection."""
     query = update.callback_query
-    await query.answer()
-    
+
     preset = query.data.removeprefix("rem_time_")
     now = datetime.now(timezone.utc)
 
@@ -780,6 +789,10 @@ async def reminder_time_preset(update: Update, context: ContextTypes.DEFAULT_TYP
         remind_at = now + timedelta(hours=1)
     
     remind_at = _roll_forward_if_needed(remind_at, context)
+    if _is_in_past(remind_at):
+        await query.answer(PAST_TIME_TEXT, show_alert=True)
+        return ReminderStates.WAIT_TIME
+    await query.answer()
     context.user_data["remind_at_utc"] = remind_at.isoformat()
 
     return await _show_notification_plan_step(update, context)
@@ -835,6 +848,9 @@ async def reminder_save_custom_time(update: Update, context: ContextTypes.DEFAUL
     try:
         remind_at = _parse_flexible_datetime(time_str, context)
         remind_at = _roll_forward_if_needed(remind_at, context)
+        if _is_in_past(remind_at):
+            await update.message.reply_text(PAST_TIME_TEXT, reply_markup=get_cancel_keyboard())
+            return ReminderStates.WAIT_TIME_CUSTOM
         context.user_data["remind_at_utc"] = remind_at.isoformat()
         await _delete_user_message(update)
         return await _show_notification_plan_step(update, context)
@@ -1289,6 +1305,9 @@ async def reminder_edit_time_save(update: Update, context: ContextTypes.DEFAULT_
         return ReminderStates.WAIT_EDIT_TIME
 
     await _delete_user_message(update)
+    if _is_in_past(remind_at_utc):
+        await _show_reminder_message(update, context, PAST_TIME_TEXT, get_cancel_inline_keyboard())
+        return ReminderStates.WAIT_EDIT_TIME
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         reminder_service = ReminderService(session)

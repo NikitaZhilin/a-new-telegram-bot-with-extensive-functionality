@@ -273,3 +273,42 @@ async def test_web_reminders_show_active_first_even_with_long_history(db_session
     assert len(items) == 50
     assert items[0]["text"] == "active driver"
     assert items[1]["text"] == "old 59", "history newest first"
+
+
+# --- Driver numbers ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw", ["nan", "inf", "-5", "0", "abc"])
+def test_driver_rejects_non_numbers(raw):
+    from src.bot.handlers.driver import _parse_float
+
+    with pytest.raises(ValueError):
+        _parse_float(raw, "литры")
+
+
+def test_driver_accepts_russian_number_formats():
+    from src.bot.handlers.driver import _parse_float, _parse_int
+
+    assert _parse_float("45,6", "литры") == 45.6
+    assert _parse_int("123 456", "пробег") == 123456
+    with pytest.raises(ValueError):
+        _parse_int("1500000000000", "пробег")
+
+
+@pytest.mark.asyncio
+async def test_huge_mileage_is_a_validation_error_not_a_db_crash(db_session):
+    from src.services.driver_service import DriverService
+
+    user = await _user(db_session, 81010)
+    service = DriverService(db_session)
+    vehicle = await service.create_vehicle(user_id=user.id, title="Авто", current_mileage_km=1000)
+    with pytest.raises(ValueError):
+        await service.update_mileage(vehicle.id, user.id, 1_500_000_000_000)
+
+
+# --- Reminders in the past -----------------------------------------------------------------
+
+def test_past_reminder_time_is_detected():
+    from src.bot.handlers.reminders import _is_in_past
+
+    assert _is_in_past(datetime.now(timezone.utc) - timedelta(hours=5))
+    assert not _is_in_past(datetime.now(timezone.utc) + timedelta(minutes=5))

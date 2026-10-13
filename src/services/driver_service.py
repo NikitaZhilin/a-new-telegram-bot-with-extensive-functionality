@@ -1,5 +1,6 @@
 """Driver assistant business logic."""
 
+import math
 from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -51,6 +52,11 @@ DRIVER_JOURNAL_EVENT_TYPES = frozenset(
     }
 )
 
+
+
+MAX_MILEAGE_KM = 9_999_999
+MAX_FUEL_LITERS = 2_000
+MAX_MONEY = 100_000_000
 
 class DriverService:
     """Service for vehicle profiles and fuel journal entries."""
@@ -1158,6 +1164,10 @@ class DriverService:
         """Reject invalid odometer values at the service boundary."""
         if mileage_km < 0:
             raise ValueError("mileage_km must be non-negative")
+        # The column is a 32-bit integer: a typo like 1500000000000 used to
+        # crash the request with a database error.
+        if mileage_km > MAX_MILEAGE_KM:
+            raise ValueError("mileage_km is too large")
 
     def _validate_vehicle_values(
         self,
@@ -1205,14 +1215,14 @@ class DriverService:
     ) -> None:
         """Reject invalid fuel values at the service boundary."""
         self._validate_mileage(mileage_km)
-        if liters <= 0:
+        if not math.isfinite(liters) or liters <= 0 or liters > MAX_FUEL_LITERS:
             raise ValueError("liters must be positive")
-        if total_cost <= 0:
+        if not math.isfinite(total_cost) or total_cost <= 0 or total_cost > MAX_MONEY:
             raise ValueError("total_cost must be positive")
 
     def _validate_money(self, value: float, field_name: str) -> None:
         """Reject non-positive money values."""
-        if value <= 0:
+        if not math.isfinite(value) or value <= 0 or value > MAX_MONEY:
             raise ValueError(f"{field_name} must be positive")
 
     def _validate_remind_before_days(self, value: int) -> None:
