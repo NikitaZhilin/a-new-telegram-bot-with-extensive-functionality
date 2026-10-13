@@ -713,7 +713,7 @@ def _reminder_response(reminder: Reminder) -> ReminderSummaryResponse:
     )
 
 
-WEB_REMINDER_SOURCES = {"general", "list", "note", "driver"}
+WEB_REMINDER_SOURCES = {"general", "list", "note"}
 
 
 def _is_web_reminder(reminder: Reminder) -> bool:

@@ -253,8 +253,8 @@ async def test_web_reminders_show_active_first_even_with_long_history(db_session
             repeat_rule=RepeatRule.DAILY, status=ReminderStatus.DONE, source_module="general",
         ))
     db_session.add(Reminder(
-        user_id=user.id, text="active driver", remind_at_utc=_future(),
-        repeat_rule=RepeatRule.DAILY, status=ReminderStatus.ACTIVE, source_module="driver",
+        user_id=user.id, text="active", remind_at_utc=_future(),
+        repeat_rule=RepeatRule.DAILY, status=ReminderStatus.ACTIVE, source_module="general",
     ))
     await db_session.commit()
 
@@ -271,7 +271,7 @@ async def test_web_reminders_show_active_first_even_with_long_history(db_session
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 50
-    assert items[0]["text"] == "active driver"
+    assert items[0]["text"] == "active"
     assert items[1]["text"] == "old 59", "history newest first"
 
 
