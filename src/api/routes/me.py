@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -713,9 +713,12 @@ def _reminder_response(reminder: Reminder) -> ReminderSummaryResponse:
     )
 
 
+WEB_REMINDER_SOURCES = {"general", "list", "note", "driver"}
+
+
 def _is_web_reminder(reminder: Reminder) -> bool:
     """Return whether a reminder belongs to the standalone web reminders UI."""
-    return reminder.source_module in {"general", "list", "note"}
+    return reminder.source_module in WEB_REMINDER_SOURCES
 
 
 async def _validate_web_reminder_list_id(
@@ -1444,15 +1447,23 @@ async def get_my_reminders(
     """Return current user's web-visible reminders."""
     conditions = [
         Reminder.user_id == current_user.id,
-        Reminder.source_module.in_(["general", "list", "note"]),
+        Reminder.source_module.in_(sorted(WEB_REMINDER_SOURCES)),
     ]
     if active_only:
         conditions.append(Reminder.status == ReminderStatus.ACTIVE)
+    is_active = Reminder.status == ReminderStatus.ACTIVE
     result = await db.execute(
         select(Reminder)
         .options(selectinload(Reminder.notifications))
         .where(*conditions)
-        .order_by(Reminder.remind_at_utc.asc())
+        # Active first (soonest first), then history (newest first). Ordering
+        # everything by time made each daily repeat's old DONE rows fill the
+        # first 50 places, so after ~50 days active reminders disappeared.
+        .order_by(
+            case((is_active, 0), else_=1),
+            case((is_active, Reminder.remind_at_utc), else_=None).asc(),
+            Reminder.remind_at_utc.desc(),
+        )
         .limit(limit)
     )
     reminders = result.scalars().all()

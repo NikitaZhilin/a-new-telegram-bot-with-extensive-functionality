@@ -437,6 +437,46 @@ def calculate_next_occurrence(
     return next_local.astimezone(timezone.utc)
 
 
+def monthly_anchor_day(reminder, timezone_name: str) -> Optional[int]:
+    """Day of month a monthly reminder belongs to; remembered on the reminder."""
+    if reminder.repeat_rule != RepeatRule.MONTHLY:
+        return None
+    anchor = getattr(reminder, "repeat_day_of_month", None)
+    if anchor:
+        return int(anchor)
+    remind_at = reminder.remind_at_utc
+    if remind_at.tzinfo is None:
+        remind_at = remind_at.replace(tzinfo=timezone.utc)
+    try:
+        user_tz = ZoneInfo(timezone_name or "UTC")
+    except ZoneInfoNotFoundError:
+        user_tz = ZoneInfo("UTC")
+    anchor = remind_at.astimezone(user_tz).day
+    try:
+        reminder.repeat_day_of_month = anchor
+    except AttributeError:
+        pass
+    return anchor
+
+
+def next_future_occurrence(
+    remind_at: datetime,
+    repeat_rule: RepeatRule,
+    timezone_name: str,
+    now: datetime,
+    day_of_month: Optional[int] = None,
+) -> datetime:
+    """Next repeat strictly after both remind_at and now (skips missed repeats)."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    next_time = calculate_next_occurrence(remind_at, repeat_rule, timezone_name, day_of_month=day_of_month)
+    steps = 0
+    while next_time <= now and steps < 1000:
+        next_time = calculate_next_occurrence(next_time, repeat_rule, timezone_name, day_of_month=day_of_month)
+        steps += 1
+    return next_time
+
+
 def _add_one_month_preserving_wall_time(value: datetime, day_of_month: Optional[int] = None) -> datetime:
     """Add one calendar month and keep local time as stable as possible.
 

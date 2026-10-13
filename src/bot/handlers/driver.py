@@ -58,6 +58,7 @@ from src.services.driver_service import DriverService
 from src.services.checklist_service import ChecklistService
 from src.services.list_service import ListService
 from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_presets
+from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
 
 logger = logging.getLogger(__name__)
 
@@ -3173,6 +3174,7 @@ async def driver_cancel_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 driver_vehicle_create_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(driver_vehicle_create_start, pattern="^driver_vehicle_create$"),
         CallbackQueryHandler(driver_vehicle_edit_start, pattern="^driver_vehicle_edit:"),
@@ -3187,22 +3189,23 @@ driver_vehicle_create_conv = ConversationHandler(
         ],
         DriverStates.WAIT_VEHICLE_TITLE: [
             CallbackQueryHandler(driver_vehicle_title_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_vehicle_title_save),
+            MessageHandler(TEXT_INPUT, driver_vehicle_title_save),
         ],
         DriverStates.WAIT_VEHICLE_MILEAGE: [
             CallbackQueryHandler(driver_vehicle_mileage_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_vehicle_mileage_save),
+            MessageHandler(TEXT_INPUT, driver_vehicle_mileage_save),
         ],
         DriverStates.WAIT_VEHICLE_SERVICE_KM: [
             CallbackQueryHandler(driver_vehicle_service_km_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_vehicle_service_km_save),
+            MessageHandler(TEXT_INPUT, driver_vehicle_service_km_save),
         ],
         DriverStates.WAIT_VEHICLE_SERVICE_MONTHS: [
             CallbackQueryHandler(driver_vehicle_service_months_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_vehicle_service_months_save),
+            MessageHandler(TEXT_INPUT, driver_vehicle_service_months_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
     ],
@@ -3210,13 +3213,15 @@ driver_vehicle_create_conv = ConversationHandler(
 
 
 driver_vehicle_mileage_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[CallbackQueryHandler(driver_vehicle_mileage_update_start, pattern="^driver_vehicle_mileage:")],
     states={
         DriverStates.WAIT_VEHICLE_MILEAGE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_vehicle_mileage_update_save),
+            MessageHandler(TEXT_INPUT, driver_vehicle_mileage_update_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
     ],
@@ -3224,6 +3229,7 @@ driver_vehicle_mileage_conv = ConversationHandler(
 
 
 driver_fuel_create_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(driver_fuel_add_start, pattern="^driver_fuel_add:"),
         CallbackQueryHandler(driver_fuel_edit_start, pattern="^driver_fuel_edit:"),
@@ -3231,26 +3237,27 @@ driver_fuel_create_conv = ConversationHandler(
     states={
         DriverStates.WAIT_FUEL_MILEAGE: [
             CallbackQueryHandler(driver_fuel_mileage_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_fuel_mileage_save),
+            MessageHandler(TEXT_INPUT, driver_fuel_mileage_save),
         ],
         DriverStates.WAIT_FUEL_LITERS: [
             CallbackQueryHandler(driver_fuel_liters_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_fuel_liters_save),
+            MessageHandler(TEXT_INPUT, driver_fuel_liters_save),
         ],
         DriverStates.WAIT_FUEL_COST: [
             CallbackQueryHandler(driver_fuel_cost_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_fuel_cost_save),
+            MessageHandler(TEXT_INPUT, driver_fuel_cost_save),
         ],
         DriverStates.WAIT_FUEL_FULL: [
             CallbackQueryHandler(driver_fuel_full_callback, pattern="^driver_fuel_full:"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_fuel_full_text_save),
+            MessageHandler(TEXT_INPUT, driver_fuel_full_text_save),
         ],
         DriverStates.WAIT_FUEL_STATION: [
             CallbackQueryHandler(driver_fuel_station_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_fuel_station_save),
+            MessageHandler(TEXT_INPUT, driver_fuel_station_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
     ],
@@ -3258,6 +3265,7 @@ driver_fuel_create_conv = ConversationHandler(
 
 
 driver_expense_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(driver_expense_add_start, pattern="^driver_expense_add$"),
         CallbackQueryHandler(driver_expense_edit_start, pattern="^driver_expense_edit:"),
@@ -3265,11 +3273,11 @@ driver_expense_conv = ConversationHandler(
     states={
         DriverStates.WAIT_EXPENSE_TITLE: [
             CallbackQueryHandler(driver_expense_title_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_expense_title_save),
+            MessageHandler(TEXT_INPUT, driver_expense_title_save),
         ],
         DriverStates.WAIT_EXPENSE_AMOUNT: [
             CallbackQueryHandler(driver_expense_amount_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_expense_amount_save),
+            MessageHandler(TEXT_INPUT, driver_expense_amount_save),
         ],
         DriverStates.WAIT_EXPENSE_CATEGORY: [
             CallbackQueryHandler(driver_expense_category_callback, pattern="^driver_expense_category:"),
@@ -3280,10 +3288,11 @@ driver_expense_conv = ConversationHandler(
         ],
         DriverStates.WAIT_EXPENSE_NOTE: [
             CallbackQueryHandler(driver_expense_note_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_expense_note_save),
+            MessageHandler(TEXT_INPUT, driver_expense_note_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
     ],
@@ -3291,6 +3300,7 @@ driver_expense_conv = ConversationHandler(
 
 
 driver_document_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(driver_document_add_start, pattern="^driver_document_add$"),
         CallbackQueryHandler(driver_document_edit_start, pattern="^driver_document_edit:"),
@@ -3298,7 +3308,7 @@ driver_document_conv = ConversationHandler(
     states={
         DriverStates.WAIT_DOCUMENT_TITLE: [
             CallbackQueryHandler(driver_document_title_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_title_save),
+            MessageHandler(TEXT_INPUT, driver_document_title_save),
         ],
         DriverStates.WAIT_DOCUMENT_TYPE: [
             CallbackQueryHandler(driver_document_type_callback, pattern="^driver_document_type:"),
@@ -3309,22 +3319,23 @@ driver_document_conv = ConversationHandler(
         ],
         DriverStates.WAIT_DOCUMENT_IDENTIFIER: [
             CallbackQueryHandler(driver_document_identifier_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_identifier_save),
+            MessageHandler(TEXT_INPUT, driver_document_identifier_save),
         ],
         DriverStates.WAIT_DOCUMENT_EXPIRES: [
             CallbackQueryHandler(driver_document_expires_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_expires_save),
+            MessageHandler(TEXT_INPUT, driver_document_expires_save),
         ],
         DriverStates.WAIT_DOCUMENT_REMIND_DAYS: [
             CallbackQueryHandler(driver_document_remind_callback, pattern="^driver_document_remind:"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_remind_save),
+            MessageHandler(TEXT_INPUT, driver_document_remind_save),
         ],
         DriverStates.WAIT_DOCUMENT_NOTE: [
             CallbackQueryHandler(driver_document_note_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_document_note_save),
+            MessageHandler(TEXT_INPUT, driver_document_note_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
     ],
@@ -3332,6 +3343,7 @@ driver_document_conv = ConversationHandler(
 
 
 driver_journal_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(driver_journal_add_start, pattern="^driver_journal_add$"),
         CallbackQueryHandler(driver_journal_edit_start, pattern="^driver_journal_edit:"),
@@ -3341,17 +3353,18 @@ driver_journal_conv = ConversationHandler(
             CallbackQueryHandler(driver_journal_type_callback, pattern="^driver_journal_type:"),
         ],
         DriverStates.WAIT_JOURNAL_TITLE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_journal_title_save),
+            MessageHandler(TEXT_INPUT, driver_journal_title_save),
         ],
         DriverStates.WAIT_JOURNAL_VEHICLE: [
             CallbackQueryHandler(driver_journal_vehicle_callback, pattern="^driver_journal_vehicle:"),
         ],
         DriverStates.WAIT_JOURNAL_NOTE: [
             CallbackQueryHandler(driver_journal_note_skip, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_journal_note_save),
+            MessageHandler(TEXT_INPUT, driver_journal_note_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
     ],
@@ -3359,14 +3372,16 @@ driver_journal_conv = ConversationHandler(
 
 
 driver_service_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[CallbackQueryHandler(driver_service_done_start, pattern="^driver_service_done:")],
     states={
         DriverStates.WAIT_SERVICE_MILEAGE: [
             CallbackQueryHandler(driver_service_done_current, pattern="^driver_skip$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, driver_service_done_save),
+            MessageHandler(TEXT_INPUT, driver_service_done_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
     ],

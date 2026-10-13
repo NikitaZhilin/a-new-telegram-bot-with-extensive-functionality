@@ -43,6 +43,7 @@ from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.medication_service import MedicationService
 from src.utils.text import truncate
+from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
 
 logger = logging.getLogger(__name__)
 
@@ -1244,25 +1245,27 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 medication_create_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[CallbackQueryHandler(medication_create_start, pattern="^med_create$")],
     states={
         MedicationStates.WAIT_NAME: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_save_name),
+            MessageHandler(TEXT_INPUT, medication_save_name),
         ],
         MedicationStates.WAIT_DOSAGE: [
             CallbackQueryHandler(medication_dosage_preset_callback, pattern="^med_dosage:"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_save_dosage),
+            MessageHandler(TEXT_INPUT, medication_save_dosage),
         ],
         MedicationStates.WAIT_INSTRUCTIONS: [
             CallbackQueryHandler(medication_instructions_preset_callback, pattern="^med_instr:"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_save_instructions),
+            MessageHandler(TEXT_INPUT, medication_save_instructions),
         ],
         MedicationStates.WAIT_IMPORTANCE: [
             CallbackQueryHandler(medication_importance_callback, pattern="^med_importance:"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_importance_text),
+            MessageHandler(TEXT_INPUT, medication_importance_text),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
@@ -1270,6 +1273,7 @@ medication_create_conv = ConversationHandler(
 
 
 medication_edit_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(medication_edit_name_start, pattern="^med_edit_name:"),
         CallbackQueryHandler(medication_edit_dosage_start, pattern="^med_edit_dosage:"),
@@ -1277,18 +1281,19 @@ medication_edit_conv = ConversationHandler(
     ],
     states={
         MedicationStates.WAIT_EDIT_NAME: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_edit_name_save),
+            MessageHandler(TEXT_INPUT, medication_edit_name_save),
         ],
         MedicationStates.WAIT_EDIT_DOSAGE: [
             CallbackQueryHandler(medication_edit_dosage_value_callback, pattern="^med_edit_dosage_value:"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_edit_dosage_save),
+            MessageHandler(TEXT_INPUT, medication_edit_dosage_save),
         ],
         MedicationStates.WAIT_EDIT_INSTRUCTIONS: [
             CallbackQueryHandler(medication_edit_instructions_value_callback, pattern="^med_edit_instr_value:"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_edit_instructions_save),
+            MessageHandler(TEXT_INPUT, medication_edit_instructions_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
@@ -1296,16 +1301,18 @@ medication_edit_conv = ConversationHandler(
 
 
 medication_reminder_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(medication_reminder_frequency_callback, pattern="^med_rem_freq:"),
         CallbackQueryHandler(medication_reminder_custom_start, pattern="^med_rem_custom:"),
     ],
     states={
         MedicationStates.WAIT_REMINDER_TIME: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, medication_reminder_custom_save),
+            MessageHandler(TEXT_INPUT, medication_reminder_custom_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],

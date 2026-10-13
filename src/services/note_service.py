@@ -164,5 +164,8 @@ class NoteService:
             return False
         note.is_archived = True
         note.updated_at = datetime.now(timezone.utc)
+        from src.services.reminder_service import ReminderService
+
+        await ReminderService(self.db).cancel_linked_reminders(note_id=note_id, user_id=user_id)
         await self.db.flush()
         return True

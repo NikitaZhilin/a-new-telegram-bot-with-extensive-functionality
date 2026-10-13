@@ -200,6 +200,9 @@ class ListService:
         if not list_obj or not await self.can_manage(list_id, user_id, source_module=source_module):
             return False
 
+        from src.services.reminder_service import ReminderService
+
+        await ReminderService(self.db).cancel_linked_reminders(list_id=list_id)
         await self.db.delete(list_obj)
         await self.db.flush()
 
@@ -625,6 +628,10 @@ class ListService:
         if not member:
             return False
 
+        from src.services.reminder_service import ReminderService
+
+        # The removed member can no longer open the list from a reminder.
+        await ReminderService(self.db).cancel_linked_reminders(list_id=list_id, user_id=member.user_id)
         await self.db.delete(member)
         await self.db.flush()
         return True

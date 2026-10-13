@@ -23,8 +23,14 @@ from src.db.models import (
     RepeatRule,
     User,
 )
+from src.config import settings
 from src.repositories.medication_repo import MedicationRepository
-from src.repositories.reminder_repo import ReminderRepository
+from src.repositories.reminder_repo import (
+    ReminderRepository,
+    monthly_anchor_day,
+    next_future_occurrence,
+)
+from src.utils.timezones import safe_timezone_name
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +201,7 @@ class ReminderService:
         page: int = 0,
         page_size: int = 20,
         source_module: Optional[str] = "general",
+        exclude_source_modules: Sequence[str] = (),
     ) -> Tuple[List[Reminder], int]:
         """Get paginated list of reminders."""
         from sqlalchemy import func
@@ -209,6 +216,8 @@ class ReminderService:
         ]
         if source_module is not None:
             conditions.append(Reminder.source_module == source_module)
+        if exclude_source_modules:
+            conditions.append(Reminder.source_module.not_in(list(exclude_source_modules)))
 
         query = (
             select(Reminder)
@@ -250,6 +259,11 @@ class ReminderService:
         reminder.remind_at_utc = new_time_utc
         # The worker re-derives the monthly day from the new time.
         reminder.repeat_day_of_month = None
+        if reminder.status != ReminderStatus.ACTIVE:
+            # A new time for a finished or canceled reminder means "remind me
+            # again"; before, the time changed but nothing was ever sent.
+            reminder.status = ReminderStatus.ACTIVE
+            reminder.notified_at = None
         self._cancel_pending_notifications(reminder)
         self._add_notification_plan(reminder, offsets)
         await self.db.flush()
@@ -324,14 +338,49 @@ class ReminderService:
         reminder = await self.get_reminder(reminder_id, user_id)
         if not reminder:
             return None
-        
+
+        was_active = reminder.status == ReminderStatus.ACTIVE
+        offsets = self._active_notification_offsets(reminder)
         reminder.status = ReminderStatus.DONE
         self._cancel_pending_notifications(reminder)
         await self.db.flush()
+
+        if was_active and reminder.repeat_rule != RepeatRule.NONE:
+            # "Done" closes this occurrence only. Before, it stopped a daily or
+            # weekly reminder forever because the worker never saw it again.
+            await self._schedule_next_occurrence(reminder, user_id, offsets)
+
         await self.db.refresh(reminder)
         
         logger.info(f"Marked reminder {reminder_id} as done")
         return reminder
+
+    async def _schedule_next_occurrence(
+        self,
+        reminder: Reminder,
+        user_id: int,
+        offsets: Sequence[int],
+        now_utc: Optional[datetime] = None,
+    ) -> Reminder:
+        user = await self.get_user(user_id)
+        timezone_name = getattr(user, "timezone", None)
+        if not timezone_name or (timezone_name == "UTC" and settings.TIMEZONE_DEFAULT != "UTC"):
+            timezone_name = settings.TIMEZONE_DEFAULT
+        timezone_name = safe_timezone_name(timezone_name, settings.TIMEZONE_DEFAULT)
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+        day_of_month = monthly_anchor_day(reminder, timezone_name)
+        next_time = next_future_occurrence(
+            self._ensure_utc(reminder.remind_at_utc),
+            reminder.repeat_rule,
+            timezone_name,
+            now_utc,
+            day_of_month=day_of_month,
+        )
+        return await ReminderRepository(self.db).create_next_occurrence(
+            reminder,
+            next_time,
+            notify_offsets_minutes=list(offsets) or [0],
+        )
 
     async def mark_reminder_canceled(
         self,
@@ -350,6 +399,39 @@ class ReminderService:
         
         logger.info(f"Marked reminder {reminder_id} as canceled")
         return reminder
+
+    async def cancel_linked_reminders(
+        self,
+        *,
+        list_id: Optional[int] = None,
+        note_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> int:
+        """Cancel active reminders linked to a list or note that goes away.
+
+        Without this a deleted list or archived note kept sending its
+        reminders (repeating ones forever), with no screen left to stop them.
+        """
+        if list_id is None and note_id is None:
+            return 0
+        conditions = [Reminder.status == ReminderStatus.ACTIVE]
+        if list_id is not None:
+            conditions.append(Reminder.list_id == list_id)
+        if note_id is not None:
+            conditions.append(Reminder.note_id == note_id)
+        if user_id is not None:
+            conditions.append(Reminder.user_id == user_id)
+        result = await self.db.execute(
+            select(Reminder)
+            .options(selectinload(Reminder.notifications))
+            .where(and_(*conditions))
+        )
+        reminders = list(result.scalars().all())
+        for reminder in reminders:
+            reminder.status = ReminderStatus.CANCELED
+            self._cancel_pending_notifications(reminder)
+        await self.db.flush()
+        return len(reminders)
 
     async def delete_reminder(self, reminder_id: int, user_id: int) -> bool:
         """Delete a reminder."""
@@ -479,10 +561,13 @@ class ReminderService:
     @staticmethod
     def _active_notification_offsets(reminder: Reminder) -> list[int]:
         """Preserve pending notification offsets when only the event time changes."""
+        # The plan is what is still pending plus what was already delivered:
+        # moving a reminder must not silently drop "1 day before" just
+        # because that early notice was sent for the old time.
         offsets = [
             item.offset_minutes
             for item in reminder.notifications
-            if item.status == ReminderNotificationStatus.PENDING
+            if item.status in (ReminderNotificationStatus.PENDING, ReminderNotificationStatus.SENT)
         ]
         return sorted(set(offsets), reverse=True) or [0]
 
