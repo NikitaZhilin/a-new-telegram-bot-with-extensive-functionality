@@ -3,6 +3,7 @@
 import logging
 import re
 from datetime import datetime, time, timezone, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from telegram import Update
@@ -86,6 +87,14 @@ async def _get_app_user_id(update: Update, session) -> int:
 def _parse_id(data: str) -> int:
     """Parse first numeric ID from callback data."""
     return int(data.split(":", 1)[1].split(":", 1)[0])
+
+
+def _parse_slot(data: str) -> Optional[datetime]:
+    """Parse the optional reminder slot (unix seconds) from med_taken/med_skip data."""
+    parts = data.split(":")
+    if len(parts) < 3 or not parts[2].isdigit():
+        return None
+    return datetime.fromtimestamp(int(parts[2]), tz=timezone.utc)
 
 
 async def _delete_user_message(update: Update) -> None:
@@ -325,6 +334,9 @@ def _format_medication_action_alert(action_state, user_timezone: str) -> str:
     """Short alert for stale or unavailable medication action buttons."""
     if action_state.reason == "not_found":
         return "Лекарство не найдено"
+    if action_state.reason == "slot_not_open" and action_state.next_available_at_utc:
+        open_local = action_state.next_available_at_utc.astimezone(ZoneInfo(user_timezone))
+        return f"Окно этого приема откроется {open_local.strftime('%d.%m %H:%M')}"
     if action_state.next_available_at_utc:
         next_local = action_state.next_available_at_utc.astimezone(ZoneInfo(user_timezone))
         return f"Этот прием уже закрыт. Следующее окно: {next_local.strftime('%d.%m %H:%M')}"
@@ -800,7 +812,11 @@ async def medication_mark_taken_callback(update: Update, context: ContextTypes.D
         user_id = await _get_app_user_id(update, session)
         user_timezone = await _get_user_timezone(update, session)
         service = MedicationService(session)
-        intake, state = await service.mark_taken_for_current_slot(medication_id, user_id, user_timezone)
+        slot_utc = _parse_slot(query.data)
+        if slot_utc is not None:
+            intake, state = await service.mark_taken_for_slot(medication_id, user_id, user_timezone, slot_utc)
+        else:
+            intake, state = await service.mark_taken_for_current_slot(medication_id, user_id, user_timezone)
         await session.commit()
 
     if not intake:
@@ -826,7 +842,11 @@ async def medication_skip_callback(update: Update, context: ContextTypes.DEFAULT
         user_id = await _get_app_user_id(update, session)
         user_timezone = await _get_user_timezone(update, session)
         service = MedicationService(session)
-        intake, state = await service.mark_skipped_for_current_slot(medication_id, user_id, user_timezone)
+        slot_utc = _parse_slot(query.data)
+        if slot_utc is not None:
+            intake, state = await service.mark_skipped_for_slot(medication_id, user_id, user_timezone, slot_utc)
+        else:
+            intake, state = await service.mark_skipped_for_current_slot(medication_id, user_id, user_timezone)
         await session.commit()
 
     if not intake:

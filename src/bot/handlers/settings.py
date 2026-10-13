@@ -35,6 +35,7 @@ from src.services.subscription_service import SubscriptionService
 from src.services.web_auth_service import WebAuthService
 from src.services.release_info import app_info
 from src.repositories.user_repo import UserRepository
+from src.utils.timezones import normalize_user_timezone_choice
 
 logger = logging.getLogger(__name__)
 
@@ -135,15 +136,13 @@ async def settings_timezone_custom(update: Update, context: ContextTypes.DEFAULT
 
 async def settings_save_custom_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Save custom timezone."""
-    import pytz
-    
-    timezone_str = update.message.text.strip()
+    raw_timezone = update.message.text.strip()
     user_id = update.effective_user.id
-    
-    try:
-        # Validate timezone
-        pytz.timezone(timezone_str)
-        
+
+    # Store the canonical spelling: "europe/moscow" must become "Europe/Moscow",
+    # otherwise reminders for this user can never be formatted or scheduled.
+    timezone_str = normalize_user_timezone_choice(raw_timezone)
+    if timezone_str is not None:
         async with async_session_maker() as session:
             user_repo = UserRepository(session)
             user = await user_repo.get_by_telegram_id(user_id)
@@ -156,9 +155,9 @@ async def settings_save_custom_timezone(update: Update, context: ContextTypes.DE
             f"✅ Часовой пояс установлен: {timezone_str}",
             reply_markup=get_settings_back_home_keyboard(),
         )
-    except pytz.exceptions.UnknownTimeZoneError:
+    else:
         await update.message.reply_text(
-            f"❌ Неверный часовой пояс: {timezone_str}\n\n"
+            f"❌ Неверный часовой пояс: {raw_timezone}\n\n"
             f"Попробуйте ещё раз или нажмите Отмена:",
             reply_markup=get_cancel_keyboard(),
         )

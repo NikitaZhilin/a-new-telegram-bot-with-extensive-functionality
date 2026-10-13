@@ -210,6 +210,7 @@ async def _ensure_legacy_unversioned_schema() -> None:
         await conn.execute(text("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS driver_document_id INTEGER"))
         await conn.execute(text("ALTER TABLE lists ADD COLUMN IF NOT EXISTS source_module VARCHAR(30) NOT NULL DEFAULT 'general'"))
         await conn.execute(text("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS source_module VARCHAR(30) NOT NULL DEFAULT 'general'"))
+        await conn.execute(text("ALTER TABLE reminders ADD COLUMN IF NOT EXISTS repeat_day_of_month INTEGER"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_list_id ON reminders (list_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_medication_id ON reminders (medication_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_driver_document_id ON reminders (driver_document_id)"))

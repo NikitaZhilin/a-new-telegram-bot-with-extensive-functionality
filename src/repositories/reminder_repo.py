@@ -332,6 +332,7 @@ class ReminderRepository(BaseRepository[Reminder]):
             source_module=reminder.source_module,
             remind_at_utc=next_time,
             repeat_rule=reminder.repeat_rule,
+            repeat_day_of_month=getattr(reminder, "repeat_day_of_month", None),
             status=ReminderStatus.ACTIVE,
         )
         
@@ -401,6 +402,7 @@ def calculate_next_occurrence(
     remind_at: datetime,
     repeat_rule: RepeatRule,
     timezone_name: str = "UTC",
+    day_of_month: Optional[int] = None,
 ) -> datetime:
     """
     Calculate next occurrence time for a recurring reminder.
@@ -428,21 +430,28 @@ def calculate_next_occurrence(
     elif repeat_rule == RepeatRule.WEEKLY:
         next_local = local_time + timedelta(weeks=1)
     elif repeat_rule == RepeatRule.MONTHLY:
-        next_local = _add_one_month_preserving_wall_time(local_time)
+        next_local = _add_one_month_preserving_wall_time(local_time, day_of_month)
     else:
         raise ValueError(f"Invalid repeat rule: {repeat_rule}")
 
     return next_local.astimezone(timezone.utc)
 
 
-def _add_one_month_preserving_wall_time(value: datetime) -> datetime:
-    """Add one calendar month and keep local time as stable as possible."""
+def _add_one_month_preserving_wall_time(value: datetime, day_of_month: Optional[int] = None) -> datetime:
+    """Add one calendar month and keep local time as stable as possible.
+
+    With day_of_month (the day the user originally picked) a short month only
+    clamps that one occurrence: 30.01 -> 28.02 -> 30.03. Without it (legacy
+    rows) the old "last day stays last day" rule is kept.
+    """
     year = value.year + (value.month // 12)
     month = (value.month % 12) + 1
     current_last_day = calendar.monthrange(value.year, value.month)[1]
     target_last_day = calendar.monthrange(year, month)[1]
 
-    if value.day == current_last_day:
+    if day_of_month is not None:
+        day = min(max(int(day_of_month), 1), target_last_day)
+    elif value.day == current_last_day:
         day = target_last_day
     else:
         day = min(value.day, target_last_day)

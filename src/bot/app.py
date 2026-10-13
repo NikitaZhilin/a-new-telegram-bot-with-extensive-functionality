@@ -5,6 +5,8 @@ Creates and configures the PTB application with all handlers.
 """
 
 import logging
+import time
+import traceback
 from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -48,8 +50,78 @@ from src.bot.handlers import (
 logger = logging.getLogger(__name__)
 
 
+USER_ERROR_TEXT = "⚠️ Что-то пошло не так. Попробуйте ещё раз или отправьте /start."
+ADMIN_ERROR_COOLDOWN_SECONDS = 600
+ADMIN_ERROR_MAX_CHARS = 3500
+_admin_error_last_sent: dict[str, float] = {}
+
+
+async def _tell_user_about_error(update: object) -> None:
+    """Answer the pressed button / message so the user is not left with a spinner."""
+    if update is None or isinstance(update, (str, bytes)):
+        return
+    query = getattr(update, "callback_query", None)
+    if query is not None:
+        try:
+            await query.answer(USER_ERROR_TEXT, show_alert=True)
+            return
+        except Exception:
+            # Already answered by the handler: fall back to a chat message.
+            pass
+    message = getattr(update, "effective_message", None)
+    if message is not None:
+        try:
+            await message.reply_text(USER_ERROR_TEXT)
+        except Exception:
+            logger.debug("Could not send error notice to user", exc_info=True)
+
+
+def _format_admin_error(update: object, error: BaseException) -> str:
+    """Plain-text admin notice; no markup, so tracebacks with <module> are safe."""
+    where = ""
+    query = getattr(update, "callback_query", None)
+    message = getattr(update, "effective_message", None)
+    user = getattr(update, "effective_user", None)
+    if query is not None:
+        where = f"Кнопка: {getattr(query, 'data', '')}"
+    elif message is not None and getattr(message, "text", None):
+        words = message.text.split()
+        first_word = words[0] if words else ""
+        # Only commands are shown: free text may be private.
+        where = f"Сообщение: {first_word[:40]}" if first_word.startswith("/") else "Сообщение: текст"
+    if user is not None:
+        where += f"\nTelegram ID: {user.id}"
+    tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    text = (
+        "🔧 Ошибка в боте\n\n"
+        f"{type(error).__name__}: {error}\n"
+        f"{where}\n\n"
+        f"{tb[-2000:]}"
+    )
+    return text[:ADMIN_ERROR_MAX_CHARS]
+
+
+async def _notify_admins_about_error(context: ContextTypes.DEFAULT_TYPE, update: object, error: BaseException) -> None:
+    """Send a rate-limited plain-text error notice to admins."""
+    admin_ids = settings.admin_telegram_id_set
+    if not admin_ids or context is None or getattr(context, "bot", None) is None:
+        return
+    key = f"{type(error).__name__}:{str(error)[:120]}"
+    now = time.monotonic()
+    last = _admin_error_last_sent.get(key)
+    if last is not None and now - last < ADMIN_ERROR_COOLDOWN_SECONDS:
+        return
+    _admin_error_last_sent[key] = now
+    text = _format_admin_error(update, error)
+    for admin_id in admin_ids:
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=text)
+        except Exception:
+            logger.warning("Failed to notify admin about bot error", exc_info=True)
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Keep stale Telegram callback errors from breaking the visible bot flow."""
+    """Log the error, tell the user, and let admins know."""
     error = context.error
     if isinstance(error, BadRequest):
         message = str(error)
@@ -61,6 +133,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             return
 
     logger.exception("Unhandled bot update error", exc_info=error)
+    await _tell_user_about_error(update)
+    if error is not None:
+        await _notify_admins_about_error(context, update, error)
 
 
 # Import handlers for callback registration

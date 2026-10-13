@@ -373,6 +373,9 @@ async def test_worker_sends_medication_actions_for_linked_reminder():
     )
     repo = FakeReminderRepository(session, [reminder])
 
+    async def not_marked_checker(db_session, checked_reminder, checked_now):
+        return False
+
     worker = ReminderWorkerService(
         bot=bot,
         batch_size=10,
@@ -380,6 +383,7 @@ async def test_worker_sends_medication_actions_for_linked_reminder():
         session_factory=lambda: session,
         repository_factory=lambda db_session: repo,
         clock=lambda: now,
+        medication_action_checker=not_marked_checker,
     )
 
     result = await worker.process_cycle()

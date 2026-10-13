@@ -17,13 +17,14 @@ Architecture:
 import asyncio
 import html
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest, Forbidden, NetworkError, TelegramError, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TelegramError, TimedOut
 
 from src.config import settings
 from src.db.session import async_session_maker
@@ -40,8 +41,37 @@ from src.repositories.reminder_repo import (
 )
 from src.services.medication_service import MedicationService
 from src.utils.labels import repeat_rule_label
+from src.utils.timezones import safe_timezone_name
 
 logger = logging.getLogger(__name__)
+
+
+# A delivery that keeps failing with temporary errors is given up after this
+# long instead of being retried every minute forever.
+RETRY_GIVE_UP_AFTER = timedelta(hours=24)
+
+
+@asynccontextmanager
+async def _savepoint(session):
+    """Run a block in a SAVEPOINT when the session supports it.
+
+    One failing notification then rolls back only its own changes instead of
+    leaving the whole batch transaction broken (which un-marked every message
+    already sent in this cycle, so they were sent again a minute later).
+    """
+    begin_nested = getattr(session, "begin_nested", None)
+    if begin_nested is None:
+        yield
+        return
+    async with begin_nested():
+        yield
+
+
+def _retry_after_seconds(error: RetryAfter) -> float:
+    value = getattr(error, "retry_after", 0) or 0
+    if isinstance(value, timedelta):
+        return value.total_seconds()
+    return float(value)
 
 
 @dataclass(frozen=True)
@@ -91,6 +121,7 @@ class ReminderWorkerService:
         self.medication_action_checker = medication_action_checker
         self.heartbeat = heartbeat
         self._running = False
+        self._retry_after_seconds = 0.0
 
     async def start(self) -> None:
         """Start the worker loop."""
@@ -114,7 +145,9 @@ class ReminderWorkerService:
                     else:
                         self.heartbeat.mark_ok()
                 if self._running:
-                    await asyncio.sleep(self.poll_interval)
+                    pause = max(self.poll_interval, self._retry_after_seconds)
+                    self._retry_after_seconds = 0.0
+                    await asyncio.sleep(pause)
             except asyncio.CancelledError:
                 logger.info("Worker received cancel signal")
                 self._running = False
@@ -173,10 +206,20 @@ class ReminderWorkerService:
 
             for notification in due_notifications:
                 try:
-                    await self._process_notification(session, repo, notification, now)
+                    async with _savepoint(session):
+                        await self._process_notification(session, repo, notification, now)
                     processed += 1
+                except RetryAfter as e:
+                    # Telegram asked us to slow down: stop this batch and wait.
+                    self._retry_after_seconds = _retry_after_seconds(e)
+                    await self._record_failure(session, repo, notification, now, str(e))
+                    logger.warning(
+                        f"Telegram flood control, pausing {self._retry_after_seconds:.0f}s"
+                    )
+                    failed += 1
+                    break
                 except Exception as e:
-                    await repo.remember_notification_error(notification.id, str(e))
+                    await self._record_failure(session, repo, notification, now, str(e))
                     logger.exception(
                         f"Failed to process reminder notification {notification.id}: {e}"
                     )
@@ -200,6 +243,23 @@ class ReminderWorkerService:
                 processed=processed,
                 failed=failed,
             )
+
+    async def _record_failure(self, session, repo, notification, now: datetime, error: str) -> None:
+        """Keep a retryable delivery pending, or give up after RETRY_GIVE_UP_AFTER."""
+        notify_at = notification.notify_at_utc
+        if notify_at.tzinfo is None:
+            notify_at = notify_at.replace(tzinfo=timezone.utc)
+        try:
+            async with _savepoint(session):
+                if now - notify_at > RETRY_GIVE_UP_AFTER:
+                    await repo.mark_notification_failed(
+                        notification.id,
+                        f"Gave up after {RETRY_GIVE_UP_AFTER}: {error}",
+                    )
+                else:
+                    await repo.remember_notification_error(notification.id, error)
+        except Exception:
+            logger.exception(f"Could not record failure for notification {notification.id}")
 
     async def _process_cycle(self) -> WorkerCycleResult:
         """Backward-compatible alias for one worker cycle."""
@@ -295,17 +355,35 @@ class ReminderWorkerService:
     ) -> bool:
         """Avoid sending a daily medication reminder for an already marked slot."""
         medication_id = getattr(reminder, "medication_id", None)
-        if not medication_id or reminder.repeat_rule != RepeatRule.DAILY:
+        if not medication_id:
             return False
 
         if self.medication_action_checker:
             return bool(await self.medication_action_checker(session, reminder, now))
 
         service = MedicationService(session)
+        user_timezone = self._get_user_timezone(reminder)
+        if reminder.repeat_rule == RepeatRule.DAILY:
+            # Check the slot this reminder is for, not whatever slot is current:
+            # an early notice or a late "Taken" must not cancel the wrong dose.
+            slot_state = await service.get_slot_action_state(
+                medication_id=medication_id,
+                user_id=reminder.user_id,
+                user_timezone=user_timezone,
+                slot_utc=reminder.remind_at_utc,
+                now_utc=max(now, reminder.remind_at_utc),
+            )
+            if slot_state is not None:
+                return slot_state.reason == "slot_already_marked"
+        elif reminder.repeat_rule != RepeatRule.NONE:
+            return False
+
+        # One-time medication reminders ("snooze 15 min") and fallbacks: skip
+        # when the current intake slot has already been marked.
         state = await service.get_intake_action_state(
             medication_id=medication_id,
             user_id=reminder.user_id,
-            user_timezone=self._get_user_timezone(reminder),
+            user_timezone=user_timezone,
             now_utc=now,
         )
         return state.reason in {"slot_already_marked", "already_marked_today"}
@@ -454,14 +532,34 @@ class ReminderWorkerService:
         
         return message
 
+    @staticmethod
+    def _monthly_anchor_day(reminder: Reminder, user_timezone: str) -> int | None:
+        """Day of month a monthly reminder belongs to; remembered on the reminder."""
+        if reminder.repeat_rule != RepeatRule.MONTHLY:
+            return None
+        anchor = getattr(reminder, "repeat_day_of_month", None)
+        if anchor:
+            return int(anchor)
+        remind_at = reminder.remind_at_utc
+        if remind_at.tzinfo is None:
+            remind_at = remind_at.replace(tzinfo=timezone.utc)
+        anchor = remind_at.astimezone(ZoneInfo(user_timezone)).day
+        try:
+            reminder.repeat_day_of_month = anchor
+        except AttributeError:
+            pass
+        return anchor
+
     def _get_user_timezone(self, reminder: Reminder) -> str:
         """Return reminder user's timezone with project default fallback."""
         timezone_name = getattr(getattr(reminder, "user", None), "timezone", None)
         if not timezone_name:
-            return settings.TIMEZONE_DEFAULT
+            return safe_timezone_name(settings.TIMEZONE_DEFAULT, "UTC")
         if timezone_name == "UTC" and settings.TIMEZONE_DEFAULT != "UTC":
-            return settings.TIMEZONE_DEFAULT
-        return timezone_name
+            return safe_timezone_name(settings.TIMEZONE_DEFAULT, "UTC")
+        # A hand-typed name like "europe/moscow" used to raise here on every
+        # cycle, so the reminder stayed pending forever and never arrived.
+        return safe_timezone_name(timezone_name, settings.TIMEZONE_DEFAULT)
 
     def _build_reminder_reply_markup(self, reminder: Reminder):
         """Build inline actions for reminder notifications."""
@@ -475,11 +573,19 @@ class ReminderWorkerService:
         driver_document = getattr(reminder, "driver_document", None)
 
         if medication_id and medication:
+            # Daily reminders carry their slot so a late press marks this dose,
+            # not the next one.
+            slot_suffix = ""
+            if reminder.repeat_rule == RepeatRule.DAILY and reminder.remind_at_utc is not None:
+                remind_at = reminder.remind_at_utc
+                if remind_at.tzinfo is None:
+                    remind_at = remind_at.replace(tzinfo=timezone.utc)
+                slot_suffix = f":{int(remind_at.timestamp())}"
             return InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
                         "✅ Принял",
-                        callback_data=f"med_taken:{medication_id}",
+                        callback_data=f"med_taken:{medication_id}{slot_suffix}",
                     ),
                     InlineKeyboardButton(
                         "↩️ Отложить 15 мин",
@@ -489,7 +595,7 @@ class ReminderWorkerService:
                 [
                     InlineKeyboardButton(
                         "⏭ Пропустил",
-                        callback_data=f"med_skip:{medication_id}",
+                        callback_data=f"med_skip:{medication_id}{slot_suffix}",
                     ),
                 ],
                 [
@@ -556,22 +662,37 @@ class ReminderWorkerService:
             now: Current UTC time
         """
         try:
-            next_time = calculate_next_occurrence(
-                reminder.remind_at_utc,
-                reminder.repeat_rule,
-                self._get_user_timezone(reminder),
-            )
+            async with _savepoint(session):
+                user_timezone = self._get_user_timezone(reminder)
+                day_of_month = self._monthly_anchor_day(reminder, user_timezone)
+                next_time = calculate_next_occurrence(
+                    reminder.remind_at_utc,
+                    reminder.repeat_rule,
+                    user_timezone,
+                    day_of_month=day_of_month,
+                )
+                # After downtime, jump straight to the first future occurrence
+                # instead of sending every missed repeat one per minute.
+                skipped = 0
+                while next_time <= now and skipped < 1000:
+                    next_time = calculate_next_occurrence(
+                        next_time,
+                        reminder.repeat_rule,
+                        user_timezone,
+                        day_of_month=day_of_month,
+                    )
+                    skipped += 1
+
+                await repo.create_next_occurrence(reminder, next_time)
             
-            await repo.create_next_occurrence(reminder, next_time)
-            
-            logger.info(
-                f"Created next occurrence for reminder {reminder.id}",
-                extra={
-                    "reminder_id": reminder.id,
-                    "next_time": next_time.isoformat(),
-                    "repeat_rule": reminder.repeat_rule.value,
-                }
-            )
+                logger.info(
+                    f"Created next occurrence for reminder {reminder.id}",
+                    extra={
+                        "reminder_id": reminder.id,
+                        "next_time": next_time.isoformat(),
+                        "repeat_rule": reminder.repeat_rule.value,
+                    }
+                )
         except Exception as e:
             logger.exception(
                 f"Failed to create next occurrence for reminder {reminder.id}: {e}"
