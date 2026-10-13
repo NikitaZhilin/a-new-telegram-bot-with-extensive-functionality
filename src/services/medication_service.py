@@ -6,7 +6,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 
 from src.db.models import Medication, MedicationIntake, MedicationIntakeStatus, Reminder, ReminderStatus, RepeatRule
 from src.repositories.medication_repo import MedicationRepository
@@ -44,6 +44,10 @@ class MedicationService:
     """Business logic for medication schedules and intake marks."""
 
     SLOT_OPEN_BEFORE = timedelta(hours=2)
+    # A "Taken"/"Skipped" button on a reminder message stays bound to its own
+    # slot for this long; older presses fall back to the current slot.
+    SLOT_LATE_MARK_LIMIT = timedelta(hours=24)
+    SLOT_MATCH_TOLERANCE = timedelta(seconds=59)
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -251,12 +255,15 @@ class MedicationService:
             user_timezone=user_timezone,
             now_utc=now_utc,
         )
-        marked_at = await self._get_intake_in_window(
+        intake = await self._get_intake_record_for_slot(
             medication_id=medication_id,
             user_id=user_id,
-            start_utc=current_open,
-            end_utc=next_open,
+            slot_utc=current_slot,
+            open_utc=current_open,
+            next_open_utc=next_open,
+            known_slots=self._slot_occurrences(schedule, user_timezone, now_utc),
         )
+        marked_at = self._ensure_utc(intake.taken_at_utc) if intake else None
         if marked_at:
             return MedicationIntakeActionState(
                 can_mark=False,
@@ -393,6 +400,7 @@ class MedicationService:
             open_utc = (slot_local - self.SLOT_OPEN_BEFORE).astimezone(timezone.utc)
             occurrences.append((scheduled_time, slot_local.astimezone(timezone.utc), open_utc))
 
+        known_slots = self._slot_occurrences(schedule, user_timezone, now_utc)
         result: list[MedicationDailySlot] = []
         for index, (scheduled_time, slot_utc, open_utc) in enumerate(occurrences):
             next_open_utc = (
@@ -400,7 +408,14 @@ class MedicationService:
                 if index + 1 < len(occurrences)
                 else (datetime.combine(local_today + timedelta(days=1), schedule[0], tzinfo=tz) - self.SLOT_OPEN_BEFORE).astimezone(timezone.utc)
             )
-            intake = await self._get_intake_record_in_window(medication_id, user_id, open_utc, next_open_utc)
+            intake = await self._get_intake_record_for_slot(
+                medication_id=medication_id,
+                user_id=user_id,
+                slot_utc=slot_utc,
+                open_utc=open_utc,
+                next_open_utc=next_open_utc,
+                known_slots=known_slots,
+            )
             if intake:
                 status = self._slot_status_from_intake(intake)
             elif now_utc < open_utc:
@@ -485,6 +500,213 @@ class MedicationService:
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
+
+    def _slot_occurrences(
+        self,
+        schedule: list[time],
+        user_timezone: str,
+        around_utc: datetime,
+        day_offsets: tuple[int, ...] = (-1, 0, 1, 2),
+    ) -> list[datetime]:
+        """Return scheduled slot moments (UTC) for days around a moment."""
+        tz = ZoneInfo(user_timezone)
+        local_date = self._ensure_utc(around_utc).astimezone(tz).date()
+        slots = [
+            datetime.combine(local_date + timedelta(days=offset), scheduled_time, tzinfo=tz).astimezone(timezone.utc)
+            for offset in day_offsets
+            for scheduled_time in schedule
+        ]
+        return sorted(slots)
+
+    def _same_slot(self, left: datetime, right: datetime) -> bool:
+        return abs(self._ensure_utc(left) - self._ensure_utc(right)) <= self.SLOT_MATCH_TOLERANCE
+
+    def _intake_belongs_to_window(
+        self,
+        intake: MedicationIntake,
+        slot_utc: datetime,
+        open_utc: datetime,
+        next_open_utc: datetime,
+        known_slots: list[datetime],
+    ) -> bool:
+        """Decide which slot an intake mark counts for.
+
+        A mark made for a specific slot (from a reminder button or for the
+        current slot) counts for that slot, even when it was pressed hours
+        later. Marks without a slot, or whose slot is no longer in the
+        schedule, count for the window in which they fall.
+        """
+        scheduled = intake.scheduled_slot_at_utc
+        if scheduled is not None:
+            scheduled = self._ensure_utc(scheduled)
+            if self._same_slot(scheduled, slot_utc):
+                return True
+            if any(self._same_slot(scheduled, other) for other in known_slots):
+                return False
+            return open_utc <= scheduled < next_open_utc
+        taken = self._ensure_utc(intake.taken_at_utc)
+        return open_utc <= taken < next_open_utc
+
+    async def _get_intake_record_for_slot(
+        self,
+        medication_id: int,
+        user_id: int,
+        slot_utc: datetime,
+        open_utc: datetime,
+        next_open_utc: datetime,
+        known_slots: list[datetime],
+    ) -> Optional[MedicationIntake]:
+        """Return the latest intake that counts for a scheduled slot."""
+        margin = self.SLOT_LATE_MARK_LIMIT + timedelta(days=1)
+        range_start = open_utc - margin
+        range_end = next_open_utc + margin
+        query = (
+            select(MedicationIntake)
+            .where(
+                and_(
+                    MedicationIntake.medication_id == medication_id,
+                    MedicationIntake.user_id == user_id,
+                    or_(
+                        and_(
+                            MedicationIntake.taken_at_utc >= range_start,
+                            MedicationIntake.taken_at_utc < range_end,
+                        ),
+                        and_(
+                            MedicationIntake.scheduled_slot_at_utc >= range_start,
+                            MedicationIntake.scheduled_slot_at_utc < range_end,
+                        ),
+                    ),
+                )
+            )
+            .order_by(MedicationIntake.taken_at_utc.desc(), MedicationIntake.id.desc())
+        )
+        result = await self.db.execute(query)
+        for intake in result.scalars().all():
+            if self._intake_belongs_to_window(intake, slot_utc, open_utc, next_open_utc, known_slots):
+                return intake
+        return None
+
+    async def get_slot_action_state(
+        self,
+        medication_id: int,
+        user_id: int,
+        user_timezone: str,
+        slot_utc: datetime,
+        now_utc: Optional[datetime] = None,
+    ) -> Optional[MedicationIntakeActionState]:
+        """State of one specific scheduled slot, e.g. the one a reminder was for.
+
+        Returns None when the slot is not (or no longer) part of the schedule,
+        or is too old; callers then fall back to the current slot.
+        """
+        medication = await self.get_medication(medication_id, user_id)
+        if not medication or not medication.is_active:
+            return MedicationIntakeActionState(can_mark=False, reason="not_found")
+
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+        slot_utc = self._ensure_utc(slot_utc)
+        if now_utc - slot_utc > self.SLOT_LATE_MARK_LIMIT:
+            return None
+
+        schedule = await self._get_daily_schedule_times(medication_id, user_id, user_timezone)
+        if not schedule:
+            return None
+        occurrences = self._slot_occurrences(schedule, user_timezone, slot_utc)
+        index = next((i for i, item in enumerate(occurrences) if self._same_slot(item, slot_utc)), None)
+        if index is None or index + 1 >= len(occurrences):
+            return None
+
+        slot_utc = occurrences[index]
+        open_utc = slot_utc - self.SLOT_OPEN_BEFORE
+        next_open_utc = occurrences[index + 1] - self.SLOT_OPEN_BEFORE
+        if now_utc < open_utc:
+            return MedicationIntakeActionState(
+                can_mark=False,
+                reason="slot_not_open",
+                current_slot_at_utc=slot_utc,
+                current_window_start_utc=open_utc,
+                next_available_at_utc=open_utc,
+                has_schedule=True,
+            )
+
+        intake = await self._get_intake_record_for_slot(
+            medication_id=medication_id,
+            user_id=user_id,
+            slot_utc=slot_utc,
+            open_utc=open_utc,
+            next_open_utc=next_open_utc,
+            known_slots=occurrences,
+        )
+        if intake:
+            return MedicationIntakeActionState(
+                can_mark=False,
+                reason="slot_already_marked",
+                current_slot_at_utc=slot_utc,
+                current_window_start_utc=open_utc,
+                next_available_at_utc=max(next_open_utc, now_utc),
+                marked_at_utc=self._ensure_utc(intake.taken_at_utc),
+                has_schedule=True,
+            )
+        return MedicationIntakeActionState(
+            can_mark=True,
+            reason="slot_available",
+            current_slot_at_utc=slot_utc,
+            current_window_start_utc=open_utc,
+            next_available_at_utc=next_open_utc,
+            has_schedule=True,
+        )
+
+    async def _mark_for_slot(
+        self,
+        kind: str,
+        medication_id: int,
+        user_id: int,
+        user_timezone: str,
+        slot_utc: datetime,
+        now_utc: Optional[datetime] = None,
+    ) -> tuple[Optional[MedicationIntake], MedicationIntakeActionState]:
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+        state = await self.get_slot_action_state(medication_id, user_id, user_timezone, slot_utc, now_utc=now_utc)
+        if state is None:
+            if kind == "taken":
+                return await self.mark_taken_for_current_slot(medication_id, user_id, user_timezone, taken_at_utc=now_utc)
+            return await self.mark_skipped_for_current_slot(medication_id, user_id, user_timezone, skipped_at_utc=now_utc)
+        if not state.can_mark:
+            return None, state
+        if kind == "taken":
+            intake = await self.mark_taken(
+                medication_id, user_id, taken_at_utc=now_utc, scheduled_slot_at_utc=state.current_slot_at_utc
+            )
+        else:
+            intake = await self.mark_skipped(
+                medication_id, user_id, skipped_at_utc=now_utc, scheduled_slot_at_utc=state.current_slot_at_utc
+            )
+        updated = await self.get_slot_action_state(
+            medication_id, user_id, user_timezone, state.current_slot_at_utc, now_utc=now_utc
+        )
+        return intake, updated or state
+
+    async def mark_taken_for_slot(
+        self,
+        medication_id: int,
+        user_id: int,
+        user_timezone: str,
+        slot_utc: datetime,
+        taken_at_utc: Optional[datetime] = None,
+    ) -> tuple[Optional[MedicationIntake], MedicationIntakeActionState]:
+        """Mark the slot a reminder was sent for (not whatever slot is current now)."""
+        return await self._mark_for_slot("taken", medication_id, user_id, user_timezone, slot_utc, taken_at_utc)
+
+    async def mark_skipped_for_slot(
+        self,
+        medication_id: int,
+        user_id: int,
+        user_timezone: str,
+        slot_utc: datetime,
+        skipped_at_utc: Optional[datetime] = None,
+    ) -> tuple[Optional[MedicationIntake], MedicationIntakeActionState]:
+        """Mark the reminder's own slot as skipped."""
+        return await self._mark_for_slot("skipped", medication_id, user_id, user_timezone, slot_utc, skipped_at_utc)
 
     @staticmethod
     def _slot_status_from_intake(intake: MedicationIntake) -> str:

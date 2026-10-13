@@ -296,17 +296,35 @@ class ReminderWorkerService:
     ) -> bool:
         """Avoid sending a daily medication reminder for an already marked slot."""
         medication_id = getattr(reminder, "medication_id", None)
-        if not medication_id or reminder.repeat_rule != RepeatRule.DAILY:
+        if not medication_id:
             return False
 
         if self.medication_action_checker:
             return bool(await self.medication_action_checker(session, reminder, now))
 
         service = MedicationService(session)
+        user_timezone = self._get_user_timezone(reminder)
+        if reminder.repeat_rule == RepeatRule.DAILY:
+            # Check the slot this reminder is for, not whatever slot is current:
+            # an early notice or a late "Taken" must not cancel the wrong dose.
+            slot_state = await service.get_slot_action_state(
+                medication_id=medication_id,
+                user_id=reminder.user_id,
+                user_timezone=user_timezone,
+                slot_utc=reminder.remind_at_utc,
+                now_utc=max(now, reminder.remind_at_utc),
+            )
+            if slot_state is not None:
+                return slot_state.reason == "slot_already_marked"
+        elif reminder.repeat_rule != RepeatRule.NONE:
+            return False
+
+        # One-time medication reminders ("snooze 15 min") and fallbacks: skip
+        # when the current intake slot has already been marked.
         state = await service.get_intake_action_state(
             medication_id=medication_id,
             user_id=reminder.user_id,
-            user_timezone=self._get_user_timezone(reminder),
+            user_timezone=user_timezone,
             now_utc=now,
         )
         return state.reason in {"slot_already_marked", "already_marked_today"}
@@ -478,11 +496,19 @@ class ReminderWorkerService:
         driver_document = getattr(reminder, "driver_document", None)
 
         if medication_id and medication:
+            # Daily reminders carry their slot so a late press marks this dose,
+            # not the next one.
+            slot_suffix = ""
+            if reminder.repeat_rule == RepeatRule.DAILY and reminder.remind_at_utc is not None:
+                remind_at = reminder.remind_at_utc
+                if remind_at.tzinfo is None:
+                    remind_at = remind_at.replace(tzinfo=timezone.utc)
+                slot_suffix = f":{int(remind_at.timestamp())}"
             return InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
                         "✅ Принял",
-                        callback_data=f"med_taken:{medication_id}",
+                        callback_data=f"med_taken:{medication_id}{slot_suffix}",
                     ),
                     InlineKeyboardButton(
                         "↩️ Отложить 15 мин",
@@ -492,7 +518,7 @@ class ReminderWorkerService:
                 [
                     InlineKeyboardButton(
                         "⏭ Пропустил",
-                        callback_data=f"med_skip:{medication_id}",
+                        callback_data=f"med_skip:{medication_id}{slot_suffix}",
                     ),
                 ],
                 [
