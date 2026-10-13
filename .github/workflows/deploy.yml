@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -68,7 +69,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: production
     env:
       VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST }}
@@ -167,8 +168,13 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
+          # The server env file is never rewritten from scratch: keys that GitHub
+          # manages are replaced, every other key (OPENAI_API_KEY, VOICE_*,
+          # STARTUP_ANNOUNCE_MODE, proxies, manual tweaks) is kept.
+          umask 077
           if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_TOKEN" ] || [ -z "$POSTGRES_PASSWORD" ]; then
-            umask 077
+            # No app secrets in GitHub: build .env.prod from the server .env.
+            ENV_BASE=env
             {
               printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
               printf 'APP_IMAGE=%s\n' "$APP_IMAGE"
@@ -182,64 +188,76 @@ jobs:
               printf 'WEB_LOGIN_TOKEN_TTL_DAYS=%s\n' "$WEB_LOGIN_TOKEN_TTL_DAYS"
               printf 'MINI_APP_MENU_BUTTON_TEXT=%s\n' "$MINI_APP_MENU_BUTTON_TEXT"
             } > .env.prod.overrides
-            scp -i ~/.ssh/deploy_key -P "$VPS_PORT" .env.prod.overrides "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/.env.prod.overrides"
-            rm -f .env.prod.overrides
-            ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "
-              set -e
-              if [ ! -s '$DEPLOY_PATH/.env' ]; then
-                echo 'Missing app secrets in GitHub and $DEPLOY_PATH/.env does not exist on VPS.' >&2
-                exit 1
-              fi
-              cp '$DEPLOY_PATH/.env' '$DEPLOY_PATH/.env.prod'
-              while IFS= read -r line; do
-                key=\"\${line%%=*}\"
-                grep -v \"^\${key}=\" '$DEPLOY_PATH/.env.prod' > '$DEPLOY_PATH/.env.prod.tmp' || true
-                printf '%s\n' \"\$line\" >> '$DEPLOY_PATH/.env.prod.tmp'
-                mv '$DEPLOY_PATH/.env.prod.tmp' '$DEPLOY_PATH/.env.prod'
-              done < '$DEPLOY_PATH/.env.prod.overrides'
-              rm -f '$DEPLOY_PATH/.env.prod.overrides'
-              chmod 600 '$DEPLOY_PATH/.env.prod'
-            "
-            exit 0
+          else
+            # App secrets in GitHub: update the running .env.prod in place.
+            ENV_BASE=prod
+            {
+              printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
+              printf 'APP_IMAGE=%s\n' "$APP_IMAGE"
+              printf 'WORKER_IMAGE=%s\n' "$WORKER_IMAGE"
+              printf 'BOT_TOKEN=%s\n' "$BOT_TOKEN"
+              printf 'BOT_USERNAME=%s\n' "$BOT_USERNAME"
+              printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
+              printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+              printf 'POSTGRES_DB=%s\n' "$POSTGRES_DB"
+              printf 'POSTGRES_PORT=%s\n' "$POSTGRES_PORT"
+              printf 'POSTGRES_BIND_HOST=%s\n' "$POSTGRES_BIND_HOST"
+              printf 'DB_ECHO=false\n'
+              printf 'ADMIN_TOKEN=%s\n' "$ADMIN_TOKEN"
+              printf 'ADMIN_TELEGRAM_IDS=%s\n' "$ADMIN_TELEGRAM_IDS"
+              printf 'API_HOST=0.0.0.0\n'
+              printf 'API_PORT=%s\n' "$API_PORT"
+              printf 'API_BIND_HOST=%s\n' "$API_BIND_HOST"
+              printf 'API_DOCS_ENABLED=%s\n' "$API_DOCS_ENABLED"
+              printf 'CORS_ORIGINS=%s\n' "$CORS_ORIGINS"
+              printf 'USER_AUTH_MAX_AGE_SECONDS=86400\n'
+              printf 'WEB_TEST_LOGIN_ENABLED=%s\n' "$WEB_TEST_LOGIN_ENABLED"
+              printf 'WEB_PUBLIC_URL=%s\n' "$WEB_PUBLIC_URL"
+              printf 'WEB_LOGIN_TOKEN_TTL_DAYS=%s\n' "$WEB_LOGIN_TOKEN_TTL_DAYS"
+              printf 'MINI_APP_MENU_BUTTON_TEXT=%s\n' "$MINI_APP_MENU_BUTTON_TEXT"
+              printf 'LOG_LEVEL=%s\n' "$LOG_LEVEL"
+              printf 'TIMEZONE_DEFAULT=%s\n' "$TIMEZONE_DEFAULT"
+              printf 'APP_VERSION=%s\n' "$APP_VERSION"
+              printf 'STARTUP_UPDATE_MESSAGE=%s\n' "$STARTUP_UPDATE_MESSAGE"
+              printf 'TESTING_NOTICE_ENABLED=%s\n' "$TESTING_NOTICE_ENABLED"
+              printf 'TESTING_NOTICE_TEXT=%s\n' "$TESTING_NOTICE_TEXT"
+              printf 'SEND_STARTUP_MENU_ON_BOOT=%s\n' "$SEND_STARTUP_MENU_ON_BOOT"
+              printf 'DEFAULT_SUBSCRIPTION_PLAN=%s\n' "$DEFAULT_SUBSCRIPTION_PLAN"
+              printf 'WORKER_INTERVAL=%s\n' "$WORKER_INTERVAL"
+            } > .env.prod.overrides
           fi
+          scp -i ~/.ssh/deploy_key -P "$VPS_PORT" .env.prod.overrides "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/.env.prod.overrides"
+          rm -f .env.prod.overrides
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "DEPLOY_PATH='$DEPLOY_PATH' ENV_BASE='$ENV_BASE' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
           umask 077
-          {
-            printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
-            printf 'APP_IMAGE=%s\n' "$APP_IMAGE"
-            printf 'WORKER_IMAGE=%s\n' "$WORKER_IMAGE"
-            printf 'BOT_TOKEN=%s\n' "$BOT_TOKEN"
-            printf 'BOT_USERNAME=%s\n' "$BOT_USERNAME"
-            printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
-            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
-            printf 'POSTGRES_DB=%s\n' "$POSTGRES_DB"
-            printf 'POSTGRES_PORT=%s\n' "$POSTGRES_PORT"
-            printf 'POSTGRES_BIND_HOST=%s\n' "$POSTGRES_BIND_HOST"
-            printf 'DB_ECHO=false\n'
-            printf 'ADMIN_TOKEN=%s\n' "$ADMIN_TOKEN"
-            printf 'ADMIN_TELEGRAM_IDS=%s\n' "$ADMIN_TELEGRAM_IDS"
-            printf 'API_HOST=0.0.0.0\n'
-            printf 'API_PORT=%s\n' "$API_PORT"
-            printf 'API_BIND_HOST=%s\n' "$API_BIND_HOST"
-            printf 'API_DOCS_ENABLED=%s\n' "$API_DOCS_ENABLED"
-            printf 'CORS_ORIGINS=%s\n' "$CORS_ORIGINS"
-            printf 'USER_AUTH_MAX_AGE_SECONDS=86400\n'
-            printf 'WEB_TEST_LOGIN_ENABLED=%s\n' "$WEB_TEST_LOGIN_ENABLED"
-            printf 'WEB_PUBLIC_URL=%s\n' "$WEB_PUBLIC_URL"
-            printf 'WEB_LOGIN_TOKEN_TTL_DAYS=%s\n' "$WEB_LOGIN_TOKEN_TTL_DAYS"
-            printf 'MINI_APP_MENU_BUTTON_TEXT=%s\n' "$MINI_APP_MENU_BUTTON_TEXT"
-            printf 'LOG_LEVEL=%s\n' "$LOG_LEVEL"
-            printf 'TIMEZONE_DEFAULT=%s\n' "$TIMEZONE_DEFAULT"
-            printf 'APP_VERSION=%s\n' "$APP_VERSION"
-            printf 'STARTUP_UPDATE_MESSAGE=%s\n' "$STARTUP_UPDATE_MESSAGE"
-            printf 'TESTING_NOTICE_ENABLED=%s\n' "$TESTING_NOTICE_ENABLED"
-            printf 'TESTING_NOTICE_TEXT=%s\n' "$TESTING_NOTICE_TEXT"
-            printf 'SEND_STARTUP_MENU_ON_BOOT=%s\n' "$SEND_STARTUP_MENU_ON_BOOT"
-            printf 'DEFAULT_SUBSCRIPTION_PLAN=%s\n' "$DEFAULT_SUBSCRIPTION_PLAN"
-            printf 'WORKER_INTERVAL=%s\n' "$WORKER_INTERVAL"
-          } > .env.prod.deploy
-          scp -i ~/.ssh/deploy_key -P "$VPS_PORT" .env.prod.deploy "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/.env.prod"
-          rm -f .env.prod.deploy
-          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "chmod 600 '$DEPLOY_PATH/.env.prod'"
+          if [ "$ENV_BASE" = "env" ]; then
+            if [ ! -s .env ]; then
+              rm -f .env.prod.overrides
+              echo "Missing app secrets in GitHub and $DEPLOY_PATH/.env does not exist on VPS." >&2
+              exit 1
+            fi
+            cp .env .env.prod.tmp
+          elif [ -s .env.prod ]; then
+            cp .env.prod .env.prod.tmp
+          elif [ -s .env ]; then
+            cp .env .env.prod.tmp
+          else
+            : > .env.prod.tmp
+          fi
+          while IFS= read -r line || [ -n "$line" ]; do
+            key="${line%%=*}"
+            [ -n "$key" ] || continue
+            awk -v k="$key" 'index($0, k "=") != 1' .env.prod.tmp > .env.prod.next
+            printf '%s\n' "$line" >> .env.prod.next
+            mv .env.prod.next .env.prod.tmp
+          done < .env.prod.overrides
+          rm -f .env.prod.overrides
+          chmod 600 .env.prod.tmp
+          mv .env.prod.tmp .env.prod
+          REMOTE
 
       - name: Build, migrate, and restart services
         run: |
