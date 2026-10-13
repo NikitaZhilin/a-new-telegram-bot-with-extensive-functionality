@@ -69,6 +69,7 @@ jobs:
           python -B -m pytest -p no:cacheprovider -q -rfE --tb=short tests 2>&1 | tee pytest.log
           status=${PIPESTATUS[0]}
           grep -E "^(FAILED|ERROR) " pytest.log | head -30 | while IFS= read -r l; do echo "::error::$l"; done
+          echo "::notice::$(tail -n 1 pytest.log)"
           exit $status
 
   deploy:
