@@ -8,8 +8,9 @@ Provides REST API for:
 
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import health, admin, admin_ui, me, web
@@ -19,12 +20,41 @@ from src.services.service_heartbeat import ServiceHeartbeatWriter
 
 logger = logging.getLogger(__name__)
 
+_TOKEN_IN_QUERY = re.compile(r"(?i)([?&](?:token|key)=)[^&\s\"]+")
+NO_STORE_PREFIXES = ("/web", "/miniapp", "/me", "/admin")
+
+
+def redact_query_tokens(value: str) -> str:
+    """Hide ?token=... values (30-day web login keys) in log lines."""
+    return _TOKEN_IN_QUERY.sub(r"\1***", value)
+
+
+class RedactTokenFilter(logging.Filter):
+    """Strip login keys from uvicorn access log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and record.args:
+            record.args = tuple(
+                redact_query_tokens(arg) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        elif isinstance(record.msg, str):
+            record.msg = redact_query_tokens(record.msg)
+        return True
+
+
+def install_access_log_redaction() -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, RedactTokenFilter) for item in access_logger.filters):
+        access_logger.addFilter(RedactTokenFilter())
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("FastAPI application starting")
+    install_access_log_redaction()
     heartbeat = ServiceHeartbeatWriter(
         "api",
         metadata_factory=lambda: {
@@ -73,6 +103,18 @@ def create_application() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    install_access_log_redaction()
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        path = request.url.path
+        if path == "/" or path.startswith(NO_STORE_PREFIXES):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     # Include routers
     app.include_router(web.router, tags=["Web"])
