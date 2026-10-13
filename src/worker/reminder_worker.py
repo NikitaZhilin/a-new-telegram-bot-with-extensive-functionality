@@ -473,6 +473,24 @@ class ReminderWorkerService:
         
         return message
 
+    @staticmethod
+    def _monthly_anchor_day(reminder: Reminder, user_timezone: str) -> int | None:
+        """Day of month a monthly reminder belongs to; remembered on the reminder."""
+        if reminder.repeat_rule != RepeatRule.MONTHLY:
+            return None
+        anchor = getattr(reminder, "repeat_day_of_month", None)
+        if anchor:
+            return int(anchor)
+        remind_at = reminder.remind_at_utc
+        if remind_at.tzinfo is None:
+            remind_at = remind_at.replace(tzinfo=timezone.utc)
+        anchor = remind_at.astimezone(ZoneInfo(user_timezone)).day
+        try:
+            reminder.repeat_day_of_month = anchor
+        except AttributeError:
+            pass
+        return anchor
+
     def _get_user_timezone(self, reminder: Reminder) -> str:
         """Return reminder user's timezone with project default fallback."""
         timezone_name = getattr(getattr(reminder, "user", None), "timezone", None)
@@ -585,12 +603,26 @@ class ReminderWorkerService:
             now: Current UTC time
         """
         try:
+            user_timezone = self._get_user_timezone(reminder)
+            day_of_month = self._monthly_anchor_day(reminder, user_timezone)
             next_time = calculate_next_occurrence(
                 reminder.remind_at_utc,
                 reminder.repeat_rule,
-                self._get_user_timezone(reminder),
+                user_timezone,
+                day_of_month=day_of_month,
             )
-            
+            # After downtime, jump straight to the first future occurrence
+            # instead of sending every missed repeat one per minute.
+            skipped = 0
+            while next_time <= now and skipped < 1000:
+                next_time = calculate_next_occurrence(
+                    next_time,
+                    reminder.repeat_rule,
+                    user_timezone,
+                    day_of_month=day_of_month,
+                )
+                skipped += 1
+
             await repo.create_next_occurrence(reminder, next_time)
             
             logger.info(

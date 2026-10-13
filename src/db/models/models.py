@@ -1020,6 +1020,12 @@ class Reminder(Base):
         default=RepeatRule.NONE,
         nullable=False
     )
+    # Day of month a monthly reminder was set for (1-31, user's local time).
+    # Without it 30.01 -> 28.02 -> 31.03: the day drifted to month end forever.
+    repeat_day_of_month: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
     status: Mapped[ReminderStatus] = mapped_column(
         SQLAlchemyEnum(ReminderStatus),
         default=ReminderStatus.ACTIVE,

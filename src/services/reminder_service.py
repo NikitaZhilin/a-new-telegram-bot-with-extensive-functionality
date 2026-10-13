@@ -248,6 +248,8 @@ class ReminderService:
         )
         
         reminder.remind_at_utc = new_time_utc
+        # The worker re-derives the monthly day from the new time.
+        reminder.repeat_day_of_month = None
         self._cancel_pending_notifications(reminder)
         self._add_notification_plan(reminder, offsets)
         await self.db.flush()
@@ -286,6 +288,7 @@ class ReminderService:
             return None
         
         reminder.repeat_rule = repeat_rule
+        reminder.repeat_day_of_month = None
         await self.db.flush()
         await self.db.refresh(reminder)
         
