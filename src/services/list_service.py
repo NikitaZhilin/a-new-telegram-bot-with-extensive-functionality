@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -236,13 +236,20 @@ class ListService:
         source_module: Optional[str] = "general",
     ) -> list[ListItem]:
         """Add multiple items to TodoList."""
+        # Items sort by coalesce(position, id). Bulk items used positions
+        # 0..n, so every batch jumped to the top and interleaved with earlier
+        # batches. Append after everything already in the list instead.
+        result = await self.db.execute(
+            select(func.max(func.coalesce(ListItem.position, ListItem.id))).where(ListItem.list_id == list_id)
+        )
+        base = (result.scalar() or 0) + 1
         items = []
         for i, text in enumerate(texts):
             item = await self.add_item(
                 list_id,
                 user_id,
                 text.strip(),
-                position=i,
+                position=base + i,
                 source_module=source_module,
             )
             if item:

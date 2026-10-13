@@ -312,3 +312,21 @@ def test_past_reminder_time_is_detected():
 
     assert _is_in_past(datetime.now(timezone.utc) - timedelta(hours=5))
     assert not _is_in_past(datetime.now(timezone.utc) + timedelta(minutes=5))
+
+
+# --- List item order ---------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_bulk_added_items_go_to_the_end_in_order(db_session):
+    """Before: each bulk batch jumped to the top and mixed with the previous batch."""
+    user = await _user(db_session, 81011)
+    service = ListService(db_session)
+    todo = await service.create_list(user.id, "Покупки")
+    await service.add_item(todo.id, user.id, "молоко")
+    await service.add_items_bulk(todo.id, user.id, ["хлеб", "яйца"])
+    await service.add_items_bulk(todo.id, user.id, ["сыр", "масло"])
+    await service.add_item(todo.id, user.id, "чай")
+
+    items = await service.get_list_items(todo.id, user.id)
+
+    assert [item.text for item in items] == ["молоко", "хлеб", "яйца", "сыр", "масло", "чай"]
