@@ -4,6 +4,9 @@ name: Server health
 # Results are shown as annotations on the run page.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - ops/health-check
   schedule:
     - cron: "17 5 * * *"
 
