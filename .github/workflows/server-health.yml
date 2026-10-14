@@ -46,14 +46,14 @@ jobs:
           echo "::notice title=Server health::${report}"
           exit $status
 
-      - name: Users activity (details go to admins in Telegram only)
+      - name: Users export (files go to admins in Telegram only)
         if: always()
         run: |
           set +e
           ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "docker exec -i '$COMPOSE_PROJECT_NAME-api' sh -c 'DATABASE_URL=postgresql+asyncpg://\$POSTGRES_USER:\$POSTGRES_PASSWORD@\${POSTGRES_HOST:-postgres}:5432/\$POSTGRES_DB python -'" < scripts/users-activity.py > users.txt 2>&1
+            "docker exec -i '$COMPOSE_PROJECT_NAME-api' sh -c 'DATABASE_URL=postgresql+asyncpg://\$POSTGRES_USER:\$POSTGRES_PASSWORD@\${POSTGRES_HOST:-postgres}:5432/\$POSTGRES_DB python -'" < scripts/users-export.py > users.txt 2>&1
           status=$?
-          lines=$(tail -n 20 users.txt | grep -E '^(USERS|SECTIONS|REMINDERS|OTHER|DETAILED)|Error|error' | cut -c1-400)
+          lines=$(tail -n 20 users.txt | grep -E '^(EXPORT|PROBLEMS|BLOCKED|DELIVERED|SEND)|Error|error' | cut -c1-400)
           echo "$lines"
           report=$(echo "$lines" | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
           echo "::notice title=Users::${report}"
