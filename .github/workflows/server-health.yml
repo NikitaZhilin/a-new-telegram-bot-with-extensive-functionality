@@ -46,16 +46,25 @@ jobs:
           echo "::notice title=Server health::${report}"
           exit $status
 
-      - name: Anonymous problem diagnostics
+      - name: Bot liveness (anonymous)
         if: always()
         run: |
           set +e
-          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "docker exec -i '$COMPOSE_PROJECT_NAME-api' sh -c 'DATABASE_URL=postgresql+asyncpg://\$POSTGRES_USER:\$POSTGRES_PASSWORD@\${POSTGRES_HOST:-postgres}:5432/\$POSTGRES_DB python -'" < scripts/diagnose-problems.py > users.txt 2>&1
-          status=$?
-          lines=$(tail -n 120 users.txt | cut -c1-300)
-          echo "$lines"
-          report=$(echo "$lines" | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash -s > live.txt 2>&1 <<'REMOTE'
+          P=rememberme_bot
+          echo "== bot log since start: lines $(docker logs $P-bot 2>&1 | wc -l)"
+          docker logs $P-bot 2>&1 | grep -oE '"event": ?"[^"]{0,80}"|^[A-Za-z][^{]{0,80}' | sed -E 's/[0-9]{5,}/<id>/g' | sort | uniq -c | sort -rn | head -25
+          echo "== bot log last 8 lines (ids masked)"
+          docker logs --tail 8 $P-bot 2>&1 | cut -c1-220 | sed -E 's/[0-9]{5,}/<id>/g'
+          echo "== activity since 16:00 UTC"
+          docker exec $P-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "SELECT event_type, domain, count(*), to_char(max(created_at),'"'"'HH24:MI'"'"') FROM bot_activity_events WHERE created_at > '"'"'2026-10-14 16:00+00'"'"' GROUP BY 1,2 ORDER BY 3 DESC LIMIT 15"'
+          echo "== startup notices for 0.1.83"
+          docker exec $P-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "SELECT split_part(event_name, '"'"':'"'"', 1), count(*), to_char(max(created_at),'"'"'HH24:MI'"'"') FROM bot_activity_events WHERE event_name LIKE '"'"'%0.1.83%'"'"' GROUP BY 1"'
+          echo "== error journal"
+          docker exec $P-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "SELECT id, service, section, error_type, location, count, to_char(last_seen_at,'"'"'HH24:MI'"'"') FROM error_events ORDER BY last_seen_at DESC LIMIT 10"'
+          echo "== alembic"
+          docker exec $P-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "SELECT version_num FROM alembic_version"'
+          REMOTE
+          cat live.txt
+          report=$(cut -c1-250 live.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
           echo "::notice title=Users::${report}"
-          exit $status
-
