@@ -58,8 +58,8 @@ import json, os, urllib.request
 req = urllib.request.Request("http://localhost:8000/admin/service-status", headers={"X-Admin-Token": os.environ.get("ADMIN_TOKEN", "")})
 data = json.load(urllib.request.urlopen(req, timeout=10))
 services = data.get("services", {})
-parts = [f"{k}={v.get(\"status\")}" for k, v in sorted(services.items())]
-print(f"{data.get(\"status\")} | version {data.get(\"version\")} | db {data.get(\"database\")} | " + ", ".join(parts))
+parts = ["%s=%s" % (name, info.get("status")) for name, info in sorted(services.items())]
+print("%s | version %s | db %s | %s" % (data.get("status"), data.get("version"), data.get("database"), ", ".join(parts)))
 ' 2>&1 | tail -n 1)
   echo "APP STATUS: $status_json"
   case "$status_json" in ok*) ;; *) warn "app status is not ok: $status_json" ;; esac
@@ -71,7 +71,14 @@ print(f"{data.get(\"status\")} | version {data.get(\"version\")} | db {data.get(
   if [ -n "$pending" ]; then
     set -- $pending
     echo "REMINDERS: overdue (>10 min) $1, failed last 24h $2"
-    [ "${1:-0}" -gt 0 ] && warn "$1 reminder notifications are overdue"
+    if [ "${1:-0}" -gt 0 ]; then
+      warn "$1 reminder notifications are overdue"
+      docker exec "$PREFIX-postgres" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "
+        SELECT '\''OVERDUE: notification '\'' || n.id || '\'' reminder '\'' || r.id || '\'' ('\'' || r.source_module || '\'', '\'' || r.repeat_rule || '\'', '\'' || r.status || '\'') due '\'' || to_char(n.notify_at_utc, '\''YYYY-MM-DD HH24:MI'\'') || '\'' UTC, user tz '\'' || u.timezone || '\'', error: '\'' || coalesce(left(n.last_error, 160), '\''-'\'')
+        FROM reminder_notifications n JOIN reminders r ON r.id = n.reminder_id JOIN users u ON u.id = r.user_id
+        WHERE n.status = '\''PENDING'\'' AND n.notify_at_utc < now() - interval '\''10 minutes'\''
+        ORDER BY n.notify_at_utc LIMIT 5"' 2>&1
+    fi
   fi
   users=$(docker exec "$PREFIX-postgres" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM users"' 2>/dev/null)
   [ -n "$users" ] && echo "USERS: $users"
