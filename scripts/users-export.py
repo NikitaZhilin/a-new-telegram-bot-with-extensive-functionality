@@ -148,9 +148,9 @@ async def main() -> None:
     for r in reminders:
         status = _v(r.status).lower()
         ns = notifications.get(r.id, [])
-        sent = [n for n in ns if _v(n.status) == "SENT"]
-        pending = [n for n in ns if _v(n.status) == "PENDING"]
-        failed = [n for n in ns if _v(n.status) == "FAILED"]
+        sent = [n for n in ns if _v(n.status).lower() == "sent"]
+        pending = [n for n in ns if _v(n.status).lower() == "pending"]
+        failed = [n for n in ns if _v(n.status).lower() == "failed"]
         last_error = next((n.last_error for n in sorted(ns, key=lambda n: n.id, reverse=True) if n.last_error), "")
         if any(_blocked(n.last_error) for n in failed):
             blocked_users.add(r.user_id)
@@ -265,7 +265,7 @@ async def main() -> None:
         "5_проблемы.csv": _csv(["Пользователь", "Что", "Проблема", "Ошибка"], problems),
     }
     caption = (
-        f"📦 Выгрузка на {now.astimezone(REPORT_TZ):%d.%m.%Y %H:%M}: пользователей {len(users)}, "
+        f"📦 Выгрузка (исправленная, предыдущую не учитывать) на {now.astimezone(REPORT_TZ):%d.%m.%Y %H:%M}: пользователей {len(users)}, "
         f"проблем {len(problems)}. Тексты напоминаний/заметок/списков и названия лекарств не выгружались. "
         f"Выполненные повторы старше 14 дней посчитаны в «Напоминаний всего», но не перечислены."
     )
