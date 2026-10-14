@@ -118,7 +118,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def menu_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle main menu button clicks."""
     text = update.message.text
 
@@ -323,7 +323,7 @@ help_handler = CommandHandler("help", help_command)
 
 menu_button_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND,
-    menu_button_handler,
+    menu_button_callback,
 )
 
 back_handler = CallbackQueryHandler(back_callback, pattern="^back$")

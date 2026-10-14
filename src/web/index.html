@@ -335,6 +335,17 @@
       </section>
 
       <section id="admin" class="section">
+        <div class="split-layout admin-layout">
+          <div class="panel">
+            <h2>📬 Обращения пользователей</h2>
+            <div id="adminFeedback" class="item-list"></div>
+          </div>
+          <div class="panel">
+            <h2>🧯 Журнал ошибок</h2>
+            <label class="admin-inline-check"><input id="adminErrorsResolved" type="checkbox"> показывать решённые</label>
+            <div id="adminErrors" class="item-list"></div>
+          </div>
+        </div>
         <div class="panel">
           <h2>Активность пользователей</h2>
           <form id="adminActivityFilterForm" class="filters-row">

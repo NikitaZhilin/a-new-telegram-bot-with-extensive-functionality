@@ -44,10 +44,10 @@ TEXT_INPUT = filters.TEXT & ~filters.COMMAND & ~MAIN_MENU_FILTER
 
 
 async def _exit_via_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    from src.bot.handlers.navigation import menu_button_handler
+    from src.bot.handlers.navigation import menu_button_callback
 
     context.user_data.clear()
-    await menu_button_handler(update, context)
+    await menu_button_callback(update, context)
     return ConversationHandler.END
 
 
