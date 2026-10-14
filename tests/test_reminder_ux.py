@@ -236,7 +236,7 @@ def test_reminder_view_keyboard_uses_compact_edit_and_next_action():
     assert "reminder_cancel:10" not in callbacks
     assert "reminder_edit_text:10" not in callbacks
     assert "✏️ Изменить" in texts
-    assert "➕ Следующее напоминание" in texts
+    assert "➕ Новое напоминание" in texts
 
 
 def test_reminder_view_keyboard_can_hide_done_action_before_due_window():
