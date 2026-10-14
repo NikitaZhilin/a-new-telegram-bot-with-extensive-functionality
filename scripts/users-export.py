@@ -41,7 +41,16 @@ from src.db.models import (  # noqa: E402
     User,
 )
 from src.db.session import async_session_maker  # noqa: E402
-from src.utils.timezones import effective_user_timezone  # noqa: E402
+
+
+def effective_user_timezone(stored, default):
+    """Timezone reminders are scheduled in ("UTC" = not chosen = default)."""
+    name = default if not stored or (stored == "UTC" and default != "UTC") else stored
+    try:
+        ZoneInfo(name)
+        return name
+    except Exception:
+        return default
 
 DEFAULT_TZ = settings.TIMEZONE_DEFAULT or "Europe/Moscow"
 REPORT_TZ = ZoneInfo(DEFAULT_TZ)
