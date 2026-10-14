@@ -696,57 +696,6 @@ async def _send_admin_startup_notices(bot_app, reply_markup) -> None:
             )
 
 
-ANNOUNCEMENT_EVENT_PREFIX = "announcement_sent"
-
-
-async def _send_one_time_announcement(bot_app) -> int:
-    """Send the current one-time announcement to every user who has not got it yet."""
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.error import Forbidden
-
-    from src.repositories.user_repo import UserRepository
-    from src.services.announcements import ANNOUNCEMENT_ID, announcement_text
-
-    logger = structlog.get_logger(__name__)
-    if not ANNOUNCEMENT_ID:
-        return 0
-    async with async_session_maker() as session:
-        users = await UserRepository(session).get_all_with_telegram_id()
-
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("💬 Обратная связь", callback_data="feedback_start")]]
-    )
-    sent = 0
-    for user in users:
-        try:
-            if await _startup_event_sent(
-                event_prefix=ANNOUNCEMENT_EVENT_PREFIX,
-                telegram_id=user.telegram_id,
-                app_version=ANNOUNCEMENT_ID,
-            ):
-                continue
-            try:
-                await bot_app.bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=announcement_text(settings.APP_VERSION),
-                    reply_markup=keyboard,
-                )
-                sent += 1
-            except Forbidden:
-                # The user stopped the bot: do not retry on every restart.
-                pass
-            await _record_startup_event_sent(
-                event_prefix=ANNOUNCEMENT_EVENT_PREFIX,
-                telegram_id=user.telegram_id,
-                user_id=user.id,
-                app_version=ANNOUNCEMENT_ID,
-            )
-            await asyncio.sleep(0.1)
-        except Exception:
-            logger.warning("Failed to send announcement", telegram_id=user.telegram_id, exc_info=True)
-    logger.info("Announcement sent", announcement=ANNOUNCEMENT_ID, sent=sent)
-    return sent
-
 async def run_bot() -> None:
     """Run Telegram bot."""
     from src.bot.app import create_application
@@ -852,9 +801,6 @@ async def run_bot() -> None:
                 )
 
     await _send_admin_startup_notices(bot_app, get_main_menu_keyboard())
-    announcement_task = asyncio.create_task(
-        _send_one_time_announcement(bot_app), name="one-time-announcement"
-    )
     
     try:
         await bot_app.updater.start_polling()

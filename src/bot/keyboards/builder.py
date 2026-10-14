@@ -2048,6 +2048,9 @@ def get_about_keyboard(
             InlineKeyboardButton("🧯 Журнал ошибок", callback_data="settings_errors"),
             InlineKeyboardButton("📬 Обращения", callback_data="settings_feedback_list"),
         ])
+        keyboard.append([
+            InlineKeyboardButton("📣 Оповещение пользователям", callback_data="settings_broadcast"),
+        ])
     keyboard.append([
         InlineKeyboardButton("⬅️ Настройки", callback_data="settings_menu"),
         InlineKeyboardButton("🏠 В меню", callback_data="home"),

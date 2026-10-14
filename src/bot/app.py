@@ -155,6 +155,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 # Import handlers for callback registration
+from src.bot.handlers.broadcast import broadcast_callback_handlers
 from src.bot.handlers.feedback import admin_callback_handlers, feedback_conv
 from src.bot.handlers.lists import (
     lists_list_callback,
@@ -422,7 +423,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(settings_about_callback, pattern="^settings_about$"))
     application.add_handler(CallbackQueryHandler(settings_release_history_callback, pattern="^settings_release_history$"))
     application.add_handler(CallbackQueryHandler(settings_technical_status_callback, pattern="^settings_technical_status$"))
-    for handler in admin_callback_handlers():
+    for handler in [*admin_callback_handlers(), *broadcast_callback_handlers()]:
         application.add_handler(handler)
     application.add_handler(CallbackQueryHandler(settings_stats_callback, pattern="^settings_stats$"))
     application.add_handler(CallbackQueryHandler(settings_subscription_callback, pattern="^settings_subscription$"))

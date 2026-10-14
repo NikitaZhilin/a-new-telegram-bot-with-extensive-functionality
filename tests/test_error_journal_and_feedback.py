@@ -209,6 +209,8 @@ def test_feedback_and_admin_buttons_are_registered():
         "feedback_start", "fb_kind:bug", "fb_reply:1", "fb_read:1",
         "settings_errors", "settings_error:1", "settings_error_resolve:1", "settings_errors_resolve_all",
         "settings_feedback_list", "settings_feedback:1",
+        "settings_broadcast", "bc_pick:0", "bc_toggle:5:0", "bc_select_new:0", "bc_clear:1",
+        "bc_confirm:me", "bc_confirm:new", "bc_confirm:sel", "bc_send:me", "bc_send:new", "bc_send:sel",
     ):
         assert _is_registered(callback, patterns), callback
 
@@ -221,7 +223,8 @@ def test_admin_buttons_only_for_admin():
 
     assert "feedback_start" in callbacks(get_settings_keyboard())
     assert "settings_errors" not in callbacks(get_about_keyboard())
-    assert {"settings_errors", "settings_feedback_list"} <= callbacks(get_about_keyboard(is_admin=True))
+    assert {"settings_errors", "settings_feedback_list", "settings_broadcast"} <= callbacks(get_about_keyboard(is_admin=True))
+    assert "settings_broadcast" not in callbacks(get_about_keyboard())
 
 
 @pytest.mark.asyncio
@@ -298,3 +301,75 @@ def test_announcement_mentions_testing_version_and_feedback():
     assert ANNOUNCEMENT_ID
     assert "режиме тестирования" in text and "0.1.81-beta" in text and "/feedback" in text
     assert len(text) < 4096
+
+
+# --- Announcement: sent only by the admin, to chosen people -------------------
+
+class _Bot:
+    def __init__(self, blocked=()):
+        self.sent = []
+        self.blocked = set(blocked)
+
+    async def send_message(self, chat_id, text, reply_markup=None):
+        from telegram.error import Forbidden
+
+        if chat_id in self.blocked:
+            raise Forbidden("bot was blocked by the user")
+        self.sent.append(chat_id)
+
+
+@pytest.mark.asyncio
+async def test_announcement_is_sent_once_and_test_send_is_not_counted():
+    from src.services.announcements import delivered_telegram_ids, send_announcement
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    bot = _Bot(blocked={3})
+
+    test_send = await send_announcement(bot, [(1, None)], maker, text="t", record=False, pause_seconds=0)
+    async with maker() as session:
+        assert await delivered_telegram_ids(session) == set()
+
+    result = await send_announcement(bot, [(1, None), (2, None), (3, None)], maker, text="t", pause_seconds=0)
+    async with maker() as session:
+        delivered = await delivered_telegram_ids(session)
+    await engine.dispose()
+
+    assert test_send.sent == 1
+    assert (result.sent, result.blocked, result.failed) == (2, 1, 0)
+    assert delivered == {1, 2}
+
+
+def test_bot_startup_no_longer_broadcasts_automatically():
+    import inspect
+
+    import src.main as main_module
+
+    assert "send_announcement" not in inspect.getsource(main_module.run_bot)
+    assert not hasattr(main_module, "_send_one_time_announcement")
+
+
+@pytest.mark.asyncio
+async def test_broadcast_screens_refuse_regular_users(monkeypatch):
+    from src.bot.handlers import broadcast
+
+    async def not_admin(_telegram_id):
+        return False
+
+    monkeypatch.setattr(broadcast, "_is_admin", not_admin)
+    edits = []
+
+    class Query:
+        data = "bc_send:new"
+
+        async def answer(self, *args, **kwargs):
+            pass
+
+        async def edit_message_text(self, text, reply_markup=None):
+            edits.append(text)
+
+    update = SimpleNamespace(callback_query=Query(), effective_user=SimpleNamespace(id=1))
+    await broadcast.broadcast_send_callback(update, SimpleNamespace(user_data={}, bot=_Bot()))
+    assert edits and "только администратору" in edits[0]
