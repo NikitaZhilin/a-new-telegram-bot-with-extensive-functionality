@@ -87,7 +87,7 @@ def _stale_text() -> str:
 async def _show_stale(update: Update) -> None:
     """Show a safe stale-callback message."""
     query = update.callback_query
-    await query.edit_message_text(_stale_text(), reply_markup=get_back_home_inline_keyboard())
+    await query.edit_message_text(_stale_text(), reply_markup=get_back_home_inline_keyboard("lists_list"))
 
 
 async def checklist_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -110,7 +110,7 @@ async def checklist_start_callback(update: Update, context: ContextTypes.DEFAULT
                 "❌ Не удалось запустить чек-лист.\n\n"
                 "Проверьте, что список существует, доступен вам и в нем есть пункты."
             )
-            keyboard = get_back_home_inline_keyboard()
+            keyboard = get_back_home_inline_keyboard("lists_list")
 
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
@@ -143,7 +143,7 @@ async def checklist_start_item_callback(update: Update, context: ContextTypes.DE
                 "❌ Не удалось запустить чек-лист.\n\n"
                 "Проверьте, что список существует, доступен вам и в нем есть пункты."
             )
-            keyboard = get_back_home_inline_keyboard()
+            keyboard = get_back_home_inline_keyboard("lists_list")
 
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
@@ -166,7 +166,7 @@ async def checklist_toggle_callback(update: Update, context: ContextTypes.DEFAUL
         if run:
             text, keyboard = await _render_run(service, run)
         else:
-            text, keyboard = _stale_text(), get_back_home_inline_keyboard()
+            text, keyboard = _stale_text(), get_back_home_inline_keyboard("lists_list")
 
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
@@ -187,7 +187,7 @@ async def checklist_check_all_callback(update: Update, context: ContextTypes.DEF
         if run:
             text, keyboard = await _render_run(service, run)
         else:
-            text, keyboard = _stale_text(), get_back_home_inline_keyboard()
+            text, keyboard = _stale_text(), get_back_home_inline_keyboard("lists_list")
 
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END

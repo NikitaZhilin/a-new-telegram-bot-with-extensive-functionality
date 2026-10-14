@@ -59,7 +59,12 @@ from src.services.driver_service import DriverService
 from src.services.checklist_service import ChecklistService
 from src.services.list_service import ListService
 from src.services.vehicle_presets import get_vehicle_preset, list_vehicle_presets
-from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
+from src.bot.handlers.conversation_exit import (
+    TEXT_INPUT,
+    WIZARD_TIMEOUT_SECONDS,
+    exit_fallbacks,
+    leave_wizard_fallbacks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -861,7 +866,7 @@ async def _render_fuel_history(
         if not vehicle:
             await update.callback_query.edit_message_text(
                 "❌ Авто не найдено",
-                reply_markup=get_back_home_inline_keyboard(),
+                reply_markup=get_back_home_inline_keyboard("driver_menu"),
             )
             return ConversationHandler.END
 
@@ -1607,7 +1612,7 @@ async def driver_vehicle_view_callback(update: Update, context: ContextTypes.DEF
         vehicle = await DriverService(session).get_vehicle(vehicle_id, user_id)
 
     if not vehicle:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1628,7 +1633,7 @@ async def driver_vehicle_delete_callback(update: Update, context: ContextTypes.D
         vehicle = await DriverService(session).get_vehicle(vehicle_id, user_id)
 
     if not vehicle:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1650,7 +1655,7 @@ async def driver_vehicle_delete_confirm_callback(update: Update, context: Contex
         await session.commit()
 
     if not deleted:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     return await _render_vehicles(update, context)
@@ -1677,7 +1682,7 @@ async def driver_fuel_view_callback(update: Update, context: ContextTypes.DEFAUL
         entry = await DriverService(session).get_fuel_entry(entry_id, user_id)
 
     if not entry:
-        await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1698,7 +1703,7 @@ async def driver_fuel_delete_callback(update: Update, context: ContextTypes.DEFA
         entry = await DriverService(session).get_fuel_entry(entry_id, user_id)
 
     if not entry:
-        await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1719,7 +1724,7 @@ async def driver_fuel_delete_confirm_callback(update: Update, context: ContextTy
         service = DriverService(session)
         entry = await service.get_fuel_entry(entry_id, user_id)
         if not entry:
-            await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard())
+            await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard("driver_menu"))
             return ConversationHandler.END
         vehicle_id = entry.vehicle_id
         await service.delete_fuel_entry(entry_id, user_id)
@@ -1739,7 +1744,7 @@ async def driver_service_view_callback(update: Update, context: ContextTypes.DEF
         plan = await DriverService(session).get_service_plan(vehicle_id, user_id)
 
     if not plan:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1765,7 +1770,7 @@ async def driver_expense_view_callback(update: Update, context: ContextTypes.DEF
             vehicle_title = vehicle.title if vehicle else None
 
     if not expense:
-        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1786,7 +1791,7 @@ async def driver_expense_delete_callback(update: Update, context: ContextTypes.D
         expense = await DriverService(session).get_expense(expense_id, user_id)
 
     if not expense:
-        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1826,7 +1831,7 @@ async def driver_document_view_callback(update: Update, context: ContextTypes.DE
             vehicle_title = vehicle.title if vehicle else None
 
     if not document:
-        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1847,7 +1852,7 @@ async def driver_document_delete_callback(update: Update, context: ContextTypes.
         document = await DriverService(session).get_document(document_id, user_id)
 
     if not document:
-        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -2044,7 +2049,7 @@ async def driver_vehicle_edit_start(update: Update, context: ContextTypes.DEFAUL
         vehicle = await DriverService(session).get_vehicle(vehicle_id, user_id)
 
     if not vehicle:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     _clear_driver_context(context)
@@ -2203,7 +2208,7 @@ async def _finish_vehicle_wizard(update: Update, context: ContextTypes.DEFAULT_T
         await session.commit()
 
     if not vehicle:
-        await _show_driver_step(update, context, "❌ Авто не найдено", get_back_home_inline_keyboard())
+        await _show_driver_step(update, context, "❌ Авто не найдено", get_back_home_inline_keyboard("driver_menu"))
         _clear_driver_context(context)
         return ConversationHandler.END
 
@@ -2228,7 +2233,7 @@ async def driver_vehicle_mileage_update_start(update: Update, context: ContextTy
         vehicle = await DriverService(session).get_vehicle(vehicle_id, user_id)
 
     if not vehicle:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     _clear_driver_context(context)
@@ -2264,7 +2269,7 @@ async def driver_vehicle_mileage_update_save(update: Update, context: ContextTyp
         await session.commit()
 
     if not vehicle:
-        await _show_driver_step(update, context, "❌ Авто не найдено", get_back_home_inline_keyboard())
+        await _show_driver_step(update, context, "❌ Авто не найдено", get_back_home_inline_keyboard("driver_menu"))
         _clear_driver_context(context)
         return ConversationHandler.END
 
@@ -2358,7 +2363,7 @@ async def driver_fuel_add_start(update: Update, context: ContextTypes.DEFAULT_TY
         vehicle = await DriverService(session).get_vehicle(vehicle_id, user_id)
 
     if not vehicle:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     _clear_driver_context(context)
@@ -2378,7 +2383,7 @@ async def driver_fuel_edit_start(update: Update, context: ContextTypes.DEFAULT_T
         entry = await DriverService(session).get_fuel_entry(entry_id, user_id)
 
     if not entry:
-        await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заправка не найдена", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     _clear_driver_context(context)
@@ -2541,7 +2546,7 @@ async def _finish_fuel_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE
         await session.commit()
 
     if not entry:
-        await _show_driver_step(update, context, "❌ Заправка не сохранена", get_back_home_inline_keyboard())
+        await _show_driver_step(update, context, "❌ Заправка не сохранена", get_back_home_inline_keyboard("driver_menu"))
         _clear_driver_context(context)
         return ConversationHandler.END
 
@@ -2567,7 +2572,7 @@ async def driver_service_done_start(update: Update, context: ContextTypes.DEFAUL
         vehicle = await DriverService(session).get_vehicle(vehicle_id, user_id)
 
     if not vehicle:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
 
     _clear_driver_context(context)
@@ -2602,7 +2607,7 @@ async def driver_service_done_current(update: Update, context: ContextTypes.DEFA
         user_id = await _get_app_user_id(update, session)
         vehicle = await DriverService(session).get_vehicle(vehicle_id, user_id)
     if not vehicle:
-        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Авто не найдено", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
     return await _finish_service_done(update, context, vehicle.current_mileage_km)
 
@@ -2622,7 +2627,7 @@ async def _finish_service_done(
         await session.commit()
 
     if not plan:
-        await _show_driver_step(update, context, "❌ Авто не найдено", get_back_home_inline_keyboard())
+        await _show_driver_step(update, context, "❌ Авто не найдено", get_back_home_inline_keyboard("driver_menu"))
         _clear_driver_context(context)
         return ConversationHandler.END
 
@@ -2728,7 +2733,7 @@ async def driver_expense_edit_start(update: Update, context: ContextTypes.DEFAUL
         user_id = await _get_app_user_id(update, session)
         expense = await DriverService(session).get_expense(expense_id, user_id)
     if not expense:
-        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Расход не найден", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
     _clear_driver_context(context)
     context.user_data["driver_expense_mode"] = "edit"
@@ -2858,7 +2863,7 @@ async def _finish_expense_wizard(update: Update, context: ContextTypes.DEFAULT_T
         await session.commit()
 
     if not expense:
-        await _show_driver_step(update, context, "❌ Расход не сохранен", get_back_home_inline_keyboard())
+        await _show_driver_step(update, context, "❌ Расход не сохранен", get_back_home_inline_keyboard("driver_menu"))
         _clear_driver_context(context)
         return ConversationHandler.END
 
@@ -2968,7 +2973,7 @@ async def driver_document_edit_start(update: Update, context: ContextTypes.DEFAU
         user_id = await _get_app_user_id(update, session)
         document = await DriverService(session).get_document(document_id, user_id)
     if not document:
-        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Документ не найден", reply_markup=get_back_home_inline_keyboard("driver_menu"))
         return ConversationHandler.END
     _clear_driver_context(context)
     context.user_data["driver_document_mode"] = "edit"
@@ -3154,7 +3159,7 @@ async def _finish_document_wizard(update: Update, context: ContextTypes.DEFAULT_
         await session.commit()
 
     if not document:
-        await _show_driver_step(update, context, "❌ Документ не сохранен", get_back_home_inline_keyboard())
+        await _show_driver_step(update, context, "❌ Документ не сохранен", get_back_home_inline_keyboard("driver_menu"))
         _clear_driver_context(context)
         return ConversationHandler.END
 
@@ -3172,12 +3177,13 @@ async def driver_cancel_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await update.callback_query.edit_message_text("❌ Отменено", reply_markup=get_driver_menu_keyboard())
     else:
         await _delete_user_message(update)
-        await _show_driver_step(update, context, "❌ Отменено", get_back_home_inline_keyboard())
+        await _show_driver_step(update, context, "❌ Отменено", get_back_home_inline_keyboard("driver_menu"))
     return ConversationHandler.END
 
 
 driver_vehicle_create_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(driver_vehicle_create_start, pattern="^driver_vehicle_create$"),
         CallbackQueryHandler(driver_vehicle_edit_start, pattern="^driver_vehicle_edit:"),
@@ -3211,12 +3217,14 @@ driver_vehicle_create_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 driver_vehicle_mileage_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[CallbackQueryHandler(driver_vehicle_mileage_update_start, pattern="^driver_vehicle_mileage:")],
     states={
         DriverStates.WAIT_VEHICLE_MILEAGE: [
@@ -3227,12 +3235,14 @@ driver_vehicle_mileage_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 driver_fuel_create_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(driver_fuel_add_start, pattern="^driver_fuel_add:"),
         CallbackQueryHandler(driver_fuel_edit_start, pattern="^driver_fuel_edit:"),
@@ -3263,12 +3273,14 @@ driver_fuel_create_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 driver_expense_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(driver_expense_add_start, pattern="^driver_expense_add$"),
         CallbackQueryHandler(driver_expense_edit_start, pattern="^driver_expense_edit:"),
@@ -3298,12 +3310,14 @@ driver_expense_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 driver_document_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(driver_document_add_start, pattern="^driver_document_add$"),
         CallbackQueryHandler(driver_document_edit_start, pattern="^driver_document_edit:"),
@@ -3341,12 +3355,14 @@ driver_document_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 driver_journal_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(driver_journal_add_start, pattern="^driver_journal_add$"),
         CallbackQueryHandler(driver_journal_edit_start, pattern="^driver_journal_edit:"),
@@ -3370,12 +3386,14 @@ driver_journal_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 driver_service_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[CallbackQueryHandler(driver_service_done_start, pattern="^driver_service_done:")],
     states={
         DriverStates.WAIT_SERVICE_MILEAGE: [
@@ -3387,5 +3405,6 @@ driver_service_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", driver_cancel_handler),
         CallbackQueryHandler(driver_cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )

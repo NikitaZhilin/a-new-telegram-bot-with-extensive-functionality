@@ -43,7 +43,12 @@ from src.db.session import async_session_maker
 from src.repositories.user_repo import UserRepository
 from src.services.medication_service import MedicationService
 from src.utils.text import truncate
-from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
+from src.bot.handlers.conversation_exit import (
+    TEXT_INPUT,
+    WIZARD_TIMEOUT_SECONDS,
+    exit_fallbacks,
+    leave_wizard_fallbacks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -388,7 +393,7 @@ async def medication_view_callback(update: Update, context: ContextTypes.DEFAULT
 
     text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
     if not text:
-        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(text, reply_markup=keyboard)
@@ -408,7 +413,7 @@ async def _refresh_medication_screen(
     text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
     if not text:
         text = "❌ Лекарство не найдено"
-        keyboard = get_back_home_inline_keyboard()
+        keyboard = get_back_home_inline_keyboard("medications_list")
 
     if update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=keyboard)
@@ -431,7 +436,7 @@ async def medication_edit_callback(update: Update, context: ContextTypes.DEFAULT
         medication = await service.get_medication(medication_id, user_id)
 
     if not medication:
-        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
         return ConversationHandler.END
 
     lines = [
@@ -514,7 +519,7 @@ async def medication_edit_importance_start_callback(
         medication = await service.get_medication(medication_id, user_id)
 
     if not medication:
-        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -531,7 +536,7 @@ async def medication_edit_name_save(update: Update, context: ContextTypes.DEFAUL
     await _delete_user_message(update)
 
     if not medication_id:
-        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard("medications_list"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -560,7 +565,7 @@ async def medication_edit_dosage_save(update: Update, context: ContextTypes.DEFA
     await _delete_user_message(update)
 
     if not medication_id:
-        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard("medications_list"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -581,7 +586,7 @@ async def medication_edit_instructions_save(update: Update, context: ContextType
     await _delete_user_message(update)
 
     if not medication_id:
-        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        await _show_wizard_step(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard("medications_list"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -823,7 +828,7 @@ async def medication_mark_taken_callback(update: Update, context: ContextTypes.D
     if not intake:
         if state.reason == "not_found":
             await query.answer("Лекарство не найдено")
-            await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+            await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
             return ConversationHandler.END
         await query.answer(_format_medication_action_alert(state, user_timezone), show_alert=True)
     else:
@@ -853,7 +858,7 @@ async def medication_skip_callback(update: Update, context: ContextTypes.DEFAULT
     if not intake:
         if state.reason == "not_found":
             await query.answer("Лекарство не найдено")
-            await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+            await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
             return ConversationHandler.END
         await query.answer(_format_medication_action_alert(state, user_timezone), show_alert=True)
     else:
@@ -877,7 +882,7 @@ async def medication_snooze_callback(update: Update, context: ContextTypes.DEFAU
         await session.commit()
 
     if not reminder:
-        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -914,7 +919,7 @@ async def medication_reminder_skip_callback(update: Update, context: ContextType
 
     text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
     if not text:
-        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(text, reply_markup=keyboard)
@@ -1108,7 +1113,7 @@ async def medication_reminder_time_callback(update: Update, context: ContextType
     ok, text = await _create_medication_reminder(update, medication_id, remind_at_utc)
     await query.edit_message_text(
         text,
-        reply_markup=get_medication_view_keyboard(medication_id) if ok else get_back_home_inline_keyboard(),
+        reply_markup=get_medication_view_keyboard(medication_id) if ok else get_back_home_inline_keyboard("medications_list"),
     )
     return ConversationHandler.END
 
@@ -1163,7 +1168,7 @@ async def medication_reminder_custom_save(update: Update, context: ContextTypes.
             update,
             context,
             text,
-            reply_markup=get_medication_view_keyboard(medication_id) if ok else get_back_home_inline_keyboard(),
+            reply_markup=get_medication_view_keyboard(medication_id) if ok else get_back_home_inline_keyboard("medications_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -1187,7 +1192,7 @@ async def medication_reminder_custom_save(update: Update, context: ContextTypes.
         update,
         context,
         text,
-        reply_markup=get_medication_view_keyboard(medication_id) if ok else get_back_home_inline_keyboard(),
+        reply_markup=get_medication_view_keyboard(medication_id) if ok else get_back_home_inline_keyboard("medications_list"),
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1219,7 +1224,7 @@ async def medication_delete_confirm_callback(update: Update, context: ContextTyp
         await session.commit()
 
     if not deleted:
-        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
         return ConversationHandler.END
 
     text, keyboard = await _render_medications_page(user_id, page=0)
@@ -1233,12 +1238,12 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.callback_query.answer("Отменено")
         await update.callback_query.edit_message_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("medications_list"),
         )
     else:
         await update.message.reply_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("medications_list"),
         )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1246,6 +1251,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 medication_create_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[CallbackQueryHandler(medication_create_start, pattern="^med_create$")],
     states={
         MedicationStates.WAIT_NAME: [
@@ -1268,12 +1274,14 @@ medication_create_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 medication_edit_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(medication_edit_name_start, pattern="^med_edit_name:"),
         CallbackQueryHandler(medication_edit_dosage_start, pattern="^med_edit_dosage:"),
@@ -1296,12 +1304,14 @@ medication_edit_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 medication_reminder_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(medication_reminder_frequency_callback, pattern="^med_rem_freq:"),
         CallbackQueryHandler(medication_reminder_custom_start, pattern="^med_rem_custom:"),
@@ -1315,5 +1325,6 @@ medication_reminder_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )

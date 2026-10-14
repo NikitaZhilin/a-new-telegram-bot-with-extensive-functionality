@@ -46,7 +46,12 @@ from src.repositories.user_repo import UserRepository
 from src.db.models import ReminderNotificationStatus, RepeatRule
 from src.utils.date_parser import parse_datetime, parse_time_fragment
 from src.utils.labels import reminder_status_label, repeat_rule_label
-from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
+from src.bot.handlers.conversation_exit import (
+    TEXT_INPUT,
+    WIZARD_TIMEOUT_SECONDS,
+    exit_fallbacks,
+    leave_wizard_fallbacks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +409,7 @@ async def _show_notification_plan_step(
             update,
             context,
             "❌ Не указано время напоминания.",
-            get_back_home_inline_keyboard(),
+            get_back_home_inline_keyboard("reminders_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -436,6 +441,7 @@ async def reminders_list_callback(update: Update, context: ContextTypes.DEFAULT_
         user = await user_repo.get_by_telegram_id(user_id)
         
         reminder_service = ReminderService(session)
+        user_timezone = await _get_user_timezone(update, session)
         reminders, total = await reminder_service.get_reminders_list(
             user_id=user.id if user else user_id,
             active=show_active,
@@ -459,6 +465,7 @@ async def reminders_list_callback(update: Update, context: ContextTypes.DEFAULT_
         page=0,
         has_next=total > ITEMS_PER_PAGE,
         show_active=show_active,
+        user_timezone=user_timezone,
     )
     
     if query:
@@ -480,6 +487,7 @@ async def reminders_page_callback(update: Update, context: ContextTypes.DEFAULT_
 
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
         reminder_service = ReminderService(session)
         reminders, total = await reminder_service.get_reminders_list(
             user_id=user_id,
@@ -518,6 +526,7 @@ async def reminders_page_callback(update: Update, context: ContextTypes.DEFAULT_
         page=page,
         has_next=(page + 1) * ITEMS_PER_PAGE < total,
         show_active=show_active,
+        user_timezone=user_timezone,
     )
     await query.edit_message_text(text, reply_markup=keyboard)
     return ConversationHandler.END
@@ -563,7 +572,7 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
         if not list_obj:
             await query.edit_message_text(
                 "❌ Список не найден",
-                reply_markup=get_back_home_inline_keyboard(),
+                reply_markup=get_back_home_inline_keyboard("reminders_list"),
             )
             return ConversationHandler.END
 
@@ -591,7 +600,7 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
         if not note:
             await query.edit_message_text(
                 "❌ Заметка не найдена",
-                reply_markup=get_back_home_inline_keyboard(),
+                reply_markup=get_back_home_inline_keyboard("reminders_list"),
             )
             return ConversationHandler.END
 
@@ -911,7 +920,7 @@ async def _create_reminder_from_context(
             update,
             context,
             "❌ Не указано время напоминания.",
-            get_back_home_inline_keyboard(),
+            get_back_home_inline_keyboard("reminders_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -939,7 +948,7 @@ async def _create_reminder_from_context(
                 update,
                 context,
                 "❌ Не удалось создать напоминание: связанный объект не найден.",
-                get_back_home_inline_keyboard(),
+                get_back_home_inline_keyboard("reminders_list"),
             )
             context.user_data.clear()
             return ConversationHandler.END
@@ -994,7 +1003,7 @@ async def reminder_cancel_create(update: Update, context: ContextTypes.DEFAULT_T
     
     await query.edit_message_text(
         "❌ Создание отменено",
-        reply_markup=get_back_home_inline_keyboard(),
+        reply_markup=get_back_home_inline_keyboard("reminders_list"),
     )
     
     context.user_data.clear()
@@ -1026,7 +1035,7 @@ async def reminder_notify_offsets_callback(update: Update, context: ContextTypes
     except (ValueError, IndexError):
         await query.edit_message_text(
             "❌ Не удалось разобрать настройки уведомления.",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("reminders_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -1186,7 +1195,7 @@ async def _refresh_reminder_screen(
     text, keyboard = await _render_reminder_screen(reminder_id, user_id, user_timezone)
     if not text:
         text = "❌ Напоминание не найдено"
-        keyboard = get_back_home_inline_keyboard()
+        keyboard = get_back_home_inline_keyboard("reminders_list")
 
     await _show_reminder_message(update, context, text, keyboard)
     if clear_context:
@@ -1208,7 +1217,7 @@ async def reminder_edit_menu_callback(update: Update, context: ContextTypes.DEFA
     if not reminder:
         await query.edit_message_text(
             "❌ Напоминание не найдено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("reminders_list"),
         )
         return ConversationHandler.END
 
@@ -1242,7 +1251,7 @@ async def reminder_edit_text_save(update: Update, context: ContextTypes.DEFAULT_
     await _delete_user_message(update)
 
     if not reminder_id:
-        await _show_reminder_message(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        await _show_reminder_message(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard("reminders_list"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -1288,7 +1297,7 @@ async def reminder_edit_time_save(update: Update, context: ContextTypes.DEFAULT_
     reminder_id = context.user_data.get("reminder_edit_id")
     if not reminder_id:
         await _delete_user_message(update)
-        await _show_reminder_message(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        await _show_reminder_message(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard("reminders_list"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -1329,7 +1338,7 @@ async def reminder_edit_repeat_start(update: Update, context: ContextTypes.DEFAU
         reminder = await reminder_service.get_reminder(reminder_id, user_id)
 
     if not reminder:
-        await query.edit_message_text("❌ Напоминание не найдено", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Напоминание не найдено", reply_markup=get_back_home_inline_keyboard("reminders_list"))
         return ConversationHandler.END
 
     repeat_value = reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else reminder.repeat_rule
@@ -1374,10 +1383,14 @@ async def reminder_done_callback(update: Update, context: ContextTypes.DEFAULT_T
         user = await user_repo.get_by_telegram_id(user_id)
         
         reminder_service = ReminderService(session)
-        await reminder_service.mark_reminder_done(reminder_id, user.id if user else user_id)
+        reminder = await reminder_service.mark_reminder_done(reminder_id, user.id if user else user_id)
+        repeats = bool(reminder) and reminder.repeat_rule != RepeatRule.NONE
         await session.commit()
-    
-    await query.edit_message_text("✅ Напоминание выполнено!")
+
+    text = "✅ Напоминание выполнено!"
+    if repeats:
+        text += "\n\n🔁 Следующее придёт по расписанию."
+    await query.edit_message_text(text, reply_markup=get_back_home_inline_keyboard("reminders_list"))
     return ConversationHandler.END
 
 
@@ -1397,7 +1410,7 @@ async def reminder_cancel_callback(update: Update, context: ContextTypes.DEFAULT
         await reminder_service.mark_reminder_canceled(reminder_id, user.id if user else user_id)
         await session.commit()
     
-    await query.edit_message_text("🚫 Напоминание отменено!")
+    await query.edit_message_text("🚫 Напоминание отменено!", reply_markup=get_back_home_inline_keyboard("reminders_list"))
     return ConversationHandler.END
 
 
@@ -1417,7 +1430,7 @@ async def reminder_delete_callback(update: Update, context: ContextTypes.DEFAULT
         await reminder_service.delete_reminder(reminder_id, user.id if user else user_id)
         await session.commit()
     
-    await query.edit_message_text("🗑 Напоминание удалено!")
+    await query.edit_message_text("🗑 Напоминание удалено!", reply_markup=get_back_home_inline_keyboard("reminders_list"))
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1442,12 +1455,12 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.callback_query.answer("Отменено")
         await update.callback_query.edit_message_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("reminders_list"),
         )
     else:
         await update.message.reply_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("reminders_list"),
         )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1455,6 +1468,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 reminder_edit_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(reminder_edit_text_start, pattern="^reminder_edit_text:"),
         CallbackQueryHandler(reminder_edit_time_start, pattern="^reminder_edit_time:"),
@@ -1471,6 +1485,7 @@ reminder_edit_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
@@ -1478,6 +1493,7 @@ reminder_edit_conv = ConversationHandler(
 # Conversation handler for reminder creation
 reminder_create_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(reminder_create_start, pattern="^reminder_create$"),
         CallbackQueryHandler(reminder_create_start, pattern="^list_remind:"),
@@ -1528,5 +1544,6 @@ reminder_create_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )

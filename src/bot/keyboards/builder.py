@@ -5,7 +5,9 @@ Reply keyboards are only used for the main menu.
 Inline keyboards are used for all CRUD operations.
 """
 
+from datetime import timezone
 from typing import List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from src.config import settings
@@ -51,10 +53,8 @@ def get_web_entry_keyboard() -> InlineKeyboardMarkup:
     else:
         keyboard.append([InlineKeyboardButton("📱 Открыть приложение", callback_data="mini_app_unavailable")])
     keyboard.append([InlineKeyboardButton("🌐 Web-версия", callback_data="settings_web_login")])
-    keyboard.append([
-        InlineKeyboardButton("⬅️ Назад", callback_data="home"),
-        InlineKeyboardButton("🏠 В меню", callback_data="home"),
-    ])
+    # "Назад" and "В меню" both led to the main menu; keep one button.
+    keyboard.append([InlineKeyboardButton("🏠 В меню", callback_data="home")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -516,10 +516,17 @@ def get_driver_journal_keyboard(
             ),
         ],
         [
-            InlineKeyboardButton("🚗 По авто", callback_data=f"driver_journal_vehicle_filter:{event_filter}:{page}"),
-            InlineKeyboardButton("Сброс авто", callback_data=f"driver_journal_filter:{event_filter}:0:all"),
+            InlineKeyboardButton(
+                "✅ По авто" if vehicle_id is not None else "🚗 По авто",
+                callback_data=f"driver_journal_vehicle_filter:{event_filter}:{page}",
+            ),
         ],
     ]
+    if vehicle_id is not None:
+        # Without a selected car "Сброс авто" did the same as "Все".
+        keyboard[-1].append(
+            InlineKeyboardButton("Сброс авто", callback_data=f"driver_journal_filter:{event_filter}:0:all")
+        )
     nav_row = []
     if page > 0:
         nav_row.append(
@@ -852,15 +859,27 @@ def get_home_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_back_home_inline_keyboard() -> InlineKeyboardMarkup:
-    """Back and Home buttons."""
-    keyboard = [
-        [
-            InlineKeyboardButton("⬅️ Назад", callback_data="back"),
-            InlineKeyboardButton("🏠 В меню", callback_data="home"),
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+SECTION_BACK_LABELS = {
+    "lists_list": "⬅️ К спискам",
+    "notes_list": "⬅️ К заметкам",
+    "medications_list": "⬅️ К лекарствам",
+    "reminders_list": "⬅️ К напоминаниям",
+    "driver_menu": "⬅️ Для водителя",
+    "settings_menu": "⬅️ Настройки",
+}
+
+
+def get_back_home_inline_keyboard(back_callback: Optional[str] = None) -> InlineKeyboardMarkup:
+    """Back-to-section and Home buttons.
+
+    The old "⬅️ Назад" always opened the main menu, exactly like "🏠 В меню",
+    so the pair was two identical buttons. Back now leads to the section.
+    """
+    row = []
+    if back_callback:
+        row.append(InlineKeyboardButton(SECTION_BACK_LABELS.get(back_callback, "⬅️ Назад"), callback_data=back_callback))
+    row.append(InlineKeyboardButton("🏠 В меню", callback_data="home"))
+    return InlineKeyboardMarkup([row])
 
 
 def get_settings_back_home_keyboard() -> InlineKeyboardMarkup:
@@ -1158,7 +1177,8 @@ def get_list_members_keyboard(list_id: int, members: List[dict]) -> InlineKeyboa
         name = truncate(member.get("display_name", "Пользователь"), 24)
         if role == "owner":
             keyboard.append([
-                InlineKeyboardButton(f"👑 {name} ({role_labels[role]})", callback_data=f"list_view:{list_id}"),
+                # Informational row: it used to jump back to the list.
+                InlineKeyboardButton(f"👑 {name} ({role_labels[role]})", callback_data="noop:owner"),
             ])
             continue
 
@@ -1671,18 +1691,32 @@ def get_medication_reminder_keyboard(medication_id: int) -> InlineKeyboardMarkup
 # Inline Keyboards - Reminders
 # =============================================================================
 
+REMINDER_STATUS_ICONS = {"active": "⏰", "done": "✅", "canceled": "🚫", "missed": "⚠️"}
+
+
 def get_reminders_list_keyboard(
     reminders: List,
     page: int = 0,
     has_next: bool = False,
     show_active: bool = True,
+    user_timezone: str = "UTC",
 ) -> InlineKeyboardMarkup:
     """Keyboard for reminders list with pagination and filter."""
     keyboard = []
+    try:
+        tz = ZoneInfo(user_timezone or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        tz = ZoneInfo("UTC")
 
     for reminder in reminders:
-        time_str = reminder.remind_at_utc.strftime("%d.%m %H:%M")
-        status_icon = "⏰" if reminder.status.value == "active" else "✅"
+        remind_at = reminder.remind_at_utc
+        if remind_at.tzinfo is None:
+            remind_at = remind_at.replace(tzinfo=timezone.utc)
+        # Shown in the user's time: the list used to print raw UTC, so a
+        # 09:00 Moscow reminder appeared as 06:00.
+        time_str = remind_at.astimezone(tz).strftime("%d.%m %H:%M")
+        status_value = reminder.status.value if hasattr(reminder.status, "value") else str(reminder.status)
+        status_icon = REMINDER_STATUS_ICONS.get(status_value, "⏰")
         text = reminder.text[:35] + "..." if len(reminder.text) > 35 else reminder.text
         keyboard.append([
             InlineKeyboardButton(
@@ -1738,7 +1772,7 @@ def get_reminder_view_keyboard(
         keyboard.append(action_row)
         if source_module in (None, "general"):
             keyboard.append([
-                InlineKeyboardButton("➕ Следующее напоминание", callback_data="reminder_create"),
+                InlineKeyboardButton("➕ Новое напоминание", callback_data="reminder_create"),
             ])
 
     if list_id:
@@ -2015,15 +2049,15 @@ def get_timezone_keyboard() -> InlineKeyboardMarkup:
     """Keyboard for timezone selection."""
     keyboard = [
         [
-            InlineKeyboardButton("🇪🇺 Europe/Moscow", callback_data="tz_europe_moscow"),
+            InlineKeyboardButton("🇷🇺 Москва", callback_data="tz_europe_moscow"),
         ],
         [
-            InlineKeyboardButton("🇺🇸 America/New_York", callback_data="tz_america_new_york"),
-            InlineKeyboardButton("🇺🇸 America/Los_Angeles", callback_data="tz_america_los_angeles"),
+            InlineKeyboardButton("🇺🇸 Нью-Йорк", callback_data="tz_america_new_york"),
+            InlineKeyboardButton("🇺🇸 Лос-Анджелес", callback_data="tz_america_los_angeles"),
         ],
         [
-            InlineKeyboardButton("🇬🇧 Europe/London", callback_data="tz_europe_london"),
-            InlineKeyboardButton("🇪🇺 Europe/Berlin", callback_data="tz_europe_berlin"),
+            InlineKeyboardButton("🇬🇧 Лондон", callback_data="tz_europe_london"),
+            InlineKeyboardButton("🇩🇪 Берлин", callback_data="tz_europe_berlin"),
         ],
         [
             InlineKeyboardButton("✏️ Ввести вручную", callback_data="tz_custom"),
