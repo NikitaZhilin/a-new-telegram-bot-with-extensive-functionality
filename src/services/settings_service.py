@@ -51,13 +51,33 @@ class SettingsService:
         user = await self.repo.get(user_id)
         if not user:
             return None
-        
-        user.timezone = timezone_str
-        await self.db.flush()
+
+        await self.apply_timezone(user, timezone_str)
         await self.db.refresh(user)
-        
+
         logger.info(f"Set timezone {timezone_str} for user {user_id}")
         return user
+
+    async def apply_timezone(self, user: User, timezone_str: str) -> int:
+        """Store a new timezone and keep reminders on the same local time.
+
+        Returns how many reminders were moved to stay on their local time.
+        """
+        from src.config import settings
+        from src.services.reminder_service import ReminderService
+        from src.utils.timezones import effective_user_timezone
+
+        canonical = normalize_user_timezone_choice(timezone_str)
+        if canonical is None:
+            raise ValueError(f"Invalid timezone: {timezone_str}")
+        old_effective = effective_user_timezone(user.timezone, settings.TIMEZONE_DEFAULT)
+        new_effective = effective_user_timezone(canonical, settings.TIMEZONE_DEFAULT)
+        user.timezone = canonical
+        moved = await ReminderService(self.db).keep_local_time_after_timezone_change(
+            user.id, old_effective, new_effective
+        )
+        await self.db.flush()
+        return moved
 
     async def get_stats(self, user_id: int) -> dict:
         """

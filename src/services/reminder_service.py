@@ -7,6 +7,7 @@ All times are stored in UTC.
 
 import logging
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import List, Optional, Sequence, Tuple
 
 import pytz
@@ -402,6 +403,68 @@ class ReminderService:
         
         logger.info(f"Marked reminder {reminder_id} as canceled")
         return reminder
+
+    async def keep_local_time_after_timezone_change(
+        self,
+        user_id: int,
+        old_timezone: str,
+        new_timezone: str,
+        now_utc: Optional[datetime] = None,
+    ) -> int:
+        """Keep active reminders on the same wall-clock time in the new zone.
+
+        Reminders are stored in UTC. Before, changing Moscow -> Berlin turned a
+        09:00 reminder into 07:00 (same moment, other clock). Now 09:00 stays
+        09:00 local. Expiry reminders of driver documents are date-based and
+        left as they are. Returns how many reminders were moved.
+        """
+        if old_timezone == new_timezone:
+            return 0
+        old_tz = ZoneInfo(old_timezone)
+        new_tz = ZoneInfo(new_timezone)
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+
+        result = await self.db.execute(
+            select(Reminder)
+            .options(selectinload(Reminder.notifications))
+            .where(
+                and_(
+                    Reminder.user_id == user_id,
+                    Reminder.status == ReminderStatus.ACTIVE,
+                    Reminder.driver_document_id.is_(None),
+                )
+            )
+        )
+        moved = 0
+        moved_reminders: list[Reminder] = []
+        for reminder in result.scalars().all():
+            old_at = self._ensure_utc(reminder.remind_at_utc)
+            local = old_at.astimezone(old_tz).replace(tzinfo=None)
+            new_at = local.replace(tzinfo=new_tz).astimezone(timezone.utc)
+            if new_at == old_at:
+                continue
+            if new_at <= now_utc:
+                if reminder.repeat_rule == RepeatRule.NONE:
+                    # A one-time reminder would fire immediately: keep it.
+                    continue
+                new_at = next_future_occurrence(
+                    new_at,
+                    reminder.repeat_rule,
+                    new_timezone,
+                    now_utc,
+                    day_of_month=monthly_anchor_day(reminder, new_timezone),
+                )
+            offsets = self._active_notification_offsets(reminder)
+            reminder.remind_at_utc = new_at
+            self._cancel_pending_notifications(reminder)
+            self._add_notification_plan(reminder, offsets)
+            moved_reminders.append(reminder)
+            moved += 1
+        await self.db.flush()
+        for reminder in moved_reminders:
+            # New delivery rows were added by id; reload the collection on next access.
+            self.db.expire(reminder, ["notifications"])
+        return moved
 
     async def cancel_linked_reminders(
         self,

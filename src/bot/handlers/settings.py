@@ -92,6 +92,16 @@ async def settings_timezone_callback(update: Update, context: ContextTypes.DEFAU
     return SettingsStates.WAIT_TIMEZONE
 
 
+def _timezone_saved_text(timezone_str: str, moved: int) -> str:
+    text = f"✅ Часовой пояс установлен: {timezone_str}"
+    if moved:
+        text += (
+            f"\n\n⏰ Напоминания и приём лекарств остались на тех же часах "
+            f"по местному времени ({moved} шт.)."
+        )
+    return text
+
+
 async def settings_set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Set timezone from preset."""
     query = update.callback_query
@@ -110,16 +120,17 @@ async def settings_set_timezone(update: Update, context: ContextTypes.DEFAULT_TY
     
     user_id = update.effective_user.id
     
+    moved = 0
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         user = await user_repo.get_by_telegram_id(user_id)
-        
+
         if user:
-            user.timezone = timezone_str
+            moved = await SettingsService(session).apply_timezone(user, timezone_str)
             await session.commit()
-    
+
     await query.edit_message_text(
-        f"✅ Часовой пояс установлен: {timezone_str}",
+        _timezone_saved_text(timezone_str, moved),
         reply_markup=get_settings_back_home_keyboard(),
     )
     
@@ -149,16 +160,17 @@ async def settings_save_custom_timezone(update: Update, context: ContextTypes.DE
     # otherwise reminders for this user can never be formatted or scheduled.
     timezone_str = normalize_user_timezone_choice(raw_timezone)
     if timezone_str is not None:
+        moved = 0
         async with async_session_maker() as session:
             user_repo = UserRepository(session)
             user = await user_repo.get_by_telegram_id(user_id)
-            
+
             if user:
-                user.timezone = timezone_str
+                moved = await SettingsService(session).apply_timezone(user, timezone_str)
                 await session.commit()
-        
+
         await update.message.reply_text(
-            f"✅ Часовой пояс установлен: {timezone_str}",
+            _timezone_saved_text(timezone_str, moved),
             reply_markup=get_settings_back_home_keyboard(),
         )
     else:

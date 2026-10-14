@@ -17,6 +17,7 @@ Architecture:
 import asyncio
 import html
 import logging
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -76,6 +77,11 @@ def _retry_after_seconds(error: RetryAfter) -> float:
     return float(value)
 
 
+def _html_to_plain(message: str) -> str:
+    """Plain-text version of a reminder message built for parse_mode=HTML."""
+    return html.unescape(re.sub(r"</?[a-zA-Z][^>]*>", "", message))
+
+
 @dataclass(frozen=True)
 class WorkerCycleResult:
     """Summary of one worker polling cycle."""
@@ -124,6 +130,24 @@ class ReminderWorkerService:
         self.heartbeat = heartbeat
         self._running = False
         self._retry_after_seconds = 0.0
+        self._last_failure_reason = None
+
+    async def revive_dead_series(self) -> int:
+        """One-time repair on start: restart series ended by a failed delivery."""
+        try:
+            async with self.session_factory() as session:
+                repo = self.repository_factory(session)
+                revive = getattr(repo, "revive_dead_series", None)
+                if revive is None:
+                    return 0
+                count = await revive(self.clock(), settings.TIMEZONE_DEFAULT)
+                await session.commit()
+                if count:
+                    logger.info(f"Revived {count} repeating reminder series")
+                return count
+        except Exception:
+            logger.exception("Could not revive repeating reminder series")
+            return 0
 
     async def start(self) -> None:
         """Start the worker loop."""
@@ -328,15 +352,14 @@ class ReminderWorkerService:
         delivery_status = await self._send_notification(reminder)
 
         if delivery_status == "permanent_failure":
-            await repo.mark_notification_failed(
-                notification.id,
-                "Permanent Telegram delivery failure",
-            )
-            await repo.cancel_pending_notifications(
-                reminder.id,
-                "Permanent Telegram delivery failure",
-            )
+            reason = getattr(self, "_last_failure_reason", None) or "Permanent Telegram delivery failure"
+            await repo.mark_notification_failed(notification.id, reason)
+            await repo.cancel_pending_notifications(reminder.id, reason)
             await repo.mark_status(reminder.id, ReminderStatus.MISSED)
+            if reminder.repeat_rule != RepeatRule.NONE:
+                # One failed delivery used to end a daily/weekly series for good
+                # (a medication schedule silently stopped). Keep the schedule.
+                await self._handle_recurring(session, repo, reminder, now)
             return
 
         # Mark delivery as sent (this is the idempotency guarantee).
@@ -430,17 +453,29 @@ class ReminderWorkerService:
             return "permanent_failure"
 
         chat_id = reminder.user.telegram_id
-        
+        self._last_failure_reason = None
+
         # Format message
         message = self._format_reminder_message(reminder)
 
         try:
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode="HTML",
-                reply_markup=self._build_reminder_reply_markup(reminder),
-            )
+            try:
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=message,
+                    parse_mode="HTML",
+                    reply_markup=self._build_reminder_reply_markup(reminder),
+                )
+            except BadRequest as first_error:
+                if "chat not found" in str(first_error).lower():
+                    raise
+                # Formatting or button problems must not cost the user the
+                # reminder: retry once as plain text without buttons.
+                logger.warning(f"Retrying reminder {reminder.id} as plain text after: {first_error}")
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=_html_to_plain(message),
+                )
             logger.info(
                 f"Sent reminder {reminder.id} to user {reminder.user_id}",
                 extra={
@@ -454,6 +489,9 @@ class ReminderWorkerService:
             logger.error(
                 f"Permanent Telegram failure for reminder {reminder.id} to user {reminder.user_id}: {e}"
             )
+            # Keep the real reason (blocked by user, chat not found, …): the
+            # generic text made failures impossible to diagnose.
+            self._last_failure_reason = f"{type(e).__name__}: {e}"[:500]
             return "permanent_failure"
         except (TimedOut, NetworkError, TelegramError) as e:
             logger.warning(
@@ -720,6 +758,7 @@ async def run_worker(
             heartbeat=heartbeat,
         )
         
+        await worker.revive_dead_series()
         await worker.start()
     finally:
         if heartbeat_task:

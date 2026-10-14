@@ -161,7 +161,7 @@ class MedicationService:
             )
         )
         for reminder in reminders_result.scalars().all():
-            reminder.status = ReminderStatus.CANCELED
+            self._cancel_reminder(reminder)
 
         await self.db.flush()
         return True
@@ -805,10 +805,9 @@ class MedicationService:
                     continue
                 if duplicate is None:
                     duplicate = reminder
-                    duplicate.remind_at_utc = remind_at_utc
-                    duplicate.notified_at = None
+                    self._retime_reminder(duplicate, remind_at_utc)
                 else:
-                    duplicate.status = ReminderStatus.CANCELED
+                    self._cancel_reminder(reminder)
 
             if duplicate:
                 await self.db.flush()
@@ -826,6 +825,23 @@ class MedicationService:
             repeat_rule=repeat_rule,
             medication_id=medication_id,
         )
+
+    @staticmethod
+    def _cancel_reminder(reminder: Reminder) -> None:
+        """Cancel a reminder together with its pending deliveries.
+
+        Setting only the status left PENDING delivery rows behind forever.
+        """
+        reminder.status = ReminderStatus.CANCELED
+        ReminderService._cancel_pending_notifications(reminder)
+
+    def _retime_reminder(self, reminder: Reminder, remind_at_utc: datetime) -> None:
+        """Move a reminder and rebuild its deliveries for the new time."""
+        offsets = ReminderService._active_notification_offsets(reminder)
+        reminder.remind_at_utc = remind_at_utc
+        reminder.notified_at = None
+        ReminderService._cancel_pending_notifications(reminder)
+        ReminderService(self.db)._add_notification_plan(reminder, offsets)
 
     @staticmethod
     def _reminder_text(medication: Medication) -> str:
@@ -861,17 +877,16 @@ class MedicationService:
         for reminder in existing:
             key = self._reminder_time_key(reminder.remind_at_utc)
             if key in existing_by_key:
-                reminder.status = ReminderStatus.CANCELED
+                self._cancel_reminder(reminder)
                 continue
             existing_by_key[key] = reminder
 
         created_or_updated: list[Reminder] = []
         for key, reminder in existing_by_key.items():
             if key not in normalized:
-                reminder.status = ReminderStatus.CANCELED
+                self._cancel_reminder(reminder)
                 continue
-            reminder.remind_at_utc = normalized[key]
-            reminder.notified_at = None
+            self._retime_reminder(reminder, normalized[key])
             created_or_updated.append(reminder)
 
         for key, remind_at_utc in normalized.items():

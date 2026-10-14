@@ -550,10 +550,11 @@ async def test_worker_closes_permanent_telegram_errors_without_retry_loop():
 
     assert result == WorkerCycleResult(total=1, processed=1, failed=0)
     assert repo.marked == []
-    assert repo.failed_notifications == [(1, "Permanent Telegram delivery failure")]
-    assert repo.canceled_reminders == [(47, "Permanent Telegram delivery failure")]
+    assert repo.failed_notifications == [(1, "BadRequest: chat not found")]
+    assert repo.canceled_reminders == [(47, "BadRequest: chat not found")]
     assert repo.statuses == [(47, ReminderStatus.MISSED)]
-    assert repo.next_occurrences == []
+    # The daily series continues: one failed delivery must not end it.
+    assert len(repo.next_occurrences) == 1
 
 
 @pytest.mark.asyncio
