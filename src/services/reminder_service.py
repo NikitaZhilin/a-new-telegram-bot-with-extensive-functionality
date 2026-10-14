@@ -219,10 +219,13 @@ class ReminderService:
         if exclude_source_modules:
             conditions.append(Reminder.source_module.not_in(list(exclude_source_modules)))
 
+        # Active: soonest first. History: newest first, otherwise page 1
+        # showed the oldest finished reminders from months ago.
+        order = Reminder.remind_at_utc.asc() if active else Reminder.remind_at_utc.desc()
         query = (
             select(Reminder)
             .where(and_(*conditions))
-            .order_by(Reminder.remind_at_utc.asc())
+            .order_by(order, Reminder.id.desc() if not active else Reminder.id.asc())
             .offset(offset)
             .limit(page_size)
         )

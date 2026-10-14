@@ -36,7 +36,12 @@ from src.services.web_auth_service import WebAuthService
 from src.services.release_info import app_info
 from src.repositories.user_repo import UserRepository
 from src.utils.timezones import normalize_user_timezone_choice
-from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
+from src.bot.handlers.conversation_exit import (
+    TEXT_INPUT,
+    WIZARD_TIMEOUT_SECONDS,
+    exit_fallbacks,
+    leave_wizard_fallbacks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -545,11 +550,18 @@ async def settings_web_login_callback(update: Update, context: ContextTypes.DEFA
 
 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel current operation."""
-    await update.message.reply_text(
-        "❌ Отменено",
-        reply_markup=get_back_home_inline_keyboard(),
-    )
+    """Cancel current operation (command or «Отмена» button)."""
+    if update.callback_query:
+        await update.callback_query.answer("Отменено")
+        await update.callback_query.edit_message_text(
+            "❌ Отменено",
+            reply_markup=get_back_home_inline_keyboard("settings_menu"),
+        )
+    else:
+        await update.message.reply_text(
+            "❌ Отменено",
+            reply_markup=get_back_home_inline_keyboard("settings_menu"),
+        )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -557,6 +569,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # Conversation handlers
 settings_timezone_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(settings_timezone_callback, pattern="^settings_timezone$"),
     ],
@@ -572,5 +585,7 @@ settings_timezone_conv = ConversationHandler(
     fallbacks=[
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
+        CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )

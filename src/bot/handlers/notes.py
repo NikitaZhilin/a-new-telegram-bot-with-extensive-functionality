@@ -30,7 +30,12 @@ from src.services.note_service import (
     note_category_label,
 )
 from src.utils.text import truncate
-from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
+from src.bot.handlers.conversation_exit import (
+    TEXT_INPUT,
+    WIZARD_TIMEOUT_SECONDS,
+    exit_fallbacks,
+    leave_wizard_fallbacks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +401,7 @@ async def note_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     text, keyboard = await _render_note_view(note_id, user_id)
     if not text:
-        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard("notes_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(text, reply_markup=keyboard)
@@ -414,7 +419,7 @@ async def note_pin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         service = NoteService(session)
         note = await service.get_note(note_id, user_id)
         if not note:
-            await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+            await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard("notes_list"))
             return ConversationHandler.END
         await service.update_note(note_id, user_id, is_pinned=not note.is_pinned)
         await session.commit()
@@ -488,7 +493,7 @@ async def note_save_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             update,
             context,
             "❌ Сценарий создания устарел. Откройте заметки заново.",
-            get_back_home_inline_keyboard(),
+            get_back_home_inline_keyboard("notes_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -520,7 +525,7 @@ async def note_edit_title_start(update: Update, context: ContextTypes.DEFAULT_TY
         note = await NoteService(session).get_note(note_id, user_id)
 
     if not note:
-        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard("notes_list"))
         return ConversationHandler.END
 
     context.user_data["editing_note_id"] = note_id
@@ -543,7 +548,7 @@ async def note_edit_text_start(update: Update, context: ContextTypes.DEFAULT_TYP
         note = await NoteService(session).get_note(note_id, user_id)
 
     if not note:
-        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard("notes_list"))
         return ConversationHandler.END
 
     context.user_data["editing_note_id"] = note_id
@@ -566,7 +571,7 @@ async def note_edit_category_callback(update: Update, context: ContextTypes.DEFA
         note = await NoteService(session).get_note(note_id, user_id)
 
     if not note:
-        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard("notes_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -596,7 +601,7 @@ async def note_category_set_callback(update: Update, context: ContextTypes.DEFAU
         if not note:
             raise ValueError("Заметка не найдена")
     except ValueError as exc:
-        await query.edit_message_text(f"❌ {exc}", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text(f"❌ {exc}", reply_markup=get_back_home_inline_keyboard("notes_list"))
         return ConversationHandler.END
 
     rendered_text, keyboard = await _render_note_view(note_id, user_id)
@@ -610,7 +615,7 @@ async def note_save_title_edit(update: Update, context: ContextTypes.DEFAULT_TYP
     value = update.message.text.strip()
     await _delete_user_message(update)
     if not note_id:
-        await _edit_prompt_or_reply(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        await _edit_prompt_or_reply(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard("notes_list"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -637,7 +642,7 @@ async def note_save_text_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
     value = update.message.text or ""
     await _delete_user_message(update)
     if not note_id:
-        await _edit_prompt_or_reply(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard())
+        await _edit_prompt_or_reply(update, context, "❌ Сценарий редактирования устарел.", get_back_home_inline_keyboard("notes_list"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -682,7 +687,7 @@ async def note_delete_confirm_callback(update: Update, context: ContextTypes.DEF
         await session.commit()
 
     if not deleted:
-        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard())
+        await query.edit_message_text("❌ Заметка не найдена.", reply_markup=get_back_home_inline_keyboard("notes_list"))
         return ConversationHandler.END
 
     text, keyboard = await _render_notes_page(user_id, page=0)
@@ -696,12 +701,12 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.callback_query.answer("Отменено")
         await update.callback_query.edit_message_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("notes_list"),
         )
     else:
         await update.message.reply_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("notes_list"),
         )
     context.user_data.clear()
     return ConversationHandler.END
@@ -709,6 +714,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 note_create_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[CallbackQueryHandler(note_create_start, pattern="^note_create$")],
     states={
         NoteStates.WAIT_TITLE: [
@@ -726,12 +732,14 @@ note_create_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 notes_search_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[CallbackQueryHandler(notes_search_start, pattern="^notes_search$")],
     states={
         NoteStates.WAIT_SEARCH: [
@@ -742,12 +750,14 @@ notes_search_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 note_edit_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(note_edit_title_start, pattern="^note_edit_title:"),
         CallbackQueryHandler(note_edit_text_start, pattern="^note_edit_text:"),
@@ -764,5 +774,6 @@ note_edit_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )

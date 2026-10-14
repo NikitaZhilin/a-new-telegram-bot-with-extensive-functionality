@@ -248,6 +248,7 @@ from src.bot.handlers.driver import (
     driver_vehicle_view_callback,
 )
 from src.bot.handlers.navigation import menu_button_handler
+from src.bot.handlers.conversation_exit import bind_application, noop_callback, stale_button_callback
 from src.bot.handlers.navigation import mini_app_unavailable_callback
 from src.bot.handlers.navigation import web_entry_callback
 from src.bot.handlers.navigation import share_bot_callback
@@ -437,8 +438,15 @@ def create_application() -> Application:
 
     application.add_handler(CallbackQueryHandler(share_bot_callback, pattern="^share_bot$"))
     
+    application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop"))
+
     # === Message Handler for Main Menu ===
     application.add_handler(menu_button_handler)
+
+    # Must stay last: buttons nobody handles (wizard closed by restart or
+    # timeout) get an answer instead of an endless spinner.
+    application.add_handler(CallbackQueryHandler(stale_button_callback))
+    bind_application(application)
     application.add_error_handler(error_handler)
     
     logger.info("Telegram bot application created")

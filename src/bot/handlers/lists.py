@@ -43,7 +43,12 @@ from src.services.speech_service import (
 )
 from src.services.voice_list_parser import VoiceListParserService, VoiceListPreview
 from src.utils.text import truncate
-from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
+from src.bot.handlers.conversation_exit import (
+    TEXT_INPUT,
+    WIZARD_TIMEOUT_SECONDS,
+    exit_fallbacks,
+    leave_wizard_fallbacks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +401,7 @@ async def list_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     text, keyboard = await _render_list_view(list_id, user_id)
     if not text:
-        await query.edit_message_text("❌ Список не найден")
+        await query.edit_message_text("❌ Список не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(text, reply_markup=keyboard)
@@ -415,7 +420,7 @@ async def list_manage_items_callback(update: Update, context: ContextTypes.DEFAU
 
     text, keyboard = await _render_list_view(list_id, user_id, manage_items=True)
     if not text:
-        await query.edit_message_text("❌ Список не найден")
+        await query.edit_message_text("❌ Список не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(text, reply_markup=keyboard)
@@ -456,7 +461,7 @@ async def list_save_item(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             update,
             context,
             "❌ Список не найден",
-            get_back_home_inline_keyboard(),
+            get_back_home_inline_keyboard("lists_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -500,7 +505,7 @@ async def list_save_bulk(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     rendered_text, keyboard = await _render_list_view(list_id, user_id)
     if not rendered_text or not items:
-        rendered_text, keyboard = "❌ Список не найден", get_back_home_inline_keyboard()
+        rendered_text, keyboard = "❌ Список не найден", get_back_home_inline_keyboard("lists_list")
 
     await _edit_prompt_or_reply(update, context, rendered_text, keyboard)
 
@@ -517,7 +522,7 @@ async def list_voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text(
             "🎙 Голосовой ввод списков временно отключен.\n\n"
             "Пока используйте добавление пункта текстом или пачкой.",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -534,7 +539,7 @@ async def list_voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             if not await list_service.can_edit(list_id, user_id):
                 await query.edit_message_text(
                     "❌ У вас нет прав редактировать этот список.",
-                    reply_markup=get_back_home_inline_keyboard(),
+                    reply_markup=get_back_home_inline_keyboard("lists_list"),
                 )
                 return ConversationHandler.END
 
@@ -545,7 +550,7 @@ async def list_voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text(
             "🎙 Голосовое создание списков пока не настроено.\n\n"
             "Нужно включить `VOICE_TRANSCRIPTION_ENABLED=true` и указать `OPENAI_API_KEY` в `.env`.",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -611,7 +616,7 @@ async def list_voice_receive(update: Update, context: ContextTypes.DEFAULT_TYPE)
             update,
             context,
             f"❌ {exc}",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -681,7 +686,7 @@ async def list_voice_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if not list_obj or not await list_service.can_edit(list_id, user_id):
                 await query.edit_message_text(
                     "❌ Список не найден или недоступен для редактирования.",
-                    reply_markup=get_back_home_inline_keyboard(),
+                    reply_markup=get_back_home_inline_keyboard("lists_list"),
                 )
                 context.user_data.clear()
                 return ConversationHandler.END
@@ -710,7 +715,7 @@ async def list_voice_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         async with async_session_maker() as session:
             user_id = await _get_app_user_id(update, session)
         text, keyboard = await _render_list_view(list_id, user_id)
-        await query.edit_message_text(text or "Список не найден", reply_markup=keyboard or get_back_home_inline_keyboard())
+        await query.edit_message_text(text or "Список не найден", reply_markup=keyboard or get_back_home_inline_keyboard("lists_list"))
     else:
         async with async_session_maker() as session:
             user_id = await _get_app_user_id(update, session)
@@ -753,7 +758,7 @@ async def list_save_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             update,
             context,
             "❌ Список не найден",
-            get_back_home_inline_keyboard(),
+            get_back_home_inline_keyboard("lists_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -789,7 +794,7 @@ async def list_share_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await session.commit()
 
     if not text or not share or not editor_share or not viewer_share:
-        await query.edit_message_text("❌ Список не найден")
+        await query.edit_message_text("❌ Список не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     import_command = f"/import_list {share.token}"
@@ -838,7 +843,7 @@ async def list_members_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     text, keyboard, _ = await _render_list_members_screen(list_id, user_id)
     if not text:
-        await query.edit_message_text("❌ Управление участниками доступно только владельцу списка")
+        await query.edit_message_text("❌ Управление участниками доступно только владельцу списка", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -863,12 +868,12 @@ async def list_member_manage_callback(update: Update, context: ContextTypes.DEFA
         members = await list_service.get_list_members(list_id, user_id)
 
     if members is None:
-        await query.edit_message_text("❌ Управление участниками доступно только владельцу списка")
+        await query.edit_message_text("❌ Управление участниками доступно только владельцу списка", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     member = next((item for item in members if item.get("member_id") == member_id), None)
     if not member:
-        await query.edit_message_text("❌ Участник не найден")
+        await query.edit_message_text("❌ Участник не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     role_labels = {
@@ -900,7 +905,7 @@ async def list_member_role_callback(update: Update, context: ContextTypes.DEFAUL
         await session.commit()
 
     if not member:
-        await query.edit_message_text("❌ Не удалось изменить роль")
+        await query.edit_message_text("❌ Не удалось изменить роль", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     async with async_session_maker() as session:
@@ -908,7 +913,7 @@ async def list_member_role_callback(update: Update, context: ContextTypes.DEFAUL
     text, keyboard, _ = await _render_list_members_screen(list_id, user_id)
     await query.edit_message_text(
         text or "❌ Управление участниками доступно только владельцу списка",
-        reply_markup=keyboard or get_back_home_inline_keyboard(),
+        reply_markup=keyboard or get_back_home_inline_keyboard("lists_list"),
     )
     return ConversationHandler.END
 
@@ -929,7 +934,7 @@ async def list_member_remove_callback(update: Update, context: ContextTypes.DEFA
         await session.commit()
 
     if not removed:
-        await query.edit_message_text("❌ Не удалось отозвать доступ")
+        await query.edit_message_text("❌ Не удалось отозвать доступ", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     async with async_session_maker() as session:
@@ -937,7 +942,7 @@ async def list_member_remove_callback(update: Update, context: ContextTypes.DEFA
     text, keyboard, _ = await _render_list_members_screen(list_id, user_id)
     await query.edit_message_text(
         text or "❌ Управление участниками доступно только владельцу списка",
-        reply_markup=keyboard or get_back_home_inline_keyboard(),
+        reply_markup=keyboard or get_back_home_inline_keyboard("lists_list"),
     )
     return ConversationHandler.END
 
@@ -957,7 +962,7 @@ async def import_list_token(
     if not new_list:
         await update.message.reply_text(
             "❌ Не удалось импортировать список. Ссылка могла устареть или быть использована слишком много раз.",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
         return
 
@@ -974,7 +979,7 @@ async def import_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not context.args:
         await update.message.reply_text(
             "Отправьте команду так:\n/import_list TOKEN",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
         return
 
@@ -996,7 +1001,7 @@ async def join_list_token(
     if not list_obj:
         await update.message.reply_text(
             "❌ Не удалось присоединиться к списку. Ссылка могла устареть или быть использована слишком много раз.",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
         return
 
@@ -1013,7 +1018,7 @@ async def join_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not context.args:
         await update.message.reply_text(
             "Отправьте команду так:\n/join_list TOKEN",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
         return
 
@@ -1048,7 +1053,7 @@ async def list_delete_confirm_callback(update: Update, context: ContextTypes.DEF
         await session.commit()
 
     if not deleted:
-        await query.edit_message_text("❌ Список не найден")
+        await query.edit_message_text("❌ Список не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     text, keyboard = await _render_lists_page(user_id, page=0)
@@ -1070,7 +1075,7 @@ async def list_item_edit_start(update: Update, context: ContextTypes.DEFAULT_TYP
         item = await list_service.get_item_by_id(item_id, user_id)
 
     if not item:
-        await query.edit_message_text("❌ Пункт не найден")
+        await query.edit_message_text("❌ Пункт не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     context.user_data["editing_item_id"] = item_id
@@ -1102,7 +1107,7 @@ async def list_save_item_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
             update,
             context,
             "❌ Пункт не найден",
-            get_back_home_inline_keyboard(),
+            get_back_home_inline_keyboard("lists_list"),
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -1128,7 +1133,7 @@ async def list_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         role = await list_service.get_access_role(item.list_id, user_id) if item else None
 
     if not item:
-        await query.edit_message_text("❌ Пункт не найден")
+        await query.edit_message_text("❌ Пункт не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1156,7 +1161,7 @@ async def list_item_toggle_callback(update: Update, context: ContextTypes.DEFAUL
         item = await list_service.get_item_by_id(item_id, user_id)
 
     if not item:
-        await query.edit_message_text("❌ Пункт не найден")
+        await query.edit_message_text("❌ Пункт не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     text, keyboard = await _render_list_view(item.list_id, user_id)
@@ -1177,7 +1182,7 @@ async def list_item_delete_callback(update: Update, context: ContextTypes.DEFAUL
         item = await list_service.get_item_by_id(item_id, user_id)
 
     if not item:
-        await query.edit_message_text("❌ Пункт не найден")
+        await query.edit_message_text("❌ Пункт не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -1206,7 +1211,7 @@ async def list_item_delete_confirm_callback(
         await session.commit()
 
     if not deleted or list_id is None:
-        await query.edit_message_text("❌ Пункт не найден")
+        await query.edit_message_text("❌ Пункт не найден", reply_markup=get_back_home_inline_keyboard("lists_list"))
         return ConversationHandler.END
 
     text, keyboard = await _render_list_view(list_id, user_id)
@@ -1219,13 +1224,13 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if update.message:
         await update.message.reply_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
     elif update.callback_query:
         await update.callback_query.answer("Отменено")
         await update.callback_query.edit_message_text(
             "❌ Отменено",
-            reply_markup=get_back_home_inline_keyboard(),
+            reply_markup=get_back_home_inline_keyboard("lists_list"),
         )
 
     context.user_data.clear()
@@ -1235,6 +1240,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # Conversation handlers
 list_create_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(list_create_start, pattern="^list_create$"),
     ],
@@ -1247,11 +1253,13 @@ list_create_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 list_add_item_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(list_add_item_start, pattern="^list_add_item:"),
     ],
@@ -1264,11 +1272,13 @@ list_add_item_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 list_add_bulk_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(list_add_bulk_start, pattern="^list_add_bulk:"),
     ],
@@ -1281,11 +1291,13 @@ list_add_bulk_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 list_voice_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(list_voice_start, pattern="^list_voice_(new|add:)"),
     ],
@@ -1307,11 +1319,13 @@ list_voice_conv = ConversationHandler(
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
         CallbackQueryHandler(list_voice_cancel, pattern="^list_voice_cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 list_rename_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(list_rename_start, pattern="^list_rename:"),
     ],
@@ -1324,12 +1338,14 @@ list_rename_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
 
 list_edit_item_conv = ConversationHandler(
     conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
     entry_points=[
         CallbackQueryHandler(list_item_edit_start, pattern="^list_item_edit:"),
     ],
@@ -1342,6 +1358,7 @@ list_edit_item_conv = ConversationHandler(
         *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
     ],
 )
 
