@@ -43,6 +43,7 @@ from src.services.speech_service import (
 )
 from src.services.voice_list_parser import VoiceListParserService, VoiceListPreview
 from src.utils.text import truncate
+from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
 
 logger = logging.getLogger(__name__)
 
@@ -1233,51 +1234,58 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # Conversation handlers
 list_create_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(list_create_start, pattern="^list_create$"),
     ],
     states={
         ListStates.WAIT_TITLE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, list_save_title),
+            MessageHandler(TEXT_INPUT, list_save_title),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
 )
 
 list_add_item_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(list_add_item_start, pattern="^list_add_item:"),
     ],
     states={
         ListStates.WAIT_ADD_ITEM: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, list_save_item),
+            MessageHandler(TEXT_INPUT, list_save_item),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
 )
 
 list_add_bulk_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(list_add_bulk_start, pattern="^list_add_bulk:"),
     ],
     states={
         ListStates.WAIT_ADD_ITEMS_BULK: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, list_save_bulk),
+            MessageHandler(TEXT_INPUT, list_save_bulk),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
 )
 
 list_voice_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(list_voice_start, pattern="^list_voice_(new|add:)"),
     ],
@@ -1291,10 +1299,11 @@ list_voice_conv = ConversationHandler(
             CallbackQueryHandler(list_voice_cancel, pattern="^list_voice_cancel$"),
         ],
         ListStates.WAIT_VOICE_TEXT_EDIT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, list_voice_save_text_edit),
+            MessageHandler(TEXT_INPUT, list_voice_save_text_edit),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
         CallbackQueryHandler(list_voice_cancel, pattern="^list_voice_cancel$"),
@@ -1302,15 +1311,17 @@ list_voice_conv = ConversationHandler(
 )
 
 list_rename_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(list_rename_start, pattern="^list_rename:"),
     ],
     states={
         ListStates.WAIT_EDIT_TITLE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, list_save_rename),
+            MessageHandler(TEXT_INPUT, list_save_rename),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
@@ -1318,15 +1329,17 @@ list_rename_conv = ConversationHandler(
 
 
 list_edit_item_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(list_item_edit_start, pattern="^list_item_edit:"),
     ],
     states={
         ListStates.WAIT_EDIT_ITEM: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, list_save_item_edit),
+            MessageHandler(TEXT_INPUT, list_save_item_edit),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],

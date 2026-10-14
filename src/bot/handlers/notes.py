@@ -30,6 +30,7 @@ from src.services.note_service import (
     note_category_label,
 )
 from src.utils.text import truncate
+from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
 
 logger = logging.getLogger(__name__)
 
@@ -707,20 +708,22 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 note_create_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[CallbackQueryHandler(note_create_start, pattern="^note_create$")],
     states={
         NoteStates.WAIT_TITLE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, note_save_title),
+            MessageHandler(TEXT_INPUT, note_save_title),
         ],
         NoteStates.WAIT_CATEGORY: [
             CallbackQueryHandler(note_save_category, pattern="^note_category:"),
             CallbackQueryHandler(notes_list_callback, pattern="^notes_list$"),
         ],
         NoteStates.WAIT_TEXT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, note_save_text),
+            MessageHandler(TEXT_INPUT, note_save_text),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
@@ -728,13 +731,15 @@ note_create_conv = ConversationHandler(
 
 
 notes_search_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[CallbackQueryHandler(notes_search_start, pattern="^notes_search$")],
     states={
         NoteStates.WAIT_SEARCH: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, notes_search_save),
+            MessageHandler(TEXT_INPUT, notes_search_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
@@ -742,19 +747,21 @@ notes_search_conv = ConversationHandler(
 
 
 note_edit_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(note_edit_title_start, pattern="^note_edit_title:"),
         CallbackQueryHandler(note_edit_text_start, pattern="^note_edit_text:"),
     ],
     states={
         NoteStates.WAIT_EDIT_TITLE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, note_save_title_edit),
+            MessageHandler(TEXT_INPUT, note_save_title_edit),
         ],
         NoteStates.WAIT_EDIT_TEXT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, note_save_text_edit),
+            MessageHandler(TEXT_INPUT, note_save_text_edit),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],

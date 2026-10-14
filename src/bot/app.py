@@ -279,8 +279,8 @@ def create_application() -> Application:
     )
     
     # === Command Handlers ===
-    application.add_handler(start_handler)
-    application.add_handler(help_handler)
+    # /start and /help are registered after the wizards: inside a wizard its
+    # own /start fallback closes it first, otherwise they work as before.
     application.add_handler(import_list_handler)
     application.add_handler(join_list_handler)
     
@@ -318,6 +318,9 @@ def create_application() -> Application:
 
     # Settings
     application.add_handler(settings_timezone_conv)
+
+    application.add_handler(start_handler)
+    application.add_handler(help_handler)
     
     # === Callback Query Handlers ===
     # Navigation

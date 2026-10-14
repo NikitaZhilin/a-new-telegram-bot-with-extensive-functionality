@@ -46,6 +46,7 @@ from src.repositories.user_repo import UserRepository
 from src.db.models import ReminderNotificationStatus, RepeatRule
 from src.utils.date_parser import parse_datetime, parse_time_fragment
 from src.utils.labels import reminder_status_label, repeat_rule_label
+from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,16 @@ def _roll_forward_if_needed(remind_at_utc: datetime, context: ContextTypes.DEFAU
     while remind_at_utc <= now:
         remind_at_utc += timedelta(days=1)
     return remind_at_utc
+
+
+PAST_TIME_TEXT = "⏳ Это время уже прошло. Выберите другое время или другую дату."
+
+
+def _is_in_past(remind_at_utc: datetime) -> bool:
+    """A reminder in the past would be sent the same minute without warning."""
+    if remind_at_utc.tzinfo is None:
+        remind_at_utc = remind_at_utc.replace(tzinfo=timezone.utc)
+    return remind_at_utc <= datetime.now(timezone.utc) - timedelta(minutes=1)
 
 
 def _parse_date_only(value: str, context: ContextTypes.DEFAULT_TYPE) -> date:
@@ -430,6 +441,10 @@ async def reminders_list_callback(update: Update, context: ContextTypes.DEFAULT_
             active=show_active,
             page=0,
             page_size=ITEMS_PER_PAGE,
+            # List, note and driver reminders were created in their sections
+            # but never shown anywhere, so a repeating one could not be stopped.
+            source_module=None,
+            exclude_source_modules=("medication",),
         )
     
     if not reminders:
@@ -471,6 +486,10 @@ async def reminders_page_callback(update: Update, context: ContextTypes.DEFAULT_
             active=show_active,
             page=page,
             page_size=ITEMS_PER_PAGE,
+            # List, note and driver reminders were created in their sections
+            # but never shown anywhere, so a repeating one could not be stopped.
+            source_module=None,
+            exclude_source_modules=("medication",),
         )
 
     if not reminders and page > 0:
@@ -483,6 +502,8 @@ async def reminders_page_callback(update: Update, context: ContextTypes.DEFAULT_
                 active=show_active,
                 page=page,
                 page_size=ITEMS_PER_PAGE,
+                source_module=None,
+                exclude_source_modules=("medication",),
             )
 
     filter_text = "активные" if show_active else "завершенные"
@@ -744,8 +765,7 @@ async def reminder_save_custom_date(update: Update, context: ContextTypes.DEFAUL
 async def reminder_time_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle time preset selection."""
     query = update.callback_query
-    await query.answer()
-    
+
     preset = query.data.removeprefix("rem_time_")
     now = datetime.now(timezone.utc)
 
@@ -769,6 +789,10 @@ async def reminder_time_preset(update: Update, context: ContextTypes.DEFAULT_TYP
         remind_at = now + timedelta(hours=1)
     
     remind_at = _roll_forward_if_needed(remind_at, context)
+    if _is_in_past(remind_at):
+        await query.answer(PAST_TIME_TEXT, show_alert=True)
+        return ReminderStates.WAIT_TIME
+    await query.answer()
     context.user_data["remind_at_utc"] = remind_at.isoformat()
 
     return await _show_notification_plan_step(update, context)
@@ -824,6 +848,9 @@ async def reminder_save_custom_time(update: Update, context: ContextTypes.DEFAUL
     try:
         remind_at = _parse_flexible_datetime(time_str, context)
         remind_at = _roll_forward_if_needed(remind_at, context)
+        if _is_in_past(remind_at):
+            await update.message.reply_text(PAST_TIME_TEXT, reply_markup=get_cancel_keyboard())
+            return ReminderStates.WAIT_TIME_CUSTOM
         context.user_data["remind_at_utc"] = remind_at.isoformat()
         await _delete_user_message(update)
         return await _show_notification_plan_step(update, context)
@@ -1278,6 +1305,9 @@ async def reminder_edit_time_save(update: Update, context: ContextTypes.DEFAULT_
         return ReminderStates.WAIT_EDIT_TIME
 
     await _delete_user_message(update)
+    if _is_in_past(remind_at_utc):
+        await _show_reminder_message(update, context, PAST_TIME_TEXT, get_cancel_inline_keyboard())
+        return ReminderStates.WAIT_EDIT_TIME
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         reminder_service = ReminderService(session)
@@ -1424,19 +1454,21 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 reminder_edit_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(reminder_edit_text_start, pattern="^reminder_edit_text:"),
         CallbackQueryHandler(reminder_edit_time_start, pattern="^reminder_edit_time:"),
     ],
     states={
         ReminderStates.WAIT_EDIT_TEXT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_edit_text_save),
+            MessageHandler(TEXT_INPUT, reminder_edit_text_save),
         ],
         ReminderStates.WAIT_EDIT_TIME: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_edit_time_save),
+            MessageHandler(TEXT_INPUT, reminder_edit_time_save),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],
@@ -1445,6 +1477,7 @@ reminder_edit_conv = ConversationHandler(
 
 # Conversation handler for reminder creation
 reminder_create_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(reminder_create_start, pattern="^reminder_create$"),
         CallbackQueryHandler(reminder_create_start, pattern="^list_remind:"),
@@ -1453,7 +1486,7 @@ reminder_create_conv = ConversationHandler(
     ],
     states={
         ReminderStates.WAIT_TEXT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_save_text),
+            MessageHandler(TEXT_INPUT, reminder_save_text),
         ],
         ReminderStates.WAIT_DATE: [
             CallbackQueryHandler(reminder_date_today, pattern="^rem_date_today$"),
@@ -1462,7 +1495,7 @@ reminder_create_conv = ConversationHandler(
             CallbackQueryHandler(reminder_date_next_week, pattern="^rem_date_next_week$"),
             CallbackQueryHandler(reminder_date_custom, pattern="^rem_date_custom$"),
             CallbackQueryHandler(reminder_cancel_create, pattern="^rem_cancel_create$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_save_custom_date),
+            MessageHandler(TEXT_INPUT, reminder_save_custom_date),
         ],
         ReminderStates.WAIT_TIME: [
             CallbackQueryHandler(reminder_time_back, pattern="^rem_time_back$"),
@@ -1471,7 +1504,7 @@ reminder_create_conv = ConversationHandler(
         ],
         ReminderStates.WAIT_TIME_CUSTOM: [
             CallbackQueryHandler(reminder_time_back, pattern="^rem_time_back$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_save_custom_time),
+            MessageHandler(TEXT_INPUT, reminder_save_custom_time),
         ],
         ReminderStates.WAIT_NOTIFY: [
             CallbackQueryHandler(reminder_notify_offsets_callback, pattern="^rem_notify:"),
@@ -1492,6 +1525,7 @@ reminder_create_conv = ConversationHandler(
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
         CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
     ],

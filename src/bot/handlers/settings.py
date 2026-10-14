@@ -36,6 +36,7 @@ from src.services.web_auth_service import WebAuthService
 from src.services.release_info import app_info
 from src.repositories.user_repo import UserRepository
 from src.utils.timezones import normalize_user_timezone_choice
+from src.bot.handlers.conversation_exit import TEXT_INPUT, WIZARD_TIMEOUT_SECONDS, exit_fallbacks
 
 logger = logging.getLogger(__name__)
 
@@ -555,6 +556,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # Conversation handlers
 settings_timezone_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
     entry_points=[
         CallbackQueryHandler(settings_timezone_callback, pattern="^settings_timezone$"),
     ],
@@ -564,10 +566,11 @@ settings_timezone_conv = ConversationHandler(
             CallbackQueryHandler(settings_set_timezone, pattern="^tz_"),
         ],
         SettingsStates.WAIT_TIMEZONE_CUSTOM: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, settings_save_custom_timezone),
+            MessageHandler(TEXT_INPUT, settings_save_custom_timezone),
         ],
     },
     fallbacks=[
+        *exit_fallbacks(),
         CommandHandler("cancel", cancel_handler),
     ],
 )

@@ -121,6 +121,23 @@ class MedicationService:
             medication.importance = importance if importance in {"supplement", "normal", "important", "critical"} else "normal"
 
         medication.updated_at = datetime.now(timezone.utc)
+
+        # Active reminders carry a copy of name/dosage in their text. Without
+        # this they kept showing the old dosage after it was changed.
+        reminders_result = await self.db.execute(
+            select(Reminder).where(
+                and_(
+                    Reminder.medication_id == medication_id,
+                    Reminder.user_id == user_id,
+                    Reminder.status == ReminderStatus.ACTIVE,
+                )
+            )
+        )
+        new_text = self._reminder_text(medication)
+        for reminder in reminders_result.scalars().all():
+            if (reminder.text or "").startswith(("Принять лекарство", "Важное напоминание")):
+                reminder.text = new_text
+
         await self.db.flush()
         await self.db.refresh(medication)
         return medication
@@ -798,13 +815,7 @@ class MedicationService:
                 await self.db.refresh(duplicate)
                 return duplicate
 
-        text = f"Принять лекарство: {medication.name}"
-        if medication.importance in {"important", "critical"}:
-            text = f"Важное напоминание. {text}"
-        if medication.dosage:
-            text += f"\nДозировка: {medication.dosage}"
-        if medication.instructions:
-            text += f"\nКомментарий: {medication.instructions}"
+        text = self._reminder_text(medication)
 
         reminder_service = ReminderService(self.db)
         return await reminder_service.create_reminder(
@@ -815,6 +826,18 @@ class MedicationService:
             repeat_rule=repeat_rule,
             medication_id=medication_id,
         )
+
+    @staticmethod
+    def _reminder_text(medication: Medication) -> str:
+        """Reminder text built from the medication's current details."""
+        text = f"Принять лекарство: {medication.name}"
+        if medication.importance in {"important", "critical"}:
+            text = f"Важное напоминание. {text}"
+        if medication.dosage:
+            text += f"\nДозировка: {medication.dosage}"
+        if medication.instructions:
+            text += f"\nКомментарий: {medication.instructions}"
+        return text
 
     async def replace_daily_reminders(
         self,
