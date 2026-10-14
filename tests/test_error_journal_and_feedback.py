@@ -373,3 +373,50 @@ async def test_broadcast_screens_refuse_regular_users(monkeypatch):
     update = SimpleNamespace(callback_query=Query(), effective_user=SimpleNamespace(id=1))
     await broadcast.broadcast_send_callback(update, SimpleNamespace(user_data={}, bot=_Bot()))
     assert edits and "только администратору" in edits[0]
+
+
+# --- Found by the admin on 14.10: «⚙️ Настройки» inside a wizard crashed -------
+
+@pytest.mark.asyncio
+async def test_main_menu_button_inside_wizard_opens_the_section(monkeypatch):
+    """Before: navigation.menu_button_handler was rebound to a MessageHandler, so
+    leaving any wizard through the main menu raised «'MessageHandler' object is not callable»."""
+    from telegram.ext import ConversationHandler
+
+    from src.bot.handlers import navigation
+    from src.bot.handlers.conversation_exit import exit_fallbacks
+
+    opened = []
+
+    async def fake_settings(update, context):
+        opened.append("settings")
+
+    monkeypatch.setattr(navigation, "show_settings_menu", fake_settings)
+    update = SimpleNamespace(message=SimpleNamespace(text="⚙️ Настройки"))
+    context = SimpleNamespace(user_data={"feedback_kind": "bug"})
+
+    menu_exit = next(h for h in exit_fallbacks() if "menu" in h.callback.__name__)
+    result = await menu_exit.callback(update, context)
+
+    assert result == ConversationHandler.END
+    assert opened == ["settings"]
+    assert context.user_data == {}
+
+
+def test_navigation_exports_callables_used_by_wizard_exits():
+    import inspect
+
+    from src.bot.handlers import navigation
+
+    for name in ("menu_button_callback", "start_command", "home_callback"):
+        assert inspect.iscoroutinefunction(getattr(navigation, name)), name
+
+
+def test_web_admin_shows_feedback_and_errors():
+    from pathlib import Path
+
+    html = Path("src/web/index.html").read_text(encoding="utf-8")
+    script = Path("src/web/app.js").read_text(encoding="utf-8")
+    assert 'id="adminFeedback"' in html and 'id="adminErrors"' in html
+    assert "/admin/feedback" in script and "/admin/errors" in script
+    assert "escapeHtml(item.text" in script

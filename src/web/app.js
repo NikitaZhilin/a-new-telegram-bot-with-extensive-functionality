@@ -369,6 +369,90 @@ async function adminApi(path) {
   return response.json();
 }
 
+async function adminPost(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "X-Admin-Token": state.auth.adminToken, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+function adminWhen(iso) {
+  return iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+}
+
+const FEEDBACK_STATUS_LABELS = { new: "новое", read: "прочитано", answered: "отвечено" };
+
+async function loadAdminFeedback() {
+  const data = await adminApi("/admin/feedback?limit=50");
+  const items = data.feedback || [];
+  $("#adminFeedback").innerHTML = `
+    <div class="item-meta">Новых: ${data.new}. Ответить человеку можно в боте кнопкой «↩️ Ответить» под обращением.</div>
+    ${items.map((item) => `
+      <article class="item-card">
+        <div class="item-title">№${item.id} · ${escapeHtml(item.kind_label)} ${item.status === "new" ? '<span class="pill">новое</span>' : ""}</div>
+        <div class="item-meta">${escapeHtml(item.first_name || "")}${item.username ? " @" + escapeHtml(item.username) : ""} · ID ${item.telegram_id} · ${adminWhen(item.created_at)} · ${escapeHtml(FEEDBACK_STATUS_LABELS[item.status] || item.status)}</div>
+        <div class="admin-feedback-text">${escapeHtml(item.text || "(только скриншот)")}</div>
+        ${item.has_photo ? '<div class="item-meta">📎 скриншот пришёл вам в Telegram</div>' : ""}
+        ${item.admin_reply ? `<div class="item-meta">↩️ Ваш ответ: ${escapeHtml(item.admin_reply)}</div>` : ""}
+        ${item.status === "new" ? `<button class="secondary" type="button" data-admin-feedback-read="${item.id}">Прочитано</button>` : ""}
+      </article>
+    `).join("") || '<div class="empty-state compact">Обращений пока нет.</div>'}
+  `;
+}
+
+async function loadAdminErrors() {
+  const params = new URLSearchParams({ days: "90", limit: "50" });
+  if ($("#adminErrorsResolved")?.checked) params.set("include_resolved", "true");
+  const data = await adminApi(`/admin/errors?${params}`);
+  const summary = data.summary || {};
+  $("#adminErrors").innerHTML = `
+    <div class="item-meta">Открытых видов ошибок: ${summary.open_kinds ?? 0} · за 24 ч: ${summary.kinds_seen_24h ?? 0}</div>
+    ${(data.errors || []).map((item) => `
+      <article class="item-card">
+        <div class="item-title">№${item.id} · ${escapeHtml(item.section_label)} · ${item.count}× ${item.resolved_at ? '<span class="pill muted">решена</span>' : ""}</div>
+        <div class="item-meta">${adminWhen(item.last_seen_at)} · ${escapeHtml(item.service)}${item.context ? " · " + escapeHtml(item.context) : ""}${item.telegram_id ? " · ID " + item.telegram_id : ""}</div>
+        <div class="admin-feedback-text"><b>${escapeHtml(item.error_type)}</b>: ${escapeHtml((item.message || "").slice(0, 300))}</div>
+        <div class="admin-error-actions">
+          <button class="secondary" type="button" data-admin-error-show="${item.id}">Подробнее</button>
+          ${item.resolved_at ? "" : `<button class="secondary" type="button" data-admin-error-resolve="${item.id}">Решено</button>`}
+        </div>
+        <pre class="admin-traceback" id="adminErrorTrace${item.id}" hidden></pre>
+      </article>
+    `).join("") || '<div class="empty-state compact">Ошибок нет 🎉</div>'}
+  `;
+}
+
+async function handleAdminListClick(event) {
+  const button = event.target.closest("button");
+  if (!button) return;
+  try {
+    if (button.dataset.adminFeedbackRead) {
+      await adminPost(`/admin/feedback/${button.dataset.adminFeedbackRead}/status`, { status: "read" });
+      await loadAdminFeedback();
+    } else if (button.dataset.adminErrorResolve) {
+      await adminPost(`/admin/errors/${button.dataset.adminErrorResolve}/resolve`);
+      await loadAdminErrors();
+    } else if (button.dataset.adminErrorShow) {
+      const id = button.dataset.adminErrorShow;
+      const target = $(`#adminErrorTrace${id}`);
+      if (!target.hidden) {
+        target.hidden = true;
+        return;
+      }
+      const detail = await adminApi(`/admin/errors/${id}`);
+      target.textContent = `Где: ${detail.location || "—"}\n\n${detail.traceback || "Без traceback"}`;
+      target.hidden = false;
+    }
+  } catch (error) {
+    showMessage(`Не удалось выполнить действие: ${error.message}`, true);
+  }
+}
+
 async function publicApi(path) {
   const response = await fetch(path);
   if (!response.ok) {
@@ -2137,8 +2221,11 @@ async function loadAdmin() {
     $("#adminActivity").innerHTML = `<div class="empty-state">Для просмотра активности укажите admin token в блоке входа. Токен хранится только в браузере.</div>`;
     $("#adminFunnels").innerHTML = `<div class="empty-state">Воронки загрузятся после подключения admin token.</div>`;
     $("#adminActivityOverview").innerHTML = "";
+    $("#adminFeedback").innerHTML = `<div class="empty-state">Обращения загрузятся после подключения admin token.</div>`;
+    $("#adminErrors").innerHTML = `<div class="empty-state">Журнал ошибок загрузится после подключения admin token.</div>`;
     return;
   }
+  await Promise.all([loadAdminFeedback(), loadAdminErrors()]);
   if (!state.adminUsers.length) {
     const users = await adminApi("/admin/users?page_size=100");
     state.adminUsers = users.users || [];
@@ -3011,6 +3098,9 @@ function bindEvents() {
   bindFormSubmit("#documentCreateForm", handleDocumentCreate, "Сохранение...");
   bindFormSubmit("#journalCreateForm", handleJournalCreate, "Добавление...");
   bindFormSubmit("#driverJournalFilterForm", handleJournalFilter, "Фильтрация...");
+  $("#adminFeedback").addEventListener("click", handleAdminListClick);
+  $("#adminErrors").addEventListener("click", handleAdminListClick);
+  $("#adminErrorsResolved").addEventListener("change", () => loadAdminErrors().catch((error) => showMessage(error.message, true)));
   $("#adminActivityFilterForm").addEventListener("submit", (event) => {
     event.preventDefault();
     state.adminFilters.days = Number(event.currentTarget.days.value || 7);
