@@ -254,3 +254,166 @@ def parse_datetime(date_str: str, timezone: str = "Europe/Moscow") -> datetime:
         raise ValueError(f"Failed to parse date: {date_str}")
     
     return result
+
+
+# --------------------------------------------------------------------------------------
+# Quick reminders: find a date/time inside a free phrase ("завтра в 10 позвонить маме").
+# Many people typed the whole reminder in one go and then failed the separate date
+# and time steps; this lets the first message carry everything.
+# --------------------------------------------------------------------------------------
+
+WEEKDAYS_RU = {
+    "понедельник": 0, "пн": 0,
+    "вторник": 1, "вт": 1,
+    "среду": 2, "среда": 2, "ср": 2,
+    "четверг": 3, "чт": 3,
+    "пятницу": 4, "пятница": 4, "пт": 4,
+    "субботу": 5, "суббота": 5, "сб": 5,
+    "воскресенье": 6, "вс": 6,
+}
+_MONTHS_PATTERN = "|".join(sorted(MONTHS_RU.keys(), key=len, reverse=True))
+_DAYPART_SUFFIX = {"утра": "am", "дня": "pm", "вечера": "pm", "ночи": "night"}
+
+
+def _apply_daypart(hour: int, suffix: str | None) -> int:
+    if suffix == "pm" and 1 <= hour < 12:
+        return hour + 12
+    if suffix == "night" and hour == 12:
+        return 0
+    if suffix == "am" and hour == 12:
+        return 0
+    return hour
+
+
+def extract_reminder_datetime(text: str, timezone: str = "Europe/Moscow"):
+    """Find when a reminder should fire inside a free-text phrase.
+
+    Returns (kind, value, rest):
+      kind "datetime": value is an aware datetime in the user's timezone;
+      kind "date":     value is a date (time still has to be chosen);
+    or None when the phrase has no date/time. `rest` is the phrase without
+    the recognised date/time words (the reminder text itself).
+    """
+    tz = ZoneInfo(timezone)
+    now = datetime.now(tz)
+    low = text.lower().replace("ё", "е")
+    spans: list[tuple[int, int]] = []
+    day = None
+    hour_minute = None
+    relative = None
+
+    def take(match):
+        spans.append(match.span())
+        return match
+
+    m = re.search(
+        r"\bчерез\s+(?:(\d+(?:[.,]\d+)?)\s*)?(полчаса|пару\s+часов|минут\w*|мин\b|час\w*|ч\b|дн\w*|день|сутки|суток|недел\w*)",
+        low,
+    )
+    if m:
+        take(m)
+        amount = float((m.group(1) or "1").replace(",", "."))
+        unit = m.group(2)
+        if unit == "полчаса":
+            relative = timedelta(minutes=30)
+        elif unit.startswith("пару"):
+            relative = timedelta(hours=2)
+        elif unit.startswith("мин"):
+            relative = timedelta(minutes=amount)
+        elif unit.startswith(("час", "ч")):
+            relative = timedelta(hours=amount)
+        elif unit.startswith(("дн", "день", "сут")):
+            relative = timedelta(days=amount)
+        else:
+            relative = timedelta(weeks=amount)
+
+    if relative is None:
+        if m := re.search(r"\b(послезавтра|завтра|сегодня)\b", low):
+            take(m)
+            day = now.date() + timedelta(days={"сегодня": 0, "завтра": 1, "послезавтра": 2}[m.group(1)])
+        elif m := re.search(r"\b(?:в|во)\s+(" + "|".join(sorted(WEEKDAYS_RU, key=len, reverse=True)) + r")\b", low):
+            take(m)
+            delta = (WEEKDAYS_RU[m.group(1)] - now.weekday()) % 7
+            day = now.date() + timedelta(days=delta)
+        elif m := re.search(r"\b(\d{1,2})\s+(" + _MONTHS_PATTERN + r")(?:\s+(\d{4}))?\b", low):
+            take(m)
+            year = int(m.group(3)) if m.group(3) else now.year
+            try:
+                day = datetime(year, MONTHS_RU[m.group(2)], int(m.group(1))).date()
+            except ValueError:
+                return None
+            if day < now.date() and not m.group(3):
+                day = day.replace(year=year + 1)
+        else:
+            for m in re.finditer(r"(?<![\d:])(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d:])", low):
+                # "в 7.30" is a time, not the 7th of month 30.
+                if not m.group(3) and re.search(r"(?:\bв|\bк)\s*$", low[: m.start()]):
+                    continue
+                year = int(m.group(3)) if m.group(3) else now.year
+                if year < 100:
+                    year += 2000
+                try:
+                    candidate_day = datetime(year, int(m.group(2)), int(m.group(1))).date()
+                except ValueError:
+                    continue
+                if candidate_day < now.date() and not m.group(3):
+                    candidate_day = candidate_day.replace(year=year + 1)
+                day = candidate_day
+                take(m)
+                break
+
+        rest_low = low
+        for start, end in spans:
+            rest_low = rest_low[:start] + " " * (end - start) + rest_low[end:]
+        time_patterns = (
+            r"\b(?:в|к|на)?\s*(\d{1,2})[:.](\d{2})\b(?:\s+(утра|дня|вечера|ночи)\b)?",
+            r"\b(?:в|к)\s+(\d{1,2})\b(?!\s*(?:мин|час|дн|недел|раз|шт|кг|г\b|л\b|%|руб|р\b|\.|,\d))(?:\s+(утра|дня|вечера|ночи)\b)?",
+            r"\b(?:в\s+)?(\d{1,2})\s+(утра|дня|вечера|ночи)\b",
+        )
+        for pattern in time_patterns:
+            m = re.search(pattern, rest_low)
+            if not m:
+                continue
+            groups = m.groups()
+            hour = int(groups[0])
+            if len(groups) == 3:
+                minute, suffix = int(groups[1]), groups[2]
+            else:
+                minute, suffix = 0, groups[1]
+            hour = _apply_daypart(hour, _DAYPART_SUFFIX.get(suffix) if suffix else None)
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                hour_minute = (hour, minute)
+                spans.append(m.span())
+                break
+        if hour_minute is None:
+            for word, parsed in TIME_WORDS.items():
+                if m := re.search(rf"\b{word}\b", rest_low):
+                    hour_minute = parsed
+                    spans.append(m.span())
+                    break
+
+    def _rest() -> str:
+        chars = list(text)
+        for start, end in spans:
+            for index in range(start, min(end, len(chars))):
+                chars[index] = " "
+        cleaned = re.sub(r"\s+", " ", "".join(chars)).strip(" ,.-—:;")
+        return cleaned or text.strip()
+
+    if relative is not None:
+        return "datetime", now + relative, _rest()
+    if day is None and hour_minute is None:
+        return None
+    if hour_minute is None:
+        return "date", day, _rest()
+    if day is None:
+        candidate = now.replace(hour=hour_minute[0], minute=hour_minute[1], second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return "datetime", candidate, _rest()
+    candidate = datetime(day.year, day.month, day.day, hour_minute[0], hour_minute[1], tzinfo=tz)
+    if candidate <= now and day == now.date() and (day - now.date()).days == 0:
+        # «в пятницу в 9», said on Friday after 9: next week.
+        if re.search(r"\b(?:в|во)\s+(" + "|".join(WEEKDAYS_RU) + r")\b", low):
+            candidate += timedelta(days=7)
+    return "datetime", candidate, _rest()

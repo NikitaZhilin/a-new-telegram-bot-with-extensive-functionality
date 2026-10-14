@@ -44,7 +44,7 @@ from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.repositories.user_repo import UserRepository
 from src.db.models import ReminderNotificationStatus, RepeatRule
-from src.utils.date_parser import parse_datetime, parse_time_fragment
+from src.utils.date_parser import extract_reminder_datetime, parse_datetime, parse_time_fragment
 from src.utils.labels import reminder_status_label, repeat_rule_label
 from src.bot.handlers.conversation_exit import (
     TEXT_INPUT,
@@ -243,6 +243,10 @@ def _roll_forward_if_needed(remind_at_utc: datetime, context: ContextTypes.DEFAU
     return remind_at_utc
 
 
+MEDICATION_WORDS = re.compile(
+    r"таблет|капсул|витамин|лекарств|препарат|\bмг\b|капл|укол|инъекц|сироп|антибиот", re.IGNORECASE
+)
+
 PAST_TIME_TEXT = "⏳ Это время уже прошло. Выберите другое время или другую дату."
 
 
@@ -381,20 +385,34 @@ def _build_notification_plan_text(
     context: ContextTypes.DEFAULT_TYPE,
     remind_at: datetime,
 ) -> str:
-    """Build the final pre-create reminder delivery plan screen."""
+    """Card shown right after the reminder was saved."""
     repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
     linked_list_title = context.user_data.get("linked_list_title")
     linked_note_title = context.user_data.get("linked_note_title")
+    text = context.user_data.get("reminder_text", "")
     list_line = f"📋 Список: {linked_list_title}\n" if linked_list_title else ""
     note_line = f"📝 Заметка: {linked_note_title}\n" if linked_note_title else ""
     return (
-        "🔔 Когда прислать уведомление?\n\n"
+        "✅ Напоминание сохранено\n\n"
+        f"📝 {text[:100]}{'...' if len(text) > 100 else ''}\n"
         f"{list_line}"
         f"{note_line}"
-        f"Когда: {_format_remind_at(context, remind_at)}\n"
-        f"Повтор: {repeat_rule_label(repeat_rule)}\n\n"
-        "Основное уведомление придет в выбранное время. "
-        "Можно добавить предварительное напоминание."
+        f"⏰ {_format_remind_at(context, remind_at)}\n"
+        f"🔁 Повтор: {repeat_rule_label(repeat_rule)}\n"
+        f"🔔 {_format_notify_offsets(_context_notify_offsets(context))}\n\n"
+        "Можно уведомить заранее или настроить повтор. Если всё устраивает — нажмите «Готово»."
+        + (
+            "\n\n💡 Такое напоминание вы создаёте уже не первый раз — поставьте повтор, "
+            "и бот будет напоминать сам."
+            if context.user_data.get("suggest_repeat") and repeat_rule == RepeatRule.NONE
+            else ""
+        )
+        + (
+            "\n\n💡 Похоже на приём лекарства. В разделе «💊 Лекарства» напоминание приходит "
+            "с кнопками «Принял / Пропустил» и ведётся учёт приёма."
+            if not context.user_data.get("reminder_source_module") and MEDICATION_WORDS.search(text)
+            else ""
+        )
     )
 
 
@@ -402,7 +420,12 @@ async def _show_notification_plan_step(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> int:
-    """Show notification offset choices after event time is selected."""
+    """Save the reminder as soon as its time is known, then offer fine-tuning.
+
+    People often left at the "notify in advance?" step (they believed the
+    reminder was already set) and the reminder was lost. Now it is saved here
+    with the default plan; the notification and repeat buttons only adjust it.
+    """
     remind_at_str = context.user_data.get("remind_at_utc")
     if not remind_at_str:
         await _show_reminder_message(
@@ -414,6 +437,10 @@ async def _show_notification_plan_step(
         context.user_data.clear()
         return ConversationHandler.END
 
+    reminder = await _save_reminder_from_context(update, context)
+    if reminder is None:
+        return ConversationHandler.END
+
     remind_at = datetime.fromisoformat(remind_at_str)
     repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
     repeat_value = repeat_rule.value if hasattr(repeat_rule, "value") else str(repeat_rule)
@@ -421,7 +448,7 @@ async def _show_notification_plan_step(
         update,
         context,
         _build_notification_plan_text(context, remind_at),
-        get_reminder_notify_offsets_keyboard(repeat_value),
+        get_reminder_notify_offsets_keyboard(repeat_value, saved=True),
     )
     return ReminderStates.WAIT_NOTIFY
 
@@ -641,14 +668,63 @@ async def reminder_create_start(update: Update, context: ContextTypes.DEFAULT_TY
 async def reminder_save_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Save reminder text and show date selection."""
     text = update.message.text.strip()
-    context.user_data["reminder_text"] = text
     await _delete_user_message(update)
+    return await _apply_reminder_text(update, context, text)
+
+
+async def reminder_from_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«⏰ Напоминание» under a message typed outside any section."""
+    query = update.callback_query
+    await query.answer()
+    text = (context.user_data.pop("free_text", None) or "").strip()
+    if not text:
+        await query.edit_message_text(
+            "Текст не найден — напишите его ещё раз.",
+            reply_markup=get_back_home_inline_keyboard("reminders_list"),
+        )
+        return ConversationHandler.END
+    _clear_linked_reminder_context(context)
+    async with async_session_maker() as session:
+        context.user_data["user_timezone"] = await _get_user_timezone(update, session)
+    _remember_reminder_message(context, query.message.chat_id, query.message.message_id)
+    return await _apply_reminder_text(update, context, text)
+
+
+async def _apply_reminder_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> int:
+    """Use the reminder text; take the date/time from it when it has them."""
+    context.user_data["reminder_text"] = text
+
+    # "завтра в 10 позвонить маме": take the date/time from the phrase itself
+    # instead of asking for them again (most people abandoned those steps).
+    quick = None
+    try:
+        quick = extract_reminder_datetime(text, _context_timezone(context))
+    except Exception:
+        quick = None
+    if quick is not None:
+        kind, value, rest = quick
+        if rest and rest != text:
+            if kind == "datetime" and not _is_in_past(value.astimezone(timezone.utc)):
+                context.user_data["reminder_text"] = rest
+                context.user_data["remind_at_utc"] = value.astimezone(timezone.utc).isoformat()
+                return await _show_notification_plan_step(update, context)
+            if kind == "date":
+                context.user_data["reminder_text"] = rest
+                context.user_data["selected_date"] = value.isoformat()
+                await _show_reminder_message(
+                    update,
+                    context,
+                    f"Текст: {rest[:100]}\n📅 {value.strftime('%d.%m.%Y')}\n\nВо сколько напомнить?",
+                    get_reminder_time_keyboard(),
+                )
+                return ReminderStates.WAIT_TIME
 
     await _show_reminder_message(
         update,
         context,
         f"Текст: {text[:100]}{'...' if len(text) > 100 else ''}\n\n"
-        "Когда напомнить?",
+        "Когда напомнить?\n\n"
+        "💡 В следующий раз можно сразу написать, например: «завтра в 10 позвонить маме».",
         get_reminder_date_keyboard(),
     )
 
@@ -742,7 +818,17 @@ async def reminder_date_custom(update: Update, context: ContextTypes.DEFAULT_TYP
 async def reminder_save_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Save custom date."""
     date_str = update.message.text.strip()
-    
+
+    quick = None
+    try:
+        quick = extract_reminder_datetime(date_str, _context_timezone(context))
+    except Exception:
+        quick = None
+    if quick is not None and quick[0] == "datetime" and not _is_in_past(quick[1].astimezone(timezone.utc)):
+        context.user_data["remind_at_utc"] = quick[1].astimezone(timezone.utc).isoformat()
+        await _delete_user_message(update)
+        return await _show_notification_plan_step(update, context)
+
     try:
         if _looks_like_full_datetime(date_str):
             remind_at = _parse_flexible_datetime(date_str, context)
@@ -855,7 +941,15 @@ async def reminder_save_custom_time(update: Update, context: ContextTypes.DEFAUL
     time_str = update.message.text.strip()
     
     try:
-        remind_at = _parse_flexible_datetime(time_str, context)
+        try:
+            remind_at = _parse_flexible_datetime(time_str, context)
+        except (ValueError, IndexError):
+            # "7 вечера", "в 3 дня", "к 9" on the already chosen date.
+            quick = extract_reminder_datetime(time_str, _context_timezone(context))
+            if quick is None or quick[0] != "datetime":
+                raise ValueError(time_str)
+            chosen = _selected_date(context, _context_timezone(context))
+            remind_at = quick[1].replace(year=chosen.year, month=chosen.month, day=chosen.day).astimezone(timezone.utc)
         remind_at = _roll_forward_if_needed(remind_at, context)
         if _is_in_past(remind_at):
             await update.message.reply_text(PAST_TIME_TEXT, reply_markup=get_cancel_keyboard())
@@ -901,39 +995,46 @@ async def show_confirmation(query, context: ContextTypes.DEFAULT_TYPE, remind_at
     )
 
 
-async def _create_reminder_from_context(
+async def _save_reminder_from_context(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> int:
-    """Create reminder from the current creation context and render its card."""
+):
+    """Create the reminder once, or update the one created in this wizard."""
     user_id = update.effective_user.id
     text = context.user_data.get("reminder_text", "")
-    remind_at_str = context.user_data.get("remind_at_utc")
+    remind_at_utc = datetime.fromisoformat(context.user_data["remind_at_utc"])
     repeat_rule = context.user_data.get("repeat_rule", RepeatRule.NONE)
     linked_list_id = context.user_data.get("linked_list_id")
     linked_note_id = context.user_data.get("linked_note_id")
     source_module = context.user_data.get("reminder_source_module")
     notify_offsets = _context_notify_offsets(context)
-
-    if not remind_at_str:
-        await _show_reminder_message(
-            update,
-            context,
-            "❌ Не указано время напоминания.",
-            get_back_home_inline_keyboard("reminders_list"),
-        )
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    remind_at_utc = datetime.fromisoformat(remind_at_str)
+    saved_id = context.user_data.get("saved_reminder_id")
 
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         user = await user_repo.get_by_telegram_id(user_id)
-
+        app_user_id = user.id if user else user_id
         reminder_service = ReminderService(session)
+
+        if saved_id:
+            reminder = await reminder_service.get_reminder(saved_id, app_user_id)
+            if reminder is not None:
+                current_at = reminder.remind_at_utc
+                if current_at.tzinfo is None:
+                    current_at = current_at.replace(tzinfo=timezone.utc)
+                if current_at != remind_at_utc:
+                    reminder = await reminder_service.update_reminder_time(
+                        saved_id, app_user_id, remind_at_utc, notify_offsets_minutes=notify_offsets
+                    )
+                else:
+                    reminder = await reminder_service.update_notification_plan(saved_id, app_user_id, notify_offsets)
+                if reminder is not None and reminder.repeat_rule != repeat_rule:
+                    reminder = await reminder_service.update_reminder_repeat(saved_id, app_user_id, repeat_rule)
+                await session.commit()
+                return reminder
+
         reminder = await reminder_service.create_reminder(
-            user_id=user.id if user else user_id,
+            user_id=app_user_id,
             text=text,
             remind_at_utc=remind_at_utc,
             repeat_rule=repeat_rule,
@@ -951,11 +1052,11 @@ async def _create_reminder_from_context(
                 get_back_home_inline_keyboard("reminders_list"),
             )
             context.user_data.clear()
-            return ConversationHandler.END
+            return None
         driver_template = context.user_data.get("driver_reminder_template")
         if source_module == "driver" and driver_template:
             await DriverService(session).create_journal_entry(
-                user_id=user.id if user else user_id,
+                user_id=app_user_id,
                 event_type=f"{driver_template}_reminder",
                 title=_driver_reminder_journal_title(driver_template),
                 description=f"Напоминание: {text}",
@@ -967,26 +1068,72 @@ async def _create_reminder_from_context(
                     "repeat_rule": reminder.repeat_rule.value if hasattr(reminder.repeat_rule, "value") else str(reminder.repeat_rule),
                 },
             )
-        await session.commit()
+        if repeat_rule == RepeatRule.NONE and text:
+            # Same one-time reminder created again and again → suggest a repeat.
+            from sqlalchemy import func, select
 
+            from src.db.models import Reminder
+
+            same = (await session.execute(
+                select(func.count(Reminder.id)).where(
+                    Reminder.user_id == app_user_id,
+                    Reminder.repeat_rule == RepeatRule.NONE,
+                    func.lower(Reminder.text) == text.lower(),
+                    Reminder.created_at >= datetime.now(timezone.utc) - timedelta(days=30),
+                )
+            )).scalar() or 0
+            context.user_data["suggest_repeat"] = same >= 3
+        await session.commit()
+        context.user_data["saved_reminder_id"] = reminder.id
+        return reminder
+
+
+async def _create_reminder_from_context(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Save the reminder (create or update) and show its final card."""
+    if not context.user_data.get("remind_at_utc"):
+        await _show_reminder_message(
+            update,
+            context,
+            "❌ Не указано время напоминания.",
+            get_back_home_inline_keyboard("reminders_list"),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    reminder = await _save_reminder_from_context(update, context)
+    if reminder is None:
+        return ConversationHandler.END
+
+    text = context.user_data.get("reminder_text", "")
+    remind_at_utc = datetime.fromisoformat(context.user_data["remind_at_utc"])
     await _show_reminder_message(
         update,
         context,
         f"✅ Напоминание создано!\n\n"
         f"📝 {text[:100]}{'...' if len(text) > 100 else ''}\n\n"
         f"⏰ {_format_remind_at(context, remind_at_utc)}\n"
-        f"🔔 {_format_notify_offsets(notify_offsets)}",
+        f"🔔 {_format_notify_offsets(_context_notify_offsets(context))}",
         get_reminder_view_keyboard(
             reminder.id,
-            list_id=linked_list_id,
-            note_id=linked_note_id,
-            source_module=source_module,
+            list_id=context.user_data.get("linked_list_id"),
+            note_id=context.user_data.get("linked_note_id"),
+            source_module=context.user_data.get("reminder_source_module"),
             can_complete=False,
         ),
     )
 
     context.user_data.clear()
     return ConversationHandler.END
+
+
+async def reminder_finish_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«Готово» on the saved-reminder card."""
+    query = update.callback_query
+    await query.answer("Сохранено")
+    return await _create_reminder_from_context(update, context)
 
 
 async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -997,12 +1144,19 @@ async def reminder_confirm_create(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def reminder_cancel_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel reminder creation."""
+    """Cancel reminder creation (and drop the reminder saved in this wizard)."""
     query = update.callback_query
     await query.answer("Отменено")
-    
+
+    saved_id = context.user_data.get("saved_reminder_id")
+    if saved_id:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            await ReminderService(session).delete_reminder(saved_id, user_id)
+            await session.commit()
+
     await query.edit_message_text(
-        "❌ Создание отменено",
+        "🗑 Напоминание не создано" if saved_id else "❌ Создание отменено",
         reply_markup=get_back_home_inline_keyboard("reminders_list"),
     )
     
@@ -1499,6 +1653,7 @@ reminder_create_conv = ConversationHandler(
         CallbackQueryHandler(reminder_create_start, pattern="^list_remind:"),
         CallbackQueryHandler(reminder_create_start, pattern="^note_remind:"),
         CallbackQueryHandler(reminder_create_start, pattern="^driver_reminder_template:"),
+        CallbackQueryHandler(reminder_from_free_text, pattern="^free_reminder$"),
     ],
     states={
         ReminderStates.WAIT_TEXT: [
@@ -1523,6 +1678,7 @@ reminder_create_conv = ConversationHandler(
             MessageHandler(TEXT_INPUT, reminder_save_custom_time),
         ],
         ReminderStates.WAIT_NOTIFY: [
+            CallbackQueryHandler(reminder_finish_callback, pattern="^rem_finish$"),
             CallbackQueryHandler(reminder_notify_offsets_callback, pattern="^rem_notify:"),
             CallbackQueryHandler(reminder_repeat_set, pattern="^rem_repeat_set$"),
             CallbackQueryHandler(reminder_change_time, pattern="^rem_time_change$"),

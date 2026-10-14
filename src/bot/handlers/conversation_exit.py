@@ -133,7 +133,19 @@ async def stale_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.clear()
     from src.bot.keyboards import get_home_inline_keyboard
 
-    if (query.data or "") in {"cancel", "rem_cancel_create", "list_voice_cancel"}:
+    data = query.data or ""
+    if data in {"rem_finish", "rem_cancel_create"} or data.startswith("rem_notify:"):
+        # The reminder was already saved when its time was chosen.
+        await query.answer(
+            "Напоминание уже сохранено. Изменить или удалить его можно в разделе «Напоминания».",
+            show_alert=True,
+        )
+        try:
+            await query.edit_message_reply_markup(reply_markup=get_home_inline_keyboard())
+        except Exception:
+            pass
+        return
+    if data in {"cancel", "list_voice_cancel"}:
         await query.answer("Отменено")
         try:
             await query.edit_message_text("❌ Отменено", reply_markup=get_home_inline_keyboard())

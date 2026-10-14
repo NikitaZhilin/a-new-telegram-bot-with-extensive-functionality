@@ -149,7 +149,7 @@ async def test_stale_wizard_button_gets_an_answer():
 
 
 @pytest.mark.asyncio
-async def test_stale_cancel_button_just_cancels():
+async def test_stale_cancel_button_just_cancels():  # noqa: D103
     query = FakeQuery("cancel")
 
     await stale_button_callback(SimpleNamespace(callback_query=query), SimpleNamespace(user_data={}))

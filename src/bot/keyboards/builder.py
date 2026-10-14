@@ -1916,7 +1916,7 @@ def get_reminder_confirm_keyboard(
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_reminder_notify_offsets_keyboard(current_repeat: str = "none") -> InlineKeyboardMarkup:
+def get_reminder_notify_offsets_keyboard(current_repeat: str = "none", saved: bool = False) -> InlineKeyboardMarkup:
     """Keyboard for selecting notification offsets before reminder creation."""
     repeat_labels = {
         "none": "без повтора",
@@ -1927,7 +1927,7 @@ def get_reminder_notify_offsets_keyboard(current_repeat: str = "none") -> Inline
     repeat_label = repeat_labels.get(current_repeat, "без повтора")
     keyboard = [
         [
-            InlineKeyboardButton("Только в выбранное время", callback_data="rem_notify:0"),
+            InlineKeyboardButton("🔔 Только в выбранное время", callback_data="rem_notify:0"),
         ],
         [
             InlineKeyboardButton("За 30 минут", callback_data="rem_notify:30"),
@@ -1947,10 +1947,13 @@ def get_reminder_notify_offsets_keyboard(current_repeat: str = "none") -> Inline
             InlineKeyboardButton(f"🔁 Повтор: {repeat_label}", callback_data="rem_repeat_set"),
             InlineKeyboardButton("🕒 Изменить время", callback_data="rem_time_change"),
         ],
-        [
-            InlineKeyboardButton("❌ Отмена", callback_data="rem_cancel_create"),
-        ],
     ]
+    if saved:
+        # The reminder already exists: «Готово» just closes the card.
+        keyboard.insert(0, [InlineKeyboardButton("✅ Готово", callback_data="rem_finish")])
+        keyboard.append([InlineKeyboardButton("🗑 Не создавать", callback_data="rem_cancel_create")])
+    else:
+        keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="rem_cancel_create")])
     return InlineKeyboardMarkup(keyboard)
 
 

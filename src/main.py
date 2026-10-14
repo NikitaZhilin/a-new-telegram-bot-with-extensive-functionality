@@ -860,6 +860,7 @@ async def run_worker() -> None:
         )
 
         logger.info("Reminder worker started")
+        await worker.revive_dead_series()
         await worker.start()
     finally:
         if heartbeat_task:
