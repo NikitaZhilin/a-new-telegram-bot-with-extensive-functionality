@@ -111,9 +111,12 @@ async def main() -> None:
         domains = Counter(e[1] for e in evs if e[1] not in ("unknown", "general", "navigation"))
         for domain in domains:
             domain_users[domain] += 1
-        for key in ("reminder_create", "rem_confirm_create", "med_create", "list_create", "note_create",
-                    "driver_vehicle_create"):
-            totals[key] += actions.get(key, 0)
+        # A reminder is saved either at the notification step or by «Подтвердить».
+        saved_reminders = sum(c for n, c in actions.items() if n.startswith("rem_notify") or n == "rem_confirm_create")
+        started_reminders = sum(c for n, c in actions.items() if n in ("reminder_create", "list_remind:{id}", "note_remind:{id}")
+                                or n.startswith("driver_reminder_template"))
+        totals["reminder_started"] += started_reminders
+        totals["reminder_saved"] += saved_reminders
 
         r = reminders.get(user.id, Counter())
         created = []
@@ -135,10 +138,9 @@ async def main() -> None:
             created.append(f"авто {cars[user.id]} (заправок {fuel.get(user.id, 0)})")
 
         unfinished = []
-        if actions.get("reminder_create", 0) > actions.get("rem_confirm_create", 0):
+        if started_reminders > saved_reminders:
             unfinished.append(
-                f"начинал создавать напоминание {actions['reminder_create']} раз, "
-                f"подтвердил {actions.get('rem_confirm_create', 0)}"
+                f"начинал создавать напоминание {started_reminders} раз, сохранил {saved_reminders}"
             )
         if actions.get("med_create") and not meds.get(user.id):
             unfinished.append("начинал добавлять лекарство, но не сохранил")
@@ -159,7 +161,7 @@ async def main() -> None:
         )
 
     header = (
-        f"📊 Что делали пользователи (на {now.astimezone(TZ):%d.%m.%Y %H:%M})\n"
+        f"📊 Что делали пользователи (на {now.astimezone(TZ):%d.%m.%Y %H:%M}) — исправленная версия\n"
         "Только действия и количество записей; тексты заметок, напоминаний и названия лекарств не читались.\n"
     )
     messages, current = [], header
@@ -186,7 +188,7 @@ async def main() -> None:
     print(f"USERS: {len(users)}, with any action: {sum(1 for u in users if per_user_events.get(u.id))}")
     print("SECTIONS (users): " + ", ".join(f"{DOMAIN_LABELS.get(d, d)}: {c}" for d, c in domain_users.most_common()))
     print(
-        f"REMINDERS: started {totals['reminder_create']}, confirmed {totals['rem_confirm_create']}, "
+        f"REMINDERS: wizard started {totals['reminder_started']}, saved {totals['reminder_saved']}, "
         f"in db {sum(v for k, v in all_reminders.items() if not k.startswith('src:'))} "
         f"(active {all_reminders['active']}, done {all_reminders['done']}, canceled {all_reminders['canceled']}, "
         f"missed {all_reminders['missed']}); by section: "
