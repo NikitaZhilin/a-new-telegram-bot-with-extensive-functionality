@@ -1,0 +1,44 @@
+name: Server health
+
+# Read-only report about the VPS: containers, memory, disk, errors, backups.
+# Results are shown as annotations on the run page.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * *"
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER || vars.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/bots/rememberme' }}
+      COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME || 'rememberme_bot' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Server health report
+        run: |
+          set +e
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "PROJECT_DIR='$DEPLOY_PATH' COMPOSE_PROJECT_NAME='$COMPOSE_PROJECT_NAME' bash -s" < scripts/server-health.sh > health.txt 2>&1
+          status=$?
+          cat health.txt
+          grep '^WARN:' health.txt | head -9 | while IFS= read -r l; do echo "::warning title=Server health::${l#WARN: }"; done
+          report=$(grep -v '^WARN:' health.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          echo "::notice title=Server health::${report}"
+          exit $status

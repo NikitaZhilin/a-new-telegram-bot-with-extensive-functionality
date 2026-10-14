@@ -111,6 +111,9 @@ jobs:
       DEFAULT_SUBSCRIPTION_PLAN: ${{ vars.DEFAULT_SUBSCRIPTION_PLAN || 'free' }}
       WORKER_INTERVAL: ${{ vars.WORKER_INTERVAL || '60' }}
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Check deployment secrets
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -290,3 +293,15 @@ jobs:
             bash deploy-vps-manual.sh
           fi
           REMOTE
+
+      - name: Server health report
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "PROJECT_DIR='$DEPLOY_PATH' COMPOSE_PROJECT_NAME='$COMPOSE_PROJECT_NAME' bash -s" < scripts/server-health.sh > health.txt 2>&1
+          cat health.txt
+          grep '^WARN:' health.txt | head -9 | while IFS= read -r l; do echo "::warning title=Server health::${l#WARN: }"; done
+          report=$(grep -v '^WARN:' health.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          echo "::notice title=Server health::${report}"

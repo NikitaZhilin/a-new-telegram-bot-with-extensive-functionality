@@ -62,3 +62,14 @@ def safe_timezone_name(value: Optional[str], default: str) -> str:
 def safe_zoneinfo(value: Optional[str], default: str = "UTC") -> ZoneInfo:
     """ZoneInfo for value that never raises on a bad stored name."""
     return ZoneInfo(safe_timezone_name(value, default))
+
+
+def effective_user_timezone(stored: Optional[str], default: str) -> str:
+    """The timezone reminders are actually scheduled in for a stored value.
+
+    Plain "UTC" is the legacy column default and means "not chosen", so it
+    resolves to the configured default, like everywhere else in the bot.
+    """
+    if not stored or (stored == "UTC" and default != "UTC"):
+        return safe_timezone_name(default, "UTC")
+    return safe_timezone_name(stored, default)

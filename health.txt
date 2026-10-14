@@ -1,0 +1,16 @@
+HOST: vm | uptime: up 2 minutes
+LOAD: 0.00 / 0.00 / 0.00 (CPU: 2)
+MEMORY: 470/8029 MB used, available 7559 MB
+SWAP: 0/0 MB
+DISK /: 31% used, 30696 MB free
+DOCKER DISK: Images 1.2GB (reclaimable 600MB);
+CONTAINER postgres: running since 2026-10-14T08:32:00 UTC, restarts 0, health running, 0.5% CPU, 80MiB / 256MiB, errors 24h: 1
+CONTAINER bot: running since 2026-10-14T08:32:00 UTC, restarts 0, health running, 0.5% CPU, 80MiB / 256MiB, errors 24h: 1
+CONTAINER api: running since 2026-10-14T08:32:00 UTC, restarts 0, health running, 0.5% CPU, 80MiB / 256MiB, errors 24h: 1
+CONTAINER worker: running since 2026-10-14T08:32:00 UTC, restarts 0, health running, 0.5% CPU, 80MiB / 256MiB, errors 24h: 1
+BOT getUpdates CONFLICTS 24h: 0
+APP STATUS: ok | version 0.1.42-beta | db ok | api=ok, bot=ok, worker=ok
+REMINDERS: overdue (>10 min) 0, failed last 24h 0
+USERS: 7
+WARN: no database backups in /home/claude/a-new-telegram-bot-with-extensive-functionality/backups
+WARN: backup cron is not installed
