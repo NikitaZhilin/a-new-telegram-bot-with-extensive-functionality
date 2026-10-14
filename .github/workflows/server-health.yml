@@ -45,3 +45,17 @@ jobs:
           report=$(grep -v '^WARN:' health.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
           echo "::notice title=Server health::${report}"
           exit $status
+
+      - name: Users report (details go to admins in Telegram only)
+        if: always()
+        run: |
+          set +e
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "docker exec -i '$COMPOSE_PROJECT_NAME-api' python -" < scripts/users-report.py > users.txt 2>&1
+          status=$?
+          lines=$(tail -n 20 users.txt | grep -E '^(USERS|REGISTERED|LAST|ORIGIN|USING|DETAILED)|Error|error' | cut -c1-400)
+          echo "$lines"
+          report=$(echo "$lines" | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          echo "::notice title=Users::${report}"
+          exit $status
+
