@@ -356,6 +356,64 @@ class ReminderRepository(BaseRepository[Reminder]):
         await self.db.flush()
         return new_reminder
 
+    async def revive_dead_series(self, now: datetime, default_timezone: str) -> int:
+        """Restart repeating series that a failed delivery ended.
+
+        Before the fix, a permanent delivery error marked a daily/weekly
+        reminder MISSED and never scheduled the next one, so e.g. a medication
+        schedule silently stopped. A series is revived when its latest
+        occurrence is MISSED and no active occurrence of it exists.
+        """
+        from src.db.models import Medication, Note, TodoList, User
+        from src.utils.timezones import safe_timezone_name
+
+        result = await self.db.execute(
+            select(Reminder)
+            .options(selectinload(Reminder.user), selectinload(Reminder.notifications))
+            .where(Reminder.repeat_rule != RepeatRule.NONE)
+            .order_by(Reminder.remind_at_utc.asc(), Reminder.id.asc())
+        )
+        latest: dict[tuple, Reminder] = {}
+        active_keys: set[tuple] = set()
+        for reminder in result.scalars().all():
+            key = (
+                reminder.user_id, reminder.repeat_rule, reminder.text, reminder.medication_id,
+                reminder.list_id, reminder.note_id, reminder.driver_document_id,
+            )
+            latest[key] = reminder
+            if reminder.status == ReminderStatus.ACTIVE:
+                active_keys.add(key)
+
+        revived = 0
+        for key, reminder in latest.items():
+            if key in active_keys or reminder.status != ReminderStatus.MISSED:
+                continue
+            if reminder.medication_id is not None:
+                medication = await self.db.get(Medication, reminder.medication_id)
+                if medication is None or not medication.is_active:
+                    continue
+            if reminder.note_id is not None:
+                note = await self.db.get(Note, reminder.note_id)
+                if note is None or note.is_archived:
+                    continue
+            if reminder.list_id is not None and await self.db.get(TodoList, reminder.list_id) is None:
+                continue
+            stored_tz = getattr(reminder.user, "timezone", None) if reminder.user else None
+            if not stored_tz or (stored_tz == "UTC" and default_timezone != "UTC"):
+                stored_tz = default_timezone
+            tz_name = safe_timezone_name(stored_tz, default_timezone)
+            next_time = next_future_occurrence(
+                reminder.remind_at_utc,
+                reminder.repeat_rule,
+                tz_name,
+                now,
+                day_of_month=monthly_anchor_day(reminder, tz_name),
+            )
+            await self.create_next_occurrence(reminder, next_time)
+            revived += 1
+        await self.db.flush()
+        return revived
+
     async def get_active_by_user(
         self,
         user_id: int,

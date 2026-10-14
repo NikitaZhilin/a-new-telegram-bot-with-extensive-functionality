@@ -159,6 +159,10 @@ async def menu_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await share_bot_message(update, context)
         return
 
+    from src.bot.handlers.free_text import free_text_handler
+
+    await free_text_handler(update, context)
+
 
 async def show_lists_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show lists section menu."""

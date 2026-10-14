@@ -249,6 +249,7 @@ from src.bot.handlers.driver import (
 )
 from src.bot.handlers.navigation import menu_button_handler
 from src.bot.handlers.conversation_exit import bind_application, noop_callback, stale_button_callback
+from src.bot.handlers.free_text import free_note_callback
 from src.bot.handlers.navigation import mini_app_unavailable_callback
 from src.bot.handlers.navigation import web_entry_callback
 from src.bot.handlers.navigation import share_bot_callback
@@ -439,6 +440,7 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(share_bot_callback, pattern="^share_bot$"))
     
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop"))
+    application.add_handler(CallbackQueryHandler(free_note_callback, pattern="^free_note$"))
 
     # === Message Handler for Main Menu ===
     application.add_handler(menu_button_handler)
