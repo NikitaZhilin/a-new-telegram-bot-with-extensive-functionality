@@ -27,6 +27,7 @@ from src.config import settings
 from src.db.base import Base
 from src.db.session import engine, async_session_maker
 from src.services.activity_service import ActivityService
+from src.services.error_journal import flush_error_journal, start_error_journal
 from src.services.release_info import (
     STARTUP_UPDATE_FALLBACK_MESSAGE,
     app_info,
@@ -724,6 +725,7 @@ async def run_bot() -> None:
         },
     )
     heartbeat_task = asyncio.create_task(heartbeat.run(), name="heartbeat-bot")
+    await start_error_journal()
 
     await bot_app.bot.set_my_commands(
         [
@@ -731,6 +733,7 @@ async def run_bot() -> None:
             BotCommand("help", "Помощь"),
             BotCommand("import_list", "Импортировать копию списка"),
             BotCommand("join_list", "Присоединиться к общему списку"),
+            BotCommand("feedback", "Сообщить об ошибке или идее"),
             BotCommand("cancel", "Отменить текущий сценарий"),
         ]
     )
@@ -812,6 +815,7 @@ async def run_bot() -> None:
     except KeyboardInterrupt:
         logger.info("Bot stopping...")
     finally:
+        await flush_error_journal()
         if heartbeat_task:
             heartbeat.stop()
             heartbeat_task.cancel()
@@ -851,6 +855,7 @@ async def run_worker() -> None:
             },
         )
         heartbeat_task = asyncio.create_task(heartbeat.run(), name="heartbeat-worker")
+        await start_error_journal()
 
         worker = ReminderWorkerService(
             bot=bot,
@@ -863,6 +868,7 @@ async def run_worker() -> None:
         await worker.revive_dead_series()
         await worker.start()
     finally:
+        await flush_error_journal()
         if heartbeat_task:
             heartbeat.stop()
             heartbeat_task.cancel()
@@ -973,6 +979,10 @@ def main() -> None:
     # Setup logging
     setup_logging(settings.LOG_LEVEL)
     logger = structlog.get_logger(__name__)
+    if command in ("bot", "api", "worker", "all") and not dry_run:
+        from src.services.error_journal import install_error_journal
+
+        install_error_journal(command)
     
     if command == "init-db":
         logger.info("Initializing database...")

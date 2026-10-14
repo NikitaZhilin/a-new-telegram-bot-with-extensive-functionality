@@ -364,6 +364,62 @@ class ServiceHeartbeat(Base):
         return f"<ServiceHeartbeat(service_name='{self.service_name}', status='{self.status}')>"
 
 
+class ErrorEvent(Base):
+    """One kind of error seen in bot, worker or api; repeats increase ``count``."""
+
+    __tablename__ = "error_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    service: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    section: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    error_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    location: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    context: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    traceback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+    def __repr__(self) -> str:
+        return f"<ErrorEvent(id={self.id}, section='{self.section}', type='{self.error_type}', count={self.count})>"
+
+
+class UserFeedback(Base):
+    """Bug report, idea or any message a user sent to the developer from the bot."""
+
+    __tablename__ = "user_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="other", server_default="other")
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    photo_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    app_version: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="new", server_default="new", index=True)
+    admin_reply: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('bug', 'idea', 'other')", name="ck_user_feedback_kind"),
+        CheckConstraint("status IN ('new', 'read', 'answered')", name="ck_user_feedback_status"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserFeedback(id={self.id}, kind='{self.kind}', status='{self.status}')>"
+
+
 class TodoList(Base):
     """TodoList model for storing todo/shopping lists."""
 

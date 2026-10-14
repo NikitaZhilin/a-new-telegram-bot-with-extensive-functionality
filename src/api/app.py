@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import health, admin, admin_ui, me, web
 from src.config import settings
 from src.db.session import engine
+from src.services.error_journal import flush_error_journal, start_error_journal
 from src.services.service_heartbeat import ServiceHeartbeatWriter
 
 logger = logging.getLogger(__name__)
@@ -64,9 +65,11 @@ async def lifespan(app: FastAPI):
         },
     )
     heartbeat_task = asyncio.create_task(heartbeat.run(), name="heartbeat-api")
+    await start_error_journal()
     try:
         yield
     finally:
+        await flush_error_journal()
         # Shutdown
         heartbeat.stop()
         heartbeat_task.cancel()
@@ -108,7 +111,15 @@ def create_application() -> FastAPI:
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            # Path only: query strings can carry login keys.
+            logger.exception(
+                "API request failed",
+                extra={"error_context": f"{request.method} {request.url.path}"[:300]},
+            )
+            raise
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         path = request.url.path

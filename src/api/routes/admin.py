@@ -698,3 +698,128 @@ async def get_due_reminders(
         "count": len(notifications),
         "generated_at": now.isoformat(),
     }
+
+
+# === Error journal and user feedback ===
+
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def _error_event_dict(event, *, with_traceback: bool = False) -> dict[str, Any]:
+    from src.services.error_journal import SECTION_LABELS
+
+    data = {
+        "id": event.id,
+        "service": event.service,
+        "section": event.section,
+        "section_label": SECTION_LABELS.get(event.section, event.section),
+        "error_type": event.error_type,
+        "message": event.message,
+        "location": event.location,
+        "context": event.context,
+        "telegram_id": event.telegram_id,
+        "count": event.count,
+        "first_seen_at": _iso(event.first_seen_at),
+        "last_seen_at": _iso(event.last_seen_at),
+        "resolved_at": _iso(event.resolved_at),
+    }
+    if with_traceback:
+        data["traceback"] = event.traceback
+    return data
+
+
+@router.get("/errors", summary="Error journal", description="Errors from bot, worker and api, grouped by kind")
+async def get_errors(
+    days: int = Query(30, ge=1, le=90),
+    section: Optional[str] = Query(None, max_length=40),
+    service: Optional[str] = Query(None, max_length=20),
+    include_resolved: bool = Query(False),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from src.services.error_journal import ErrorJournalService
+
+    journal = ErrorJournalService(db)
+    events = await journal.list_events(
+        days=days, section=section, service=service, include_resolved=include_resolved, limit=limit
+    )
+    return {"summary": await journal.summary(), "errors": [_error_event_dict(item) for item in events]}
+
+
+@router.get("/errors/{event_id}", summary="One error with traceback")
+async def get_error(event_id: int, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    from src.services.error_journal import ErrorJournalService
+
+    event = await ErrorJournalService(db).get(event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="error not found")
+    return _error_event_dict(event, with_traceback=True)
+
+
+@router.post("/errors/{event_id}/resolve", summary="Mark an error as resolved")
+async def resolve_error(event_id: int, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    from src.services.error_journal import ErrorJournalService
+
+    if not await ErrorJournalService(db).resolve(event_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="error not found")
+    return {"ok": True}
+
+
+@router.post("/errors/resolve-all", summary="Mark all open errors as resolved")
+async def resolve_all_errors(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    from src.services.error_journal import ErrorJournalService
+
+    return {"resolved": await ErrorJournalService(db).resolve_all()}
+
+
+@router.get("/feedback", summary="User feedback", description="Bug reports and ideas sent from the bot")
+async def get_feedback(
+    status_filter: Optional[Literal["new", "read", "answered"]] = Query(None, alias="status"),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from src.services.feedback_service import KIND_LABELS, FeedbackService
+
+    service = FeedbackService(db)
+    items = await service.list(status=status_filter, limit=limit)
+    return {
+        "new": await service.count_new(),
+        "feedback": [
+            {
+                "id": item.id,
+                "telegram_id": item.telegram_id,
+                "username": item.username,
+                "first_name": item.first_name,
+                "kind": item.kind,
+                "kind_label": KIND_LABELS.get(item.kind, item.kind),
+                "text": item.text,
+                "has_photo": bool(item.photo_file_id),
+                "app_version": item.app_version,
+                "status": item.status,
+                "admin_reply": item.admin_reply,
+                "created_at": _iso(item.created_at),
+                "answered_at": _iso(item.answered_at),
+            }
+            for item in items
+        ],
+    }
+
+
+class FeedbackStatusPayload(BaseModel):
+    status: Literal["new", "read", "answered"]
+
+
+@router.post("/feedback/{feedback_id}/status", summary="Change feedback status")
+async def set_feedback_status(
+    feedback_id: int, payload: FeedbackStatusPayload, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    from src.services.feedback_service import FeedbackService
+
+    if await FeedbackService(db).set_status(feedback_id, payload.status) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feedback not found")
+    return {"ok": True}

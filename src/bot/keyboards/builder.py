@@ -2008,6 +2008,9 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💳 Подписка", callback_data="settings_subscription"),
         ],
         [
+            InlineKeyboardButton("💬 Обратная связь", callback_data="feedback_start"),
+        ],
+        [
             InlineKeyboardButton("ℹ️ О боте", callback_data="settings_about"),
         ],
         [
@@ -2040,6 +2043,13 @@ def get_about_keyboard(
     if is_admin:
         keyboard.append([
             InlineKeyboardButton("🔧 Технический статус", callback_data="settings_technical_status"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton("🧯 Журнал ошибок", callback_data="settings_errors"),
+            InlineKeyboardButton("📬 Обращения", callback_data="settings_feedback_list"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton("📣 Оповещение пользователям", callback_data="settings_broadcast"),
         ])
     keyboard.append([
         InlineKeyboardButton("⬅️ Настройки", callback_data="settings_menu"),

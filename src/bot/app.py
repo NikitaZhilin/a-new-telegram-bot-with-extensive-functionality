@@ -76,27 +76,38 @@ async def _tell_user_about_error(update: object) -> None:
             logger.debug("Could not send error notice to user", exc_info=True)
 
 
-def _format_admin_error(update: object, error: BaseException) -> str:
-    """Plain-text admin notice; no markup, so tracebacks with <module> are safe."""
+def _describe_update(update: object) -> tuple[str, int | None, str | None]:
+    """What the user did (without private text), their Telegram ID and button data."""
     where = ""
+    callback_data = None
     query = getattr(update, "callback_query", None)
     message = getattr(update, "effective_message", None)
     user = getattr(update, "effective_user", None)
     if query is not None:
-        where = f"Кнопка: {getattr(query, 'data', '')}"
+        callback_data = getattr(query, "data", None) or ""
+        where = f"Кнопка: {callback_data}"
     elif message is not None and getattr(message, "text", None):
         words = message.text.split()
         first_word = words[0] if words else ""
         # Only commands are shown: free text may be private.
         where = f"Сообщение: {first_word[:40]}" if first_word.startswith("/") else "Сообщение: текст"
-    if user is not None:
-        where += f"\nTelegram ID: {user.id}"
+    elif message is not None:
+        where = "Сообщение: вложение"
+    return where, (user.id if user is not None else None), callback_data
+
+
+def _format_admin_error(update: object, error: BaseException) -> str:
+    """Plain-text admin notice; no markup, so tracebacks with <module> are safe."""
+    where, telegram_id, _ = _describe_update(update)
+    if telegram_id is not None:
+        where += f"\nTelegram ID: {telegram_id}"
     tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
     text = (
         "🔧 Ошибка в боте\n\n"
         f"{type(error).__name__}: {error}\n"
         f"{where}\n\n"
-        f"{tb[-2000:]}"
+        f"{tb[-2000:]}\n\n"
+        "Все ошибки собраны в Настройки → О боте → 🧯 Журнал ошибок."
     )
     return text[:ADMIN_ERROR_MAX_CHARS]
 
@@ -132,13 +143,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.info("Ignored Telegram message-not-modified callback")
             return
 
-    logger.exception("Unhandled bot update error", exc_info=error)
+    where, telegram_id, callback_data = _describe_update(update)
+    logger.error(
+        "Unhandled bot update error",
+        exc_info=error,
+        extra={"error_context": where or None, "telegram_id": telegram_id, "callback_data": callback_data},
+    )
     await _tell_user_about_error(update)
     if error is not None:
         await _notify_admins_about_error(context, update, error)
 
 
 # Import handlers for callback registration
+from src.bot.handlers.broadcast import broadcast_callback_handlers
+from src.bot.handlers.feedback import admin_callback_handlers, feedback_conv
 from src.bot.handlers.lists import (
     lists_list_callback,
     lists_page_callback,
@@ -321,6 +339,9 @@ def create_application() -> Application:
     # Settings
     application.add_handler(settings_timezone_conv)
 
+    # Feedback (users → admins) and admin replies
+    application.add_handler(feedback_conv)
+
     application.add_handler(start_handler)
     application.add_handler(help_handler)
     
@@ -402,6 +423,8 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(settings_about_callback, pattern="^settings_about$"))
     application.add_handler(CallbackQueryHandler(settings_release_history_callback, pattern="^settings_release_history$"))
     application.add_handler(CallbackQueryHandler(settings_technical_status_callback, pattern="^settings_technical_status$"))
+    for handler in [*admin_callback_handlers(), *broadcast_callback_handlers()]:
+        application.add_handler(handler)
     application.add_handler(CallbackQueryHandler(settings_stats_callback, pattern="^settings_stats$"))
     application.add_handler(CallbackQueryHandler(settings_subscription_callback, pattern="^settings_subscription$"))
     application.add_handler(CallbackQueryHandler(settings_web_login_callback, pattern="^settings_web_login$"))
