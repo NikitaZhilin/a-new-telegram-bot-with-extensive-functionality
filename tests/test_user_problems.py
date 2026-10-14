@@ -186,3 +186,22 @@ async def test_revive_series_stopped_by_failed_delivery(db_session):
     assert await meds._get_active_daily_reminders(archived.id, user.id) == []
 
     assert await ReminderRepository(db_session).revive_dead_series(now, TZ) == 0
+
+
+# --- Numbers with units (vehicle wizard was abandoned after rejected inputs) ------------------
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [("120 000 км", 120000), ("120 тыс", 120000), ("10 000 km", 10000), ("12 мес", 12), ("15000", 15000)],
+)
+def test_driver_numbers_accept_units(raw, expected):
+    from src.bot.handlers.driver import _parse_int
+
+    assert _parse_int(raw, "пробег") == expected
+
+
+def test_driver_money_and_liters_accept_units():
+    from src.bot.handlers.driver import _parse_float
+
+    assert _parse_float("2 500 ₽", "сумма") == 2500
+    assert _parse_float("45,6 л", "литры") == 45.6

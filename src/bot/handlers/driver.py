@@ -298,12 +298,29 @@ def _parse_callback_id(data: str, index: int = 1) -> int:
     return int(data.split(":")[index])
 
 
+_UNIT_SUFFIX = re.compile(
+    r"(?:км|km|мес(?:яц(?:а|ев)?)?|мес\.|л|литр(?:а|ов)?|руб(?:\.|лей|ля|ль)?|р\.?|₽|rub)\.?$",
+    re.IGNORECASE,
+)
+
+
+def _strip_units(value: str) -> tuple[str, int]:
+    """Drop units people type after numbers ("120 000 км", "2 500 ₽", "120 тыс")."""
+    cleaned = value.strip().lower().replace("\u00a0", " ")
+    multiplier = 1
+    if re.search(r"\d\s*(?:тыс\.?|т\.?|k)\s*(?:км|km)?\.?$", cleaned):
+        multiplier = 1000
+        cleaned = re.sub(r"\s*(?:тыс\.?|т\.?|k)(\s*(?:км|km)\.?)?$", "", cleaned)
+    cleaned = _UNIT_SUFFIX.sub("", cleaned.strip()).strip()
+    return cleaned.replace(" ", ""), multiplier
+
+
 def _parse_int(value: str, field_name: str, allow_zero: bool = True) -> int:
     """Parse integer from user input."""
-    cleaned = value.strip().replace(" ", "").replace("\u00a0", "")
+    cleaned, multiplier = _strip_units(value)
     if not cleaned.isdigit() or not cleaned.isascii():
         raise ValueError(field_name)
-    parsed = int(cleaned)
+    parsed = int(cleaned) * multiplier
     if parsed < 0 or (parsed == 0 and not allow_zero) or parsed > 9_999_999:
         raise ValueError(field_name)
     return parsed
@@ -311,9 +328,10 @@ def _parse_int(value: str, field_name: str, allow_zero: bool = True) -> int:
 
 def _parse_float(value: str, field_name: str) -> float:
     """Parse decimal number from user input."""
-    cleaned = value.strip().replace(" ", "").replace("\u00a0", "").replace(",", ".")
+    cleaned, multiplier = _strip_units(value)
+    cleaned = cleaned.replace(",", ".")
     try:
-        parsed = float(cleaned)
+        parsed = float(cleaned) * multiplier
     except ValueError as exc:
         raise ValueError(field_name) from exc
     # float() also accepts "nan", "inf" and "1e9": they used to be saved and
