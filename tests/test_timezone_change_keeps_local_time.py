@@ -120,3 +120,54 @@ async def test_driver_document_reminders_are_not_moved(db_session):
 
     after = await reminder_service.get_reminder(before[0].id, user.id)
     assert _as_utc(after.remind_at_utc) == before_at
+
+
+# --- Medication schedule changes close their deliveries ---------------------------------------
+
+@pytest.mark.asyncio
+async def test_removed_medication_time_leaves_no_pending_deliveries(db_session):
+    """Found on the server: canceled medication reminders kept PENDING deliveries."""
+    user = await _user(db_session, 83006)
+    meds = MedicationService(db_session)
+    medication = await meds.create_medication(user_id=user.id, name="Магний")
+    nine = _local_tomorrow(MOSCOW, 9).astimezone(timezone.utc)
+    nine_pm = _local_tomorrow(MOSCOW, 21).astimezone(timezone.utc)
+    await meds.replace_daily_reminders(medication.id, user.id, [nine, nine_pm])
+
+    await meds.replace_daily_reminders(medication.id, user.id, [nine])
+    await meds.archive_medication(medication.id, user.id)
+
+    from sqlalchemy import select
+
+    from src.db.models import Reminder, ReminderNotification
+
+    rows = (await db_session.execute(
+        select(ReminderNotification).join(Reminder).where(Reminder.user_id == user.id)
+    )).scalars().all()
+    assert rows
+    assert all(row.status != ReminderNotificationStatus.PENDING for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_medication_time_keeps_the_first_and_cancels_the_extra(db_session):
+    """Before: with two duplicates the code canceled the one it had just kept."""
+    from src.db.models import Reminder, ReminderStatus
+
+    user = await _user(db_session, 83007)
+    meds = MedicationService(db_session)
+    medication = await meds.create_medication(user_id=user.id, name="Магний")
+    nine = _local_tomorrow(MOSCOW, 9).astimezone(timezone.utc)
+    for _ in range(2):
+        db_session.add(Reminder(
+            user_id=user.id, text="Принять лекарство: Магний", remind_at_utc=nine,
+            repeat_rule=RepeatRule.DAILY, status=ReminderStatus.ACTIVE,
+            medication_id=medication.id, source_module="medication",
+        ))
+    await db_session.flush()
+
+    kept = await meds.create_reminder(medication.id, user.id, nine + timedelta(days=1))
+
+    await db_session.refresh(kept)
+    assert kept.status == ReminderStatus.ACTIVE
+    active = await meds._get_active_daily_reminders(medication.id, user.id)
+    assert [item.id for item in active] == [kept.id]
