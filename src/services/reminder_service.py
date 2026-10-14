@@ -436,6 +436,7 @@ class ReminderService:
             )
         )
         moved = 0
+        moved_reminders: list[Reminder] = []
         for reminder in result.scalars().all():
             old_at = self._ensure_utc(reminder.remind_at_utc)
             local = old_at.astimezone(old_tz).replace(tzinfo=None)
@@ -457,8 +458,12 @@ class ReminderService:
             reminder.remind_at_utc = new_at
             self._cancel_pending_notifications(reminder)
             self._add_notification_plan(reminder, offsets)
+            moved_reminders.append(reminder)
             moved += 1
         await self.db.flush()
+        for reminder in moved_reminders:
+            # New delivery rows were added by id; reload the collection on next access.
+            self.db.expire(reminder, ["notifications"])
         return moved
 
     async def cancel_linked_reminders(
