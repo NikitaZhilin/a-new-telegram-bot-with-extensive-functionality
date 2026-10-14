@@ -22,6 +22,7 @@ from src.db.models.models import (
     DriverFuelEntry,
     DriverJournalEntry,
     DriverVehicle,
+    ErrorEvent,
     Medication,
     MedicationIntake,
     MedicationIntakeStatus,
@@ -31,6 +32,7 @@ from src.db.models.models import (
     ReminderStatus,
     RepeatRule,
     ServiceHeartbeat,
+    UserFeedback,
 )
 
 __all__ = [
@@ -51,6 +53,7 @@ __all__ = [
     "DriverFuelEntry",
     "DriverJournalEntry",
     "DriverVehicle",
+    "ErrorEvent",
     "Medication",
     "MedicationIntake",
     "MedicationIntakeStatus",
@@ -60,4 +63,5 @@ __all__ = [
     "ReminderStatus",
     "RepeatRule",
     "ServiceHeartbeat",
+    "UserFeedback",
 ]
