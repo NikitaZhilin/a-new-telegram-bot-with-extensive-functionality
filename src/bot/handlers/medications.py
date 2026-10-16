@@ -1516,6 +1516,69 @@ async def medication_resume_callback(update: Update, context: ContextTypes.DEFAU
     return ConversationHandler.END
 
 
+# =============================================================================
+# Weekly summary
+# =============================================================================
+
+async def medication_summary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show «medications this week» on demand, with the weekly-message switch."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    query = update.callback_query
+    await query.answer()
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+        user = await UserRepository(session).get_by_telegram_id(update.effective_user.id)
+        service = MedicationService(session)
+        text = service.format_weekly_summary(await service.weekly_summary(user_id, user_timezone))
+    enabled = bool(user and user.weekly_med_summary)
+    text = (text or "📊 За последние 7 дней отметок приёма нет.") + (
+        "\n\n🔔 Такая сводка приходит по воскресеньям в 19:00." if enabled
+        else "\n\n🔕 Еженедельная сводка выключена."
+    )
+    toggle = (
+        InlineKeyboardButton("🔕 Не присылать по воскресеньям", callback_data="med_summary_off")
+        if enabled else InlineKeyboardButton("🔔 Присылать по воскресеньям", callback_data="med_summary_on")
+    )
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([
+            [toggle],
+            [InlineKeyboardButton("⬅️ К лекарствам", callback_data="medications_list")],
+        ]),
+    )
+    return ConversationHandler.END
+
+
+async def medication_summary_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Turn the Sunday summary on or off."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    query = update.callback_query
+    enable = query.data == "med_summary_on"
+    async with async_session_maker() as session:
+        user = await UserRepository(session).get_by_telegram_id(update.effective_user.id)
+        if user is not None:
+            user.weekly_med_summary = enable
+            await session.commit()
+    await query.answer("Сводка включена" if enable else "Больше не буду присылать сводку")
+    toggle = (
+        InlineKeyboardButton("🔕 Не присылать сводку", callback_data="med_summary_off")
+        if enable else InlineKeyboardButton("🔔 Присылать сводку снова", callback_data="med_summary_on")
+    )
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💊 Лекарства", callback_data="medications_list")],
+                [toggle],
+            ])
+        )
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
 async def medication_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for medication delete confirmation."""
     query = update.callback_query

@@ -705,7 +705,11 @@ async def run_bot() -> None:
     from telegram import BotCommand
     
     logger = structlog.get_logger(__name__)
-    
+
+    from src.services.instance_lock import acquire_instance_lock
+
+    instance_lock = await acquire_instance_lock(engine, "bot")
+
     bot_app = create_application()
     initialized = False
     started = False
@@ -830,6 +834,8 @@ async def run_bot() -> None:
         if initialized:
             with suppress(Exception):
                 await bot_app.shutdown()
+        if instance_lock is not None:
+            await instance_lock.release()
 
 
 async def run_worker() -> None:

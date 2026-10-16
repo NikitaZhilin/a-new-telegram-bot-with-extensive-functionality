@@ -9,7 +9,7 @@ on:
 
 jobs:
   health:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     env:
       VPS_HOST: ${{ secrets.VPS_HOST || vars.VPS_HOST }}
@@ -19,7 +19,7 @@ jobs:
       COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME || 'rememberme_bot' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configure SSH
         env:

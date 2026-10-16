@@ -163,6 +163,8 @@ from src.bot.handlers.medications import (
     medication_pause_conv,
     medication_pause_set_callback,
     medication_resume_callback,
+    medication_summary_callback,
+    medication_summary_toggle_callback,
 )
 from src.bot.handlers.lists import (
     lists_list_callback,
@@ -405,6 +407,8 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(medication_pause_set_callback, pattern=r"^med_pause_set:\d+:\d+$"))
     application.add_handler(CallbackQueryHandler(medication_pause_apply_callback, pattern=r"^med_pause_apply:\d+:\d{8}:\d+$"))
     application.add_handler(CallbackQueryHandler(medication_resume_callback, pattern=r"^med_resume:\d+$"))
+    application.add_handler(CallbackQueryHandler(medication_summary_callback, pattern="^med_summary$"))
+    application.add_handler(CallbackQueryHandler(medication_summary_toggle_callback, pattern="^med_summary_(on|off)$"))
     application.add_handler(CallbackQueryHandler(medication_edit_dosage_value_callback, pattern="^med_edit_dosage_value:"))
     application.add_handler(CallbackQueryHandler(medication_edit_instructions_value_callback, pattern="^med_edit_instr_value:"))
     application.add_handler(CallbackQueryHandler(medication_edit_importance_value_callback, pattern="^med_edit_importance_value:"))
