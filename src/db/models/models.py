@@ -77,6 +77,8 @@ class User(Base):
     timezone: Mapped[str] = mapped_column(String(50), nullable=False, default="UTC")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False, index=True)
     onboarding_source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Sunday evening «medications this week» message; the user can turn it off.
+    weekly_med_summary: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

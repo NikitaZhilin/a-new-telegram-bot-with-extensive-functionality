@@ -122,6 +122,10 @@ docker run -d \
   sh -c 'DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB} python -m src.main worker'
 
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'rememberme_bot|NAMES'
+
+# Each rebuild leaves the previous image untagged. Remove only RememberMe's
+# own leftovers (label set in the Dockerfiles); other bots' images are untouched.
+docker image prune -f --filter "label=project=$PROJECT_RESOURCE_PREFIX" || true
 docker logs --tail=80 "$BOT_CONTAINER"
 docker logs --tail=80 "$API_CONTAINER"
 docker logs --tail=80 "$WORKER_CONTAINER"

@@ -9,7 +9,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:15-alpine
@@ -35,10 +35,10 @@ jobs:
       SEND_STARTUP_MENU_ON_BOOT: "false"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -73,7 +73,7 @@ jobs:
           exit $status
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: production
@@ -112,7 +112,7 @@ jobs:
       WORKER_INTERVAL: ${{ vars.WORKER_INTERVAL || '60' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check deployment secrets
         env:
@@ -281,6 +281,7 @@ jobs:
             $COMPOSE rm -f -s init-db >/dev/null 2>&1 || true
             $COMPOSE run --rm init-db
             $COMPOSE up -d --no-deps bot api worker
+            docker image prune -f --filter "label=project=rememberme_bot" || true
             $COMPOSE ps
             $COMPOSE logs --tail=80 bot api worker
           else

@@ -1433,6 +1433,10 @@ def get_medications_list_keyboard(
     keyboard.append([
         InlineKeyboardButton("➕ Добавить", callback_data="med_create"),
     ])
+    if medications:
+        keyboard.append([
+            InlineKeyboardButton("📊 Сводка за неделю", callback_data="med_summary"),
+        ])
     keyboard.append([
         InlineKeyboardButton("🏠 В меню", callback_data="home"),
     ])

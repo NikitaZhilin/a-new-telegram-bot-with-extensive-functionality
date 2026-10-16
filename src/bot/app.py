@@ -163,6 +163,8 @@ from src.bot.handlers.medications import (
     medication_pause_conv,
     medication_pause_set_callback,
     medication_resume_callback,
+    medication_summary_callback,
+    medication_summary_toggle_callback,
 )
 from src.bot.handlers.lists import (
     lists_list_callback,
@@ -190,6 +192,8 @@ from src.bot.handlers.checklists import (
     checklist_toggle_callback,
 )
 from src.bot.handlers.notes import (
+    note_new_discard_callback,
+    note_new_done_callback,
     note_category_set_callback,
     note_delete_callback,
     note_delete_confirm_callback,
@@ -403,6 +407,8 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(medication_pause_set_callback, pattern=r"^med_pause_set:\d+:\d+$"))
     application.add_handler(CallbackQueryHandler(medication_pause_apply_callback, pattern=r"^med_pause_apply:\d+:\d{8}:\d+$"))
     application.add_handler(CallbackQueryHandler(medication_resume_callback, pattern=r"^med_resume:\d+$"))
+    application.add_handler(CallbackQueryHandler(medication_summary_callback, pattern="^med_summary$"))
+    application.add_handler(CallbackQueryHandler(medication_summary_toggle_callback, pattern="^med_summary_(on|off)$"))
     application.add_handler(CallbackQueryHandler(medication_edit_dosage_value_callback, pattern="^med_edit_dosage_value:"))
     application.add_handler(CallbackQueryHandler(medication_edit_instructions_value_callback, pattern="^med_edit_instr_value:"))
     application.add_handler(CallbackQueryHandler(medication_edit_importance_value_callback, pattern="^med_edit_importance_value:"))
@@ -476,6 +482,9 @@ def create_application() -> Application:
     
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop"))
     application.add_handler(CallbackQueryHandler(free_note_callback, pattern="^free_note$"))
+    # Buttons of a saved new note still work after the wizard timed out.
+    application.add_handler(CallbackQueryHandler(note_new_done_callback, pattern=r"^note_new_done:\d+$"))
+    application.add_handler(CallbackQueryHandler(note_new_discard_callback, pattern=r"^note_new_discard:\d+$"))
 
     # === Message Handler for Main Menu ===
     application.add_handler(menu_button_handler)

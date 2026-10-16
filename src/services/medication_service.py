@@ -1151,3 +1151,94 @@ class MedicationService:
             await self.resume_course(medication.id, user.id, tz_name, now_utc=now_utc)
             resumed.append((medication, user))
         return resumed
+
+    # --- Weekly summary ---------------------------------------------------------
+
+    async def weekly_summary(self, user_id: int, user_timezone: str, now_utc: Optional[datetime] = None) -> dict:
+        """Taken / skipped / unmarked doses per medication for the last 7 local days (today included)."""
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+        tz = ZoneInfo(user_timezone)
+        today = now_utc.astimezone(tz).date()
+        first_day = today - timedelta(days=6)
+        start_utc = datetime.combine(first_day, time.min, tzinfo=tz).astimezone(timezone.utc)
+
+        medications = (
+            await self.db.execute(
+                select(Medication)
+                .where(and_(Medication.user_id == user_id, Medication.is_active.is_(True)))
+                .order_by(Medication.name)
+            )
+        ).scalars().all()
+        rows = []
+        for medication in medications:
+            intakes = (
+                await self.db.execute(
+                    select(MedicationIntake).where(
+                        and_(
+                            MedicationIntake.medication_id == medication.id,
+                            MedicationIntake.user_id == user_id,
+                            MedicationIntake.taken_at_utc >= start_utc,
+                            MedicationIntake.taken_at_utc <= now_utc,
+                        )
+                    )
+                )
+            ).scalars().all()
+            taken = sum(1 for item in intakes if self._slot_status_from_intake(item) == "taken")
+            skipped = len(intakes) - taken
+            paused = self.is_paused(medication)
+            times = (
+                self.paused_times(medication)
+                if paused
+                else await self._get_daily_schedule_times(medication.id, user_id, user_timezone)
+            )
+            expected = 0
+            if times and not paused:
+                created = self._ensure_utc(medication.created_at).astimezone(tz).date() if medication.created_at else first_day
+                for offset in range(7):
+                    day = first_day + timedelta(days=offset)
+                    if day < created:
+                        continue
+                    for slot_time in times:
+                        slot_utc = datetime.combine(day, slot_time, tzinfo=tz).astimezone(timezone.utc)
+                        if slot_utc <= now_utc:
+                            expected += 1
+            if not intakes and not expected and not paused:
+                continue
+            rows.append(
+                {
+                    "name": medication.name,
+                    "taken": taken,
+                    "skipped": skipped,
+                    "expected": max(expected, taken + skipped),
+                    "unmarked": max(expected - taken - skipped, 0),
+                    "paused_until": medication.paused_until if paused else None,
+                }
+            )
+        return {"first_day": first_day, "last_day": today, "rows": rows}
+
+    @staticmethod
+    def format_weekly_summary(summary: dict) -> Optional[str]:
+        rows = summary["rows"]
+        if not rows:
+            return None
+        lines = [
+            f"📊 Лекарства за неделю ({summary['first_day'].strftime('%d.%m')}–{summary['last_day'].strftime('%d.%m')})",
+            "",
+        ]
+        total_expected = total_taken = 0
+        for row in rows:
+            if row["paused_until"] and not row["expected"]:
+                lines.append(f"⏸ {row['name']}: перерыв до {row['paused_until'].strftime('%d.%m.%Y')}")
+                continue
+            parts = [f"принято {row['taken']} из {row['expected']}"]
+            if row["skipped"]:
+                parts.append(f"пропущено {row['skipped']}")
+            if row["unmarked"]:
+                parts.append(f"без отметки {row['unmarked']}")
+            icon = "✅" if row["expected"] and row["taken"] == row["expected"] else "💊"
+            lines.append(f"{icon} {row['name']}: " + ", ".join(parts))
+            total_expected += row["expected"]
+            total_taken += row["taken"]
+        if total_expected:
+            lines += ["", f"Итого принято {round(100 * total_taken / total_expected)}% приёмов."]
+        return "\n".join(lines)

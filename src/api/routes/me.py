@@ -269,6 +269,8 @@ class MedicationSummaryResponse(BaseModel):
     is_active: bool
     daily_times_local: List[str] = Field(default_factory=list)
     paused_until: Optional[date] = None
+    pause_notice_days: Optional[int] = None
+    marked_status: Optional[str] = None
     can_mark_now: bool = False
     mark_reason: str = ""
     has_schedule: bool = False
@@ -894,6 +896,8 @@ async def _medication_response(
             else [value.strftime("%H:%M") for value in schedule]
         ),
         paused_until=medication.paused_until,
+        pause_notice_days=service.notice_days(medication) if service.is_paused(medication) else None,
+        marked_status=action_state.marked_status,
         can_mark_now=action_state.can_mark,
         mark_reason=action_state.reason,
         has_schedule=action_state.has_schedule,
@@ -1729,6 +1733,51 @@ async def mark_my_medication_skipped(
     intake, _ = await service.mark_skipped_for_current_slot(medication_id, current_user.id, current_user.timezone)
     await db.commit()
     return MutationResponse(ok=intake is not None)
+
+
+class MedicationPausePayload(BaseModel):
+    """Break between courses: until this local date, heads-up N days before (0 = none)."""
+
+    until: date
+    notice_days: int = Field(7, ge=0, le=60)
+
+
+@router.post("/me/medications/{medication_id}/pause", response_model=MedicationSummaryResponse)
+async def pause_my_medication(
+    medication_id: int,
+    payload: MedicationPausePayload,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MedicationSummaryResponse:
+    """Put a medication on a break between courses."""
+    service = MedicationService(db)
+    try:
+        medication = await service.pause_course(
+            medication_id, current_user.id, payload.until, current_user.timezone, notice_days=payload.notice_days
+        )
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Дата окончания перерыва должна быть в будущем") from None
+    if not medication:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medication not found")
+    await db.commit()
+    await db.refresh(medication)
+    return await _medication_response(service, medication, current_user)
+
+
+@router.post("/me/medications/{medication_id}/resume", response_model=MedicationSummaryResponse)
+async def resume_my_medication(
+    medication_id: int,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MedicationSummaryResponse:
+    """End a break now: daily reminders come back."""
+    service = MedicationService(db)
+    medication = await service.resume_course(medication_id, current_user.id, current_user.timezone)
+    if not medication:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medication not found")
+    await db.commit()
+    await db.refresh(medication)
+    return await _medication_response(service, medication, current_user)
 
 
 @router.delete("/me/medications/{medication_id}", response_model=MutationResponse)

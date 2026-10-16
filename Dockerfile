@@ -1,5 +1,6 @@
 # Docker image for RememberMe Bot API, bot, and init-db commands.
 FROM python:3.11-slim
+LABEL project=rememberme_bot
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

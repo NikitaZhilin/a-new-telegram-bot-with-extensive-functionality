@@ -131,6 +131,7 @@ class ReminderWorkerService:
         self._running = False
         self._retry_after_seconds = 0.0
         self._last_failure_reason = None
+        self._last_summary_check = None
 
     async def revive_dead_series(self) -> int:
         """One-time repair on start: restart series ended by a failed delivery."""
@@ -187,6 +188,79 @@ class ReminderWorkerService:
             logger.exception("Could not resume paused medication courses")
             return 0
 
+    WEEKLY_SUMMARY_WEEKDAY = 6  # Sunday
+    WEEKLY_SUMMARY_HOUR = 19  # local time
+
+    async def send_weekly_summaries(self) -> int:
+        """Sunday 19:00 local: «medications this week» to users who take something."""
+        from sqlalchemy import exists, select as sa_select
+
+        from src.db.models import BotActivityEvent, Medication, User
+        from src.services.activity_service import ActivityService
+
+        now = self.clock()
+        if self._last_summary_check and now - self._last_summary_check < timedelta(minutes=10):
+            return 0
+        self._last_summary_check = now
+        sent = 0
+        try:
+            async with self.session_factory() as session:
+                users = (
+                    await session.execute(
+                        sa_select(User).where(
+                            User.weekly_med_summary.is_(True),
+                            exists().where(Medication.user_id == User.id, Medication.is_active.is_(True)),
+                        )
+                    )
+                ).scalars().all()
+                for user in users:
+                    tz_name = safe_timezone_name(user.timezone, settings.TIMEZONE_DEFAULT)
+                    local = now.astimezone(ZoneInfo(tz_name))
+                    if local.weekday() != self.WEEKLY_SUMMARY_WEEKDAY or local.hour != self.WEEKLY_SUMMARY_HOUR:
+                        continue
+                    year, week, _ = local.isocalendar()
+                    event_name = f"weekly_med_summary:{year}-W{week:02d}"
+                    already = await session.scalar(
+                        sa_select(BotActivityEvent.id).where(
+                            BotActivityEvent.telegram_id == user.telegram_id,
+                            BotActivityEvent.event_name == event_name,
+                        ).limit(1)
+                    )
+                    if already:
+                        continue
+                    service = MedicationService(session)
+                    text = service.format_weekly_summary(await service.weekly_summary(user.id, tz_name, now))
+                    if text:
+                        try:
+                            await self.bot.send_message(
+                                chat_id=user.telegram_id,
+                                text=text,
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("💊 Лекарства", callback_data="medications_list")],
+                                    [InlineKeyboardButton("🔕 Не присылать сводку", callback_data="med_summary_off")],
+                                ]),
+                            )
+                            sent += 1
+                        except Forbidden:
+                            pass
+                        except Exception:
+                            logger.warning("Could not send weekly medication summary", exc_info=True)
+                            continue
+                    await ActivityService(session).record_event(
+                        event_type="system",
+                        event_name=event_name,
+                        domain="system",
+                        user_id=user.id,
+                        telegram_id=user.telegram_id,
+                        source="system",
+                    )
+                    await session.commit()
+        except Exception:
+            logger.exception("Weekly medication summaries failed")
+        if sent:
+            logger.info(f"Sent {sent} weekly medication summaries")
+        return sent
+
     async def start(self) -> None:
         """Start the worker loop."""
         self._running = True
@@ -201,6 +275,7 @@ class ReminderWorkerService:
         while self._running:
             try:
                 await self.resume_paused_courses()
+                await self.send_weekly_summaries()
                 result = await self.process_cycle()
                 if self.heartbeat:
                     if result.failed:
