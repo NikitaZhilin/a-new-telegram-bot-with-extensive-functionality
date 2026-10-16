@@ -46,20 +46,17 @@ jobs:
           echo "::notice title=Server health::${report}"
           exit $status
 
-      - name: Post-deploy checks and test backup to Telegram
+      - name: Backup cron diagnostics
         if: always()
         run: |
           set +e
           ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash -s > live.txt 2>&1 <<'REMOTE'
-          P=rememberme_bot
-          cd /opt/bots/rememberme && git log --oneline -1 | cut -c1-60
-          echo "== alembic: $(docker exec $P-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT version_num FROM alembic_version"')"
-          echo "== bot log"; docker logs $P-bot 2>&1 | grep -oE '"event": ?"[^"]{0,70}"|^[A-Z][^{]{0,70}' | sed -E 's/[0-9]{5,}/<id>/g' | tail -n 8
-          echo "== worker log"; docker logs $P-worker 2>&1 | grep -iE 'started|resumed|summar|error' | sed -E 's/[0-9]{5,}/<id>/g' | tail -n 5 | cut -c1-160
-          echo "== test backup to Telegram"
-          FORCE_TELEGRAM_BACKUP=1 PROJECT_DIR=/opt/bots/rememberme bash /opt/bots/rememberme/scripts/backup-vps.sh 2>&1 | sed -E 's#/opt/bots/rememberme/backups/##' | tail -n 3
-          echo "== error journal (last 3)"
-          docker exec $P-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -F " | " -c "SELECT id, section, error_type, location, count, to_char(last_seen_at, '"'"'DD.MM HH24:MI'"'"') FROM error_events ORDER BY last_seen_at DESC LIMIT 3"'
+          echo "user: $(id -un)"
+          ls -l /opt/bots/rememberme/scripts/backup-vps.sh | awk '{print $1, $3}'
+          sed -E 's/[0-9]{6,}/<n>/g' /etc/cron.d/rememberme-backup | grep -v '^$'
+          echo "== backup.log tail"; tail -n 8 /opt/bots/rememberme/logs/backup.log 2>&1 | sed -E 's#/opt/bots/rememberme/backups/##'
+          echo "== backups"; ls -1t /opt/bots/rememberme/backups | head -5
+          echo "== cron service"; (systemctl is-active cron || systemctl is-active crond) 2>&1 | head -2
           REMOTE
           cat live.txt
           report=$(cut -c1-250 live.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
