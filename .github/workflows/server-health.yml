@@ -46,15 +46,23 @@ jobs:
           echo "::notice title=Server health::${report}"
           exit $status
 
-      - name: Backup cron and Telegram copy check
+      - name: State overview (anonymous)
         if: always()
         run: |
           set +e
           ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash -s > live.txt 2>&1 <<'REMOTE'
-          ls -l /opt/bots/rememberme/scripts/backup-vps.sh | awk '{print $1}'
-          grep -o '/bin/bash /opt[^ ]*' /etc/cron.d/rememberme-backup
-          echo "== run like cron does, sending a test copy to Telegram"
-          FORCE_TELEGRAM_BACKUP=1 PROJECT_DIR=/opt/bots/rememberme PROJECT_RESOURCE_PREFIX=rememberme_bot POSTGRES_CONTAINER=rememberme_bot-postgres RETENTION_DAYS=14 /bin/bash /opt/bots/rememberme/scripts/backup-vps.sh 2>&1 | sed -E 's#/opt/bots/rememberme/backups/##' | tail -n 3
+          P=rememberme_bot
+          q() { docker exec $P-postgres sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tA -F ' | ' -c \"$1\""; }
+          echo "== backup log"; tail -n 4 /opt/bots/rememberme/logs/backup.log | sed -E 's#/opt/bots/rememberme/backups/##' | cut -c1-120
+          echo "== errors"; q "SELECT id, service, section, error_type, location, count, to_char(last_seen_at,'DD.MM HH24:MI'), resolved_at IS NOT NULL FROM error_events ORDER BY last_seen_at DESC LIMIT 8"
+          echo "== feedback (kind, status, created)"; q "SELECT kind, status, to_char(created_at,'DD.MM HH24:MI') FROM user_feedback ORDER BY id DESC LIMIT 10"
+          echo "== announcement deliveries"; q "SELECT event_name, count(*) FROM bot_activity_events WHERE event_name LIKE 'announcement_sent:%' GROUP BY 1"
+          echo "== paused meds / summary off"; q "SELECT (SELECT count(*) FROM medications WHERE paused_until IS NOT NULL), (SELECT count(*) FROM users WHERE NOT weekly_med_summary)"
+          echo "== activity last 3 days by domain"; q "SELECT domain, count(*), count(DISTINCT telegram_id) FROM bot_activity_events WHERE created_at > now() - interval '3 days' AND domain <> 'system' GROUP BY 1 ORDER BY 2 DESC"
+          echo "== top callbacks 7 days"; q "SELECT event_name, count(*) FROM bot_activity_events WHERE created_at > now() - interval '7 days' AND event_type='callback' GROUP BY 1 ORDER BY 2 DESC LIMIT 15"
+          echo "== reminder notification failures 7d"; q "SELECT left(regexp_replace(coalesce(last_error,'-'),'[0-9]{4,}','<n>','g'),90), count(*) FROM reminder_notifications WHERE status='FAILED' AND updated_at > now() - interval '7 days' GROUP BY 1"
+          echo "== general reminder notifications sent 7d and done/missed"; q "SELECT status, count(*) FROM reminders WHERE source_module='general' AND updated_at > now() - interval '7 days' GROUP BY 1"
+          echo "== memory"; free -m | awk '/Mem:/ {print $3"/"$2" used, avail "$7}'; docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | sed -E 's/^(rememberme_bot-[a-z]+)/\1/; /^rememberme/!s/^[^ ]+/other/' 
           REMOTE
           cat live.txt
           report=$(cut -c1-250 live.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
