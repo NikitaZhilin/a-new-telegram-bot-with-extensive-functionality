@@ -281,6 +281,7 @@ jobs:
             $COMPOSE rm -f -s init-db >/dev/null 2>&1 || true
             $COMPOSE run --rm init-db
             $COMPOSE up -d --no-deps bot api worker
+            docker image prune -f --filter "label=project=rememberme_bot" || true
             $COMPOSE ps
             $COMPOSE logs --tail=80 bot api worker
           else

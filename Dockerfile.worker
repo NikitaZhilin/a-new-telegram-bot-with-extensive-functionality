@@ -1,5 +1,6 @@
 # Docker image for Reminder Worker.
 FROM python:3.11-slim
+LABEL project=rememberme_bot
 
 WORKDIR /app
 
