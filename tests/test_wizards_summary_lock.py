@@ -232,3 +232,17 @@ def test_backup_script_sends_to_telegram_once_a_day():
     assert "send-backup-telegram.py" in script and "TELEGRAM_BACKUP_HOUR_UTC" in script
     sender = Path("scripts/send-backup-telegram.py").read_text(encoding="utf-8")
     assert "MAX_RECIPIENTS = 3" in sender and "ADMIN_TELEGRAM_IDS" in sender
+
+
+def test_backup_cron_survives_a_deploy():
+    """Found 16.10: git reset dropped the +x bit and cron failed with «Permission denied» since 13.10."""
+    import subprocess
+    from pathlib import Path
+
+    modes = subprocess.run(
+        ["git", "ls-files", "-s", "scripts/backup-vps.sh"], capture_output=True, text=True, check=True
+    ).stdout
+    assert modes.startswith("100755")
+    assert "/bin/bash $BACKUP_SCRIPT" in Path("scripts/install-vps-backup-cron.sh").read_text(encoding="utf-8")
+    assert "install-vps-backup-cron.sh" in Path(".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    assert "docker exec -u 0 -i" in Path("scripts/backup-vps.sh").read_text(encoding="utf-8")

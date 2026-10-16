@@ -95,4 +95,8 @@ else
   warn "no database backups in $PROJECT_DIR/backups"
 fi
 [ -f /etc/cron.d/rememberme-backup ] && echo "BACKUP CRON: installed" || warn "backup cron is not installed"
+last_log=$(tail -n 1 "$PROJECT_DIR/logs/backup.log" 2>/dev/null)
+case "$last_log" in
+  *"Permission denied"*|*rror*|*"not running"*|*"unexpectedly small"*) warn "last backup run failed: ${last_log:0:160}" ;;
+esac
 exit 0

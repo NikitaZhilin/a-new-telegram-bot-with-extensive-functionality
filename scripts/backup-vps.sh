@@ -88,12 +88,12 @@ if [ "${FORCE_TELEGRAM_BACKUP:-0}" = "1" ] || [ "$(date -u +%H)" = "$TELEGRAM_BA
   if [ -f "$SEND_SCRIPT" ] && docker ps --format '{{.Names}}' | grep -qx "$BOT_CONTAINER"; then
     remote_file="/tmp/$(basename "$backup_file")"
     if docker cp "$backup_file" "$BOT_CONTAINER:$remote_file" \
-      && docker exec -i "$BOT_CONTAINER" python - "$remote_file" < "$SEND_SCRIPT"; then
+      && docker exec -u 0 -i "$BOT_CONTAINER" python - "$remote_file" < "$SEND_SCRIPT"; then
       echo "Backup sent to Telegram admins"
     else
       echo "Could not send the backup to Telegram (the local backup is fine)" >&2
     fi
-    docker exec "$BOT_CONTAINER" rm -f "$remote_file" >/dev/null 2>&1 || true
+    docker exec -u 0 "$BOT_CONTAINER" rm -f "$remote_file" >/dev/null 2>&1 || true
   else
     echo "Bot container or send script missing; backup not sent to Telegram" >&2
   fi
