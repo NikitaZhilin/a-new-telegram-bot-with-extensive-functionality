@@ -2332,3 +2332,60 @@ async def delete_my_driver_document(
     ok = await DriverService(db).delete_document(document_id, current_user.id)
     await db.commit()
     return MutationResponse(ok=ok)
+
+
+# === Feedback from the web cabinet ===
+
+class WebFeedbackPayload(BaseModel):
+    kind: str = Field("other", pattern="^(bug|idea|other)$")
+    text: str = Field(..., min_length=1, max_length=3000)
+
+
+async def _notify_admins_about_web_feedback(item, recent_errors) -> None:
+    """Same message the bot sends for feedback written in Telegram."""
+    if not settings.admin_telegram_id_set or not settings.BOT_TOKEN:
+        return
+    try:
+        from telegram import Bot
+
+        from src.bot.handlers.feedback import _admin_feedback_keyboard, format_feedback_for_admin
+
+        text = format_feedback_for_admin(item, recent_errors) + "\n\n(отправлено из веб-кабинета)"
+        async with Bot(settings.BOT_TOKEN) as bot:
+            for admin_id in settings.admin_telegram_id_set:
+                await bot.send_message(chat_id=admin_id, text=text, reply_markup=_admin_feedback_keyboard(item.id))
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("Could not deliver web feedback to admins", exc_info=True)
+
+
+@router.post("/me/feedback", response_model=MutationResponse, status_code=status.HTTP_201_CREATED)
+async def send_my_feedback(
+    payload: WebFeedbackPayload,
+    current_user: User = Depends(get_current_web_user),
+    db: AsyncSession = Depends(get_db),
+) -> MutationResponse:
+    """Bug report or idea from the web cabinet; goes to the admins like /feedback."""
+    from src.services.feedback_service import FeedbackLimitError, FeedbackService
+
+    service = FeedbackService(db)
+    try:
+        item = await service.create(
+            telegram_id=current_user.telegram_id,
+            user_id=current_user.id,
+            username=current_user.username,
+            first_name=current_user.first_name,
+            kind=payload.kind,
+            text=payload.text,
+            app_version=settings.APP_VERSION,
+        )
+    except FeedbackLimitError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Слишком много сообщений за час, попробуйте позже",
+        ) from None
+    recent_errors = await service.recent_errors_for(current_user.telegram_id) if payload.kind == "bug" else []
+    await db.commit()
+    await _notify_admins_about_web_feedback(item, recent_errors)
+    return MutationResponse(ok=True)

@@ -32,10 +32,13 @@ jobs:
           ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
 
       - name: Server health report
+        env:
+          # The daily run alerts the admins in Telegram when there are warnings.
+          NOTIFY_ADMINS: ${{ github.event_name == 'schedule' && '1' || '0' }}
         run: |
           set +e
           ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "PROJECT_DIR='$DEPLOY_PATH' COMPOSE_PROJECT_NAME='$COMPOSE_PROJECT_NAME' bash -s" < scripts/server-health.sh > health.txt 2>&1
+            "PROJECT_DIR='$DEPLOY_PATH' COMPOSE_PROJECT_NAME='$COMPOSE_PROJECT_NAME' NOTIFY_ADMINS='$NOTIFY_ADMINS' bash -s" < scripts/server-health.sh > health.txt 2>&1
           status=$?
           cat health.txt
           grep '^WARN:' health.txt | head -9 | while IFS= read -r l; do echo "::warning title=Server health::${l#WARN: }"; done

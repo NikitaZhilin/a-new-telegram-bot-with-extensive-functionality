@@ -212,7 +212,9 @@ async def test_worker_process_cycle_sends_and_marks_without_telegram_api():
     assert "<b>Test reminder</b>" in bot.messages[0]["text"]
     assert "Check worker tick" in bot.messages[0]["text"]
     assert "22.05.2026 15:00 (Europe/Moscow)" in bot.messages[0]["text"]
-    assert bot.messages[0]["reply_markup"] is None
+    # Ordinary reminders now carry «Сделано» and «Отложить» (before: no buttons).
+    callbacks = [b.callback_data for row in bot.messages[0]["reply_markup"].inline_keyboard for b in row]
+    assert callbacks == ["rem_ack:42", "rem_snooze:42:15", "rem_snooze:42:60", "rem_snooze:42:1440"]
 
 
 @pytest.mark.asyncio

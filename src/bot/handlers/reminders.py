@@ -10,7 +10,7 @@ import re
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -43,7 +43,7 @@ from src.services.list_service import ListService
 from src.services.note_service import NoteService
 from src.services.reminder_service import ReminderService
 from src.repositories.user_repo import UserRepository
-from src.db.models import ReminderNotificationStatus, RepeatRule
+from src.db.models import ReminderNotificationStatus, ReminderStatus, RepeatRule
 from src.utils.date_parser import extract_reminder_datetime, parse_datetime, parse_time_fragment
 from src.utils.labels import reminder_status_label, repeat_rule_label
 from src.bot.handlers.conversation_exit import (
@@ -1545,6 +1545,75 @@ async def reminder_done_callback(update: Update, context: ContextTypes.DEFAULT_T
     if repeats:
         text += "\n\n🔁 Следующее придёт по расписанию."
     await query.edit_message_text(text, reply_markup=get_back_home_inline_keyboard("reminders_list"))
+    return ConversationHandler.END
+
+
+REMINDER_SNOOZE_LABELS = {15: "15 минут", 60: "1 час", 1440: "завтра в это же время"}
+
+
+async def reminder_ack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«✅ Сделано» under a reminder message: close it and drop the buttons."""
+    query = update.callback_query
+    reminder_id = int(query.data.split(":")[1])
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+        service = ReminderService(session)
+        reminder = await service.get_reminder(reminder_id, user_id)
+        if reminder is not None and reminder.status == ReminderStatus.ACTIVE:
+            # A pre-reminder (e.g. 15 min before) still has the main one pending.
+            await service.mark_reminder_done(reminder_id, user_id)
+        await session.commit()
+    await query.answer("✅ Отмечено")
+    stamp = datetime.now(ZoneInfo(user_timezone)).strftime("%H:%M")
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"✅ Сделано в {stamp}", callback_data="noop")]])
+        )
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+async def reminder_snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«⏰ +15 мин / 1 час / завтра» under a reminder message: one more reminder later."""
+    query = update.callback_query
+    _, reminder_id, minutes = query.data.split(":")
+    minutes = int(minutes)
+    if minutes not in REMINDER_SNOOZE_LABELS:
+        await query.answer()
+        return ConversationHandler.END
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+        service = ReminderService(session)
+        original = await service.get_reminder(int(reminder_id), user_id)
+        if original is None:
+            await query.answer("Напоминание не найдено", show_alert=True)
+            return ConversationHandler.END
+        when = datetime.now(timezone.utc).replace(second=0, microsecond=0) + timedelta(minutes=minutes)
+        await service.create_reminder(
+            user_id=user_id,
+            text=original.text,
+            title=original.title,
+            remind_at_utc=when,
+            list_id=original.list_id,
+            note_id=original.note_id,
+            source_module=original.source_module or "general",
+        )
+        if original.repeat_rule == RepeatRule.NONE and original.status == ReminderStatus.ACTIVE:
+            # Snoozing a pre-reminder of a one-time reminder replaces it.
+            await service.mark_reminder_done(original.id, user_id)
+        await session.commit()
+    local = when.astimezone(ZoneInfo(user_timezone))
+    label = local.strftime("%H:%M") if minutes < 1440 else local.strftime("%d.%m в %H:%M")
+    await query.answer(f"⏰ Напомню {label}")
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"⏰ Отложено: {label}", callback_data="noop")]])
+        )
+    except Exception:
+        pass
     return ConversationHandler.END
 
 

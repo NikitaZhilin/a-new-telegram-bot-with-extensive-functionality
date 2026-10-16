@@ -767,10 +767,12 @@ class ReminderWorkerService:
                         callback_data=f"note_view:{note_id}",
                     ),
                 ],
+                *self._reminder_action_rows(reminder),
             ])
 
+        actions = self._reminder_action_rows(reminder)
         if not list_id or not todo_list:
-            return None
+            return InlineKeyboardMarkup(actions)
 
         return InlineKeyboardMarkup([
             [
@@ -783,7 +785,21 @@ class ReminderWorkerService:
                     callback_data=f"checklist_start:{list_id}",
                 ),
             ],
+            *actions,
         ])
+
+    @staticmethod
+    def _reminder_action_rows(reminder: Reminder) -> list:
+        """«Сделано» and «Отложить» for ordinary reminders (before: no buttons at all)."""
+        reminder_id = reminder.id
+        return [
+            [InlineKeyboardButton("✅ Сделано", callback_data=f"rem_ack:{reminder_id}")],
+            [
+                InlineKeyboardButton("⏰ 15 мин", callback_data=f"rem_snooze:{reminder_id}:15"),
+                InlineKeyboardButton("⏰ 1 час", callback_data=f"rem_snooze:{reminder_id}:60"),
+                InlineKeyboardButton("📅 Завтра", callback_data=f"rem_snooze:{reminder_id}:1440"),
+            ],
+        ]
 
     async def _handle_recurring(
         self,

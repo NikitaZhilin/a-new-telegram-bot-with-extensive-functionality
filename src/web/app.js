@@ -454,6 +454,17 @@ async function handleAdminListClick(event) {
   }
 }
 
+async function handleFeedbackSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await api("/me/feedback", {
+    method: "POST",
+    body: JSON.stringify({ kind: form.kind.value, text: form.text.value }),
+  });
+  form.reset();
+  showMessage("Спасибо! Сообщение передано разработчику, ответ придёт в Telegram.");
+}
+
 async function publicApi(path) {
   const response = await fetch(path);
   if (!response.ok) {
@@ -3176,6 +3187,7 @@ function bindEvents() {
   bindFormSubmit("#documentCreateForm", handleDocumentCreate, "Сохранение...");
   bindFormSubmit("#journalCreateForm", handleJournalCreate, "Добавление...");
   bindFormSubmit("#driverJournalFilterForm", handleJournalFilter, "Фильтрация...");
+  $("#feedbackForm")?.addEventListener("submit", (event) => handleFeedbackSubmit(event).catch((error) => showMessage(error.message, true)));
   $("#adminFeedback").addEventListener("click", handleAdminListClick);
   $("#adminErrors").addEventListener("click", handleAdminListClick);
   $("#adminErrorsResolved").addEventListener("change", () => loadAdminErrors().catch((error) => showMessage(error.message, true)));
