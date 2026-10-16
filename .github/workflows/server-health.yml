@@ -46,24 +46,20 @@ jobs:
           echo "::notice title=Server health::${report}"
           exit $status
 
-      - name: Docker images (read-only)
+      - name: Remove dangling Docker images (one-time cleanup)
         if: always()
         run: |
           set +e
           ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash -s > live.txt 2>&1 <<'REMOTE'
-          used=$(docker ps -a --format '{{.Image}}' | sort -u)
-          echo "== images: repo:tag | id | size | created | used by a container"
-          docker images --format '{{.Repository}}:{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedSince}}' | while IFS='|' read -r ref id size created; do
-            u=no
-            echo "$used" | grep -qx "$ref" && u=yes
-            for c in $(docker ps -aq); do [ "$(docker inspect -f '{{.Image}}' "$c" | cut -c8-19)" = "$id" ] && u=yes; done
-            case "$ref" in rememberme*|"<none>"*|python*|postgres*) name="$ref" ;; *) name="other-bot-image" ;; esac
-            echo "$name | $id | $size | $created | $u"
-          done
-          echo "== dangling"
-          docker images -f dangling=true -q | wc -l
-          echo "== build cache"
-          docker system df --format '{{.Type}} {{.Size}} reclaimable {{.Reclaimable}}'
+          echo "== before"; df -P / | awk 'NR==2 {print $5" used, "int($4/1024)" MB free"}'
+          echo "dangling: $(docker images -f dangling=true -q | wc -l)"
+          # Only untagged leftovers of old builds; docker keeps anything a container uses.
+          docker image prune -f 2>&1 | tail -n 1
+          echo "== after"; df -P / | awk 'NR==2 {print $5" used, "int($4/1024)" MB free"}'
+          echo "dangling: $(docker images -f dangling=true -q | wc -l)"
+          docker system df --format '{{.Type}} {{.Size}} reclaimable {{.Reclaimable}}' | head -1
+          echo "== containers still running"
+          docker ps --format '{{.Names}}' | sed -E 's/^(rememberme_bot-[a-z]+).*/\1/; t; s/.*/other-bot-container/' | sort | uniq -c
           REMOTE
           cat live.txt
           report=$(cut -c1-250 live.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
