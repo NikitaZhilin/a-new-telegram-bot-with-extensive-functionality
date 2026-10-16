@@ -46,25 +46,24 @@ jobs:
           echo "::notice title=Server health::${report}"
           exit $status
 
-      - name: Medication marks around 17:28 MSK (anonymous)
+      - name: Docker images (read-only)
         if: always()
         run: |
           set +e
           ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash -s > live.txt 2>&1 <<'REMOTE'
-          P=rememberme_bot
-          q() { docker exec $P-postgres sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tA -F ' | ' -c \"$1\""; }
-          echo "== intakes 16.10 13:30-15:00 UTC (med id, status, slot, marked, created)"
-          q "SELECT medication_id, status, to_char(scheduled_slot_at_utc,'HH24:MI'), to_char(taken_at_utc,'HH24:MI:SS') FROM medication_intakes WHERE taken_at_utc BETWEEN '2026-10-16 13:30+00' AND '2026-10-16 15:00+00' ORDER BY taken_at_utc"
-          echo "== bot events 16.10 14:00-14:45 UTC (medication/reminders)"
-          q "SELECT to_char(created_at,'HH24:MI:SS'), event_type, event_name, domain FROM bot_activity_events WHERE created_at BETWEEN '2026-10-16 14:00+00' AND '2026-10-16 14:45+00' ORDER BY created_at LIMIT 60"
-          echo "== sent med notifications 16.10 11:00-14:45 UTC (med id, slot, sent)"
-          q "SELECT r.medication_id, to_char(r.remind_at_utc,'HH24:MI'), r.repeat_rule, to_char(n.sent_at_utc,'HH24:MI:SS'), n.status FROM reminder_notifications n JOIN reminders r ON r.id=n.reminder_id WHERE r.medication_id IS NOT NULL AND n.sent_at_utc BETWEEN '2026-10-16 11:00+00' AND '2026-10-16 14:45+00' ORDER BY n.sent_at_utc"
-          echo "== schedules (med id, local-agnostic UTC times, importance) of meds marked above"
-          q "SELECT r.medication_id, string_agg(to_char(r.remind_at_utc,'HH24:MI'), ',' ORDER BY r.remind_at_utc), r.repeat_rule FROM reminders r WHERE r.status='ACTIVE' AND r.medication_id IN (SELECT medication_id FROM medication_intakes WHERE taken_at_utc BETWEEN '2026-10-16 13:30+00' AND '2026-10-16 15:00+00') GROUP BY r.medication_id, r.repeat_rule"
-          echo "== error 4 message (digits masked)"
-          q "SELECT regexp_replace(left(message, 200), '[0-9]{4,}', '<n>', 'g') FROM error_events WHERE id IN (2,4)"
-          echo "== error journal"
-          q "SELECT id, service, section, error_type, location, count, to_char(last_seen_at,'DD.MM HH24:MI') FROM error_events ORDER BY last_seen_at DESC LIMIT 10"
+          used=$(docker ps -a --format '{{.Image}}' | sort -u)
+          echo "== images: repo:tag | id | size | created | used by a container"
+          docker images --format '{{.Repository}}:{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedSince}}' | while IFS='|' read -r ref id size created; do
+            u=no
+            echo "$used" | grep -qx "$ref" && u=yes
+            for c in $(docker ps -aq); do [ "$(docker inspect -f '{{.Image}}' "$c" | cut -c8-19)" = "$id" ] && u=yes; done
+            case "$ref" in rememberme*|"<none>"*|python*|postgres*) name="$ref" ;; *) name="other-bot-image" ;; esac
+            echo "$name | $id | $size | $created | $u"
+          done
+          echo "== dangling"
+          docker images -f dangling=true -q | wc -l
+          echo "== build cache"
+          docker system df --format '{{.Type}} {{.Size}} reclaimable {{.Reclaimable}}'
           REMOTE
           cat live.txt
           report=$(cut -c1-250 live.txt | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
