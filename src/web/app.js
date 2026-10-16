@@ -37,6 +37,7 @@ const state = {
   editingNoteId: null,
   editingReminderId: null,
   editingMedicationId: null,
+  pausingMedicationId: null,
   editingVehicleId: null,
   editingFuelId: null,
   editingExpenseId: null,
@@ -1306,6 +1307,59 @@ function prefillReminderFromNote(noteId) {
   form.remind_at_local.focus();
 }
 
+function renderMedicationPauseForm(item) {
+  const months = [1, 2, 3, 4, 6];
+  return `
+    <form class="medication-pause-form" data-id="${item.id}">
+      <label>Перерыв до
+        <select name="months">
+          ${months.map((value) => `<option value="${value}" ${value === 3 ? "selected" : ""}>${value} мес.</option>`).join("")}
+          <option value="date">своя дата</option>
+        </select>
+      </label>
+      <input name="until" type="date" hidden>
+      <label>Напомнить о курсе
+        <select name="notice_days">
+          <option value="3">за 3 дня</option>
+          <option value="7" selected>за неделю</option>
+          <option value="14">за 2 недели</option>
+          <option value="0">не напоминать</option>
+        </select>
+      </label>
+      <div class="item-actions">
+        <button class="small action-save" type="submit">Поставить перерыв</button>
+        <button class="secondary small" type="button" data-action="cancel-medication-pause" data-id="${item.id}">Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
+function addMonthsIso(months) {
+  const today = new Date();
+  const target = new Date(today.getFullYear(), today.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(today.getDate(), lastDay));
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+}
+
+async function handleMedicationPause(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const until = form.months.value === "date" ? form.until.value : addMonthsIso(Number(form.months.value));
+  if (!until) {
+    showMessage("Укажите дату начала следующего курса.", true);
+    return;
+  }
+  await api(`/me/medications/${form.dataset.id}/pause`, {
+    method: "POST",
+    body: JSON.stringify({ until, notice_days: Number(form.notice_days.value) }),
+  });
+  state.pausingMedicationId = null;
+  await loadMedications();
+  showMessage("Перерыв между курсами поставлен. Напоминания вернутся сами.");
+}
+
 function renderMedicationEditForm(item) {
   return `
     <form class="stack inline-edit-form medication-edit-form" data-id="${item.id}">
@@ -1861,11 +1915,17 @@ async function loadMedications() {
         <div class="item-meta">Время: ${escapeHtml(item.daily_times_local?.join(", ") || "не задано")}</div>
         <div class="item-meta">${escapeHtml(formatMedicationMarkState(item))}</div>
         ${renderMedicationTodaySlots(item)}
+        ${state.pausingMedicationId === item.id ? renderMedicationPauseForm(item) : ""}
         ${state.editingMedicationId === item.id ? renderMedicationEditForm(item) : `
           <div class="item-actions">
-            ${item.is_active ? `
-              <button class="small action-done" data-action="taken-medication" data-id="${item.id}" ${canMark ? "" : "disabled"}>Принял</button>
-              <button class="secondary small action-skip" data-action="skipped-medication" data-id="${item.id}" ${canMark ? "" : "disabled"}>Пропустил</button>
+            ${item.is_active && !item.paused_until ? `
+              <button class="small action-done" data-action="taken-medication" data-id="${item.id}" ${canMark || item.marked_status === "skipped" ? "" : "disabled"}>${item.marked_status === "skipped" ? "Исправить: принял" : "Принял"}</button>
+              <button class="secondary small action-skip" data-action="skipped-medication" data-id="${item.id}" ${canMark || item.marked_status === "taken" ? "" : "disabled"}>${item.marked_status === "taken" ? "Исправить: пропустил" : "Пропустил"}</button>
+              <button class="secondary small" data-action="pause-medication-form" data-id="${item.id}">Перерыв</button>
+            ` : ""}
+            ${item.is_active && item.paused_until ? `
+              <button class="small action-done" data-action="resume-medication" data-id="${item.id}">Возобновить курс</button>
+              <button class="secondary small" data-action="pause-medication-form" data-id="${item.id}">Изменить перерыв</button>
             ` : ""}
             <button class="secondary small action-edit" data-action="edit-medication" data-id="${item.id}">Изм.</button>
             ${item.is_active ? `<button class="danger small action-danger" data-action="archive-medication" data-id="${item.id}">Архив</button>` : ""}
@@ -1877,6 +1937,10 @@ async function loadMedications() {
     : `<div class="item-meta">Лекарств пока нет.</div>`;
   $$(".medication-edit-form").forEach((form) => {
     form.addEventListener("submit", (event) => handleMedicationUpdate(event).catch((error) => showMessage(error.message, true)));
+  });
+  $$(".medication-pause-form").forEach((form) => {
+    form.months.addEventListener("change", () => { form.until.hidden = form.months.value !== "date"; });
+    form.addEventListener("submit", (event) => handleMedicationPause(event).catch((error) => showMessage(error.message, true)));
   });
 }
 
@@ -2979,12 +3043,23 @@ async function handleAction(event) {
       const result = await api(`/me/medications/${id}/taken`, { method: "POST" });
       await loadMedications();
       await loadSummary();
-      showMessage(result.ok ? "Прием отмечен." : "Этот прием уже отмечен или сейчас недоступен.", !result.ok);
+      showMessage(result.ok ? "Отмечено: принято." : "Этот прием уже отмечен или сейчас недоступен.", !result.ok);
     } else if (action === "skipped-medication") {
       const result = await api(`/me/medications/${id}/skipped`, { method: "POST" });
       await loadMedications();
       await loadSummary();
-      showMessage(result.ok ? "Пропуск отмечен." : "Этот прием уже отмечен или сейчас недоступен.", !result.ok);
+      showMessage(result.ok ? "Отмечено: пропущено." : "Этот прием уже отмечен или сейчас недоступен.", !result.ok);
+    } else if (action === "pause-medication-form") {
+      state.pausingMedicationId = Number(id);
+      await loadMedications();
+    } else if (action === "cancel-medication-pause") {
+      state.pausingMedicationId = null;
+      await loadMedications();
+    } else if (action === "resume-medication") {
+      await api(`/me/medications/${id}/resume`, { method: "POST" });
+      await loadMedications();
+      await loadSummary();
+      showMessage("Курс возобновлён: напоминания о приёме вернулись.");
     } else if (action === "edit-medication") {
       state.editingMedicationId = Number(id);
       await loadMedications();

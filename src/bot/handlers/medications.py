@@ -166,6 +166,8 @@ async def _show_wizard_step(
 def _wizard_summary(next_step: str, context: ContextTypes.DEFAULT_TYPE) -> str:
     """Build a compact medication creation progress message."""
     lines = ["💊 Новое лекарство"]
+    if context.user_data.get("med_saved_id"):
+        lines.append("✅ Уже сохранено — следующие шаги можно пропустить.")
 
     name = context.user_data.get("med_name")
     dosage = context.user_data.get("med_dosage")
@@ -719,6 +721,8 @@ async def medication_create_start(update: Update, context: ContextTypes.DEFAULT_
     """Start medication creation."""
     query = update.callback_query
     await query.answer()
+    for key in ("med_saved_id", "med_name", "med_dosage", "med_instructions", "med_importance"):
+        context.user_data.pop(key, None)
 
     await _show_wizard_step(
         update,
@@ -729,10 +733,42 @@ async def medication_create_start(update: Update, context: ContextTypes.DEFAULT_
     return MedicationStates.WAIT_NAME
 
 
+async def _update_saved_medication(update: Update, context: ContextTypes.DEFAULT_TYPE, **fields) -> None:
+    """Write a wizard step straight into the already saved medication."""
+    medication_id = context.user_data.get("med_saved_id")
+    if not medication_id:
+        return
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        await MedicationService(session).update_medication(medication_id, user_id, **fields)
+        await session.commit()
+
+
 async def medication_save_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Store medication name."""
-    context.user_data["med_name"] = update.message.text.strip()
+    """Save the medication right after its name; the other steps only refine it.
+
+    Before, nothing was stored until the importance step, so a wizard left
+    half-way lost everything.
+    """
+    name = update.message.text.strip()
     await _delete_user_message(update)
+    if not name:
+        await _show_wizard_step(
+            update,
+            context,
+            _wizard_summary("Название не может быть пустым. Введите название препарата:", context),
+            reply_markup=get_cancel_inline_keyboard(),
+        )
+        return MedicationStates.WAIT_NAME
+    context.user_data["med_name"] = name
+    if context.user_data.get("med_saved_id"):
+        await _update_saved_medication(update, context, name=name)
+    else:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            medication = await MedicationService(session).create_medication(user_id=user_id, name=name)
+            await session.commit()
+            context.user_data["med_saved_id"] = medication.id
 
     await _show_wizard_step(
         update,
@@ -782,6 +818,7 @@ async def medication_save_dosage(update: Update, context: ContextTypes.DEFAULT_T
     value = update.message.text.strip()
     context.user_data["med_dosage"] = "" if value == "-" else value
     await _delete_user_message(update)
+    await _update_saved_medication(update, context, dosage=context.user_data["med_dosage"])
 
     return await _ask_instructions(update, context)
 
@@ -793,6 +830,7 @@ async def medication_dosage_preset_callback(update: Update, context: ContextType
 
     key = query.data.split(":", 1)[1]
     context.user_data["med_dosage"] = "" if key == "skip" else DOSAGE_PRESETS.get(key, "")
+    await _update_saved_medication(update, context, dosage=context.user_data["med_dosage"])
 
     return await _ask_instructions(update, context)
 
@@ -802,6 +840,7 @@ async def medication_save_instructions(update: Update, context: ContextTypes.DEF
     value = update.message.text.strip()
     context.user_data["med_instructions"] = "" if value == "-" else value
     await _delete_user_message(update)
+    await _update_saved_medication(update, context, instructions=context.user_data["med_instructions"])
 
     return await _ask_importance(update, context)
 
@@ -813,6 +852,7 @@ async def medication_instructions_preset_callback(update: Update, context: Conte
 
     key = query.data.split(":", 1)[1]
     context.user_data["med_instructions"] = "" if key == "skip" else INSTRUCTION_PRESETS.get(key, "")
+    await _update_saved_medication(update, context, instructions=context.user_data["med_instructions"])
 
     return await _ask_importance(update, context)
 
@@ -827,16 +867,21 @@ async def medication_importance_callback(update: Update, context: ContextTypes.D
         importance = "normal"
     context.user_data["med_importance"] = importance
 
+    medication_id = context.user_data.get("med_saved_id")
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         service = MedicationService(session)
-        medication = await service.create_medication(
-            user_id=user_id,
-            name=context.user_data.get("med_name", "Лекарство"),
-            dosage=context.user_data.get("med_dosage") or None,
-            instructions=context.user_data.get("med_instructions") or None,
-            importance=context.user_data.get("med_importance", "normal"),
-        )
+        medication = None
+        if medication_id:
+            medication = await service.update_medication(medication_id, user_id, importance=importance)
+        if medication is None:
+            medication = await service.create_medication(
+                user_id=user_id,
+                name=context.user_data.get("med_name", "Лекарство"),
+                dosage=context.user_data.get("med_dosage") or None,
+                instructions=context.user_data.get("med_instructions") or None,
+                importance=importance,
+            )
         await session.commit()
         medication_id = medication.id
 
@@ -1507,6 +1552,13 @@ async def medication_delete_confirm_callback(update: Update, context: ContextTyp
 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel current medication operation."""
+    saved_id = context.user_data.get("med_saved_id")
+    if saved_id:
+        # «Отмена» while creating = do not keep the half-made medication.
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            await MedicationService(session).archive_medication(saved_id, user_id)
+            await session.commit()
     if update.callback_query:
         await update.callback_query.answer("Отменено")
         await update.callback_query.edit_message_text(

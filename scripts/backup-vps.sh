@@ -74,3 +74,27 @@ trap - EXIT
 find "$BACKUP_DIR" -maxdepth 1 -type f -name 'rememberme-*.sql.gz' -mtime +"$RETENTION_DAYS" -delete
 
 echo "Backup created: $backup_file ($backup_size bytes)"
+
+# Once a day also send the backup to the admins in Telegram, so a copy lives
+# outside this server. The bot container already has the token and admin IDs.
+TELEGRAM_BACKUP_HOUR_UTC="${TELEGRAM_BACKUP_HOUR_UTC:-06}"
+BOT_CONTAINER="${BOT_CONTAINER:-rememberme_bot-bot}"
+SEND_SCRIPT="$PROJECT_DIR/scripts/send-backup-telegram.py"
+if [ "${FORCE_TELEGRAM_BACKUP:-0}" = "1" ] || [ "$(date -u +%H)" = "$TELEGRAM_BACKUP_HOUR_UTC" ]; then
+  case "$BOT_CONTAINER" in
+    "$PROJECT_RESOURCE_PREFIX"-*) ;;
+    *) echo "Refusing unsafe BOT_CONTAINER='$BOT_CONTAINER'." >&2; exit 0 ;;
+  esac
+  if [ -f "$SEND_SCRIPT" ] && docker ps --format '{{.Names}}' | grep -qx "$BOT_CONTAINER"; then
+    remote_file="/tmp/$(basename "$backup_file")"
+    if docker cp "$backup_file" "$BOT_CONTAINER:$remote_file" \
+      && docker exec -i "$BOT_CONTAINER" python - "$remote_file" < "$SEND_SCRIPT"; then
+      echo "Backup sent to Telegram admins"
+    else
+      echo "Could not send the backup to Telegram (the local backup is fine)" >&2
+    fi
+    docker exec "$BOT_CONTAINER" rm -f "$remote_file" >/dev/null 2>&1 || true
+  else
+    echo "Bot container or send script missing; backup not sent to Telegram" >&2
+  fi
+fi

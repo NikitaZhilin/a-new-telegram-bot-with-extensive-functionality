@@ -442,8 +442,30 @@ async def note_create_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return NoteStates.WAIT_TITLE
 
 
+def _new_note_keyboard(note_id: int, selected: str | None = None):
+    """Category choice + «Готово» for a note that is already saved."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    rows = [list(row) for row in get_note_category_keyboard(selected=selected).inline_keyboard[:-1]]
+    rows.append([InlineKeyboardButton("✅ Готово", callback_data=f"note_new_done:{note_id}")])
+    rows.append([InlineKeyboardButton("🗑 Не сохранять", callback_data=f"note_new_discard:{note_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _new_note_prompt(title: str, category: str | None) -> str:
+    lines = [f"✅ Заметка «{title}» сохранена."]
+    if category:
+        lines.append(f"🏷 Категория: {note_category_label(category)}")
+    lines += [
+        "",
+        "Теперь можно отправить текст заметки (можно несколькими строками) и выбрать категорию.",
+        "Ничего не обязательно — нажмите «Готово», и заметка останется с одним названием.",
+    ]
+    return "\n".join(lines)
+
+
 async def note_save_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Save note title and ask for category."""
+    """Save the note right away (title only); text and category are optional."""
     title = update.message.text.strip()
     await _delete_user_message(update)
     if not title:
@@ -454,41 +476,50 @@ async def note_save_title(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             get_cancel_inline_keyboard(),
         )
         return NoteStates.WAIT_TITLE
+    try:
+        async with async_session_maker() as session:
+            user_id = await _get_app_user_id(update, session)
+            note = await NoteService(session).create_note(user_id, title, "", category=DEFAULT_NOTE_CATEGORY)
+            await session.commit()
+            note_id = note.id
+            title = note.title
+    except ValueError as exc:
+        await _edit_prompt_or_reply(update, context, f"❌ {exc}", get_cancel_inline_keyboard())
+        return NoteStates.WAIT_TITLE
     context.user_data["note_title"] = title
-    await _edit_prompt_or_reply(
-        update,
-        context,
-        f"📝 {title}\n\nВыберите категорию заметки.",
-        get_note_category_keyboard(back_callback="notes_list"),
-    )
-    return NoteStates.WAIT_CATEGORY
+    context.user_data["saved_note_id"] = note_id
+    await _edit_prompt_or_reply(update, context, _new_note_prompt(title, None), _new_note_keyboard(note_id))
+    return NoteStates.WAIT_TEXT
 
 
 async def note_save_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Save note category and ask for text."""
+    """Set the category of the just-saved note; text can still follow."""
     query = update.callback_query
-    await query.answer()
     category = query.data.split(":", 1)[1]
-    if category not in NOTE_CATEGORIES:
+    note_id = context.user_data.get("saved_note_id")
+    if category not in NOTE_CATEGORIES or not note_id:
         await query.answer("Неизвестная категория", show_alert=True)
-        return NoteStates.WAIT_CATEGORY
-
+        return NoteStates.WAIT_TEXT
+    await query.answer(f"Категория: {note_category_label(category)}")
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        await NoteService(session).update_note(note_id, user_id, category=category)
+        await session.commit()
     context.user_data["note_category"] = category
     title = context.user_data.get("note_title", "Новая заметка")
     await query.edit_message_text(
-        f"📝 {title}\n🏷 Категория: {note_category_label(category)}\n\nТеперь отправьте текст заметки. Можно несколькими строками.",
-        reply_markup=get_cancel_inline_keyboard(),
+        _new_note_prompt(title, category),
+        reply_markup=_new_note_keyboard(note_id, selected=category),
     )
     return NoteStates.WAIT_TEXT
 
 
 async def note_save_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Create note from collected title and text."""
-    title = context.user_data.get("note_title")
-    category = context.user_data.get("note_category", DEFAULT_NOTE_CATEGORY)
+    """Add text to the just-saved note."""
+    note_id = context.user_data.get("saved_note_id")
     text_value = update.message.text or ""
     await _delete_user_message(update)
-    if not title:
+    if not note_id:
         await _edit_prompt_or_reply(
             update,
             context,
@@ -501,15 +532,46 @@ async def note_save_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         async with async_session_maker() as session:
             user_id = await _get_app_user_id(update, session)
-            note = await NoteService(session).create_note(user_id, title, text_value, category=category)
+            note = await NoteService(session).update_note(note_id, user_id, text=text_value)
             await session.commit()
-            note_id = note.id
+        if not note:
+            raise ValueError("Заметка не найдена")
         rendered_text, keyboard = await _render_note_view(note_id, user_id)
     except ValueError as exc:
-        await _edit_prompt_or_reply(update, context, f"❌ {exc}", get_cancel_inline_keyboard())
+        await _edit_prompt_or_reply(update, context, f"❌ {exc}", _new_note_keyboard(note_id))
         return NoteStates.WAIT_TEXT
 
     await _edit_prompt_or_reply(update, context, rendered_text, keyboard)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def note_new_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Finish without text: the note is already saved."""
+    query = update.callback_query
+    await query.answer("Заметка сохранена")
+    note_id = _parse_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+    rendered_text, keyboard = await _render_note_view(note_id, user_id)
+    await query.edit_message_text(rendered_text, reply_markup=keyboard)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def note_new_discard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Remove the just-created note."""
+    query = update.callback_query
+    note_id = _parse_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        await NoteService(session).archive_note(note_id, user_id)
+        await session.commit()
+    await query.answer("Заметка не сохранена")
+    await query.edit_message_text(
+        "🗑 Заметка удалена.",
+        reply_markup=get_back_home_inline_keyboard("notes_list"),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -726,6 +788,9 @@ note_create_conv = ConversationHandler(
         ],
         NoteStates.WAIT_TEXT: [
             MessageHandler(TEXT_INPUT, note_save_text),
+            CallbackQueryHandler(note_save_category, pattern="^note_category:"),
+            CallbackQueryHandler(note_new_done_callback, pattern=r"^note_new_done:\d+$"),
+            CallbackQueryHandler(note_new_discard_callback, pattern=r"^note_new_discard:\d+$"),
         ],
     },
     fallbacks=[

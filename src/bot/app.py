@@ -190,6 +190,8 @@ from src.bot.handlers.checklists import (
     checklist_toggle_callback,
 )
 from src.bot.handlers.notes import (
+    note_new_discard_callback,
+    note_new_done_callback,
     note_category_set_callback,
     note_delete_callback,
     note_delete_confirm_callback,
@@ -476,6 +478,9 @@ def create_application() -> Application:
     
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop"))
     application.add_handler(CallbackQueryHandler(free_note_callback, pattern="^free_note$"))
+    # Buttons of a saved new note still work after the wizard timed out.
+    application.add_handler(CallbackQueryHandler(note_new_done_callback, pattern=r"^note_new_done:\d+$"))
+    application.add_handler(CallbackQueryHandler(note_new_discard_callback, pattern=r"^note_new_discard:\d+$"))
 
     # === Message Handler for Main Menu ===
     application.add_handler(menu_button_handler)
