@@ -232,6 +232,8 @@ from src.bot.handlers.reminders import (
     reminders_page_callback,
     reminder_view_callback,
     reminder_done_callback,
+    reminder_ack_callback,
+    reminder_snooze_callback,
     reminder_cancel_callback,
     reminder_delete_callback,
     reminder_edit_menu_callback,
@@ -428,6 +430,8 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(reminders_list_callback, pattern="^reminders_list$"))
     application.add_handler(CallbackQueryHandler(reminder_view_callback, pattern="^reminder_view:"))
     application.add_handler(CallbackQueryHandler(reminder_done_callback, pattern="^reminder_done:"))
+    application.add_handler(CallbackQueryHandler(reminder_ack_callback, pattern=r"^rem_ack:\d+$"))
+    application.add_handler(CallbackQueryHandler(reminder_snooze_callback, pattern=r"^rem_snooze:\d+:\d+$"))
     application.add_handler(CallbackQueryHandler(reminder_cancel_callback, pattern="^reminder_cancel:"))
     application.add_handler(CallbackQueryHandler(reminder_delete_callback, pattern="^reminder_delete:"))
     application.add_handler(CallbackQueryHandler(reminder_edit_menu_callback, pattern="^reminder_edit_menu:"))

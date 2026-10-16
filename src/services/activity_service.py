@@ -23,6 +23,8 @@ DOMAIN_LABELS = {
     "notes": "заметки",
     "settings": "настройки",
     "system": "система",
+    "admin": "админка",
+    "feedback": "обратная связь",
     "unknown": "прочее",
 }
 
@@ -395,6 +397,16 @@ def infer_domain(event_name: str) -> str:
         return "driver"
     if event_name.startswith(("settings", "tz_", "menu:settings")):
         return "settings"
+    if event_name.startswith(("bc_",)):
+        return "admin"
+    if event_name.startswith(("fb_", "feedback", "/feedback")):
+        return "feedback"
+    if event_name.startswith(("free_reminder",)):
+        return "reminders"
+    if event_name.startswith(("free_note",)):
+        return "notes"
+    if event_name.startswith(("noop", "web_entry", "mini_app")):
+        return "navigation"
     return "unknown"
 
 

@@ -72,6 +72,18 @@
         <div id="dashboardToday" class="panel today-panel"></div>
         <div id="dashboardCards" class="metric-grid"></div>
         <div id="dashboardDetails" class="dashboard-details"></div>
+        <div class="panel">
+          <h2>💬 Обратная связь</h2>
+          <form id="feedbackForm" class="stack">
+            <select name="kind">
+              <option value="bug">🐞 Ошибка</option>
+              <option value="idea">💡 Идея или доработка</option>
+              <option value="other">✉️ Другое</option>
+            </select>
+            <textarea name="text" rows="3" maxlength="3000" placeholder="Что случилось или что хотелось бы добавить" required></textarea>
+            <button class="action-save" type="submit">Отправить разработчику</button>
+          </form>
+        </div>
       </section>
 
       <section id="lists" class="section">
