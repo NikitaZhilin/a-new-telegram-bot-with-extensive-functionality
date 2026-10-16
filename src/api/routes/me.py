@@ -1,6 +1,6 @@
 """User-scoped API for web clients."""
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
@@ -268,6 +268,7 @@ class MedicationSummaryResponse(BaseModel):
     importance: str
     is_active: bool
     daily_times_local: List[str] = Field(default_factory=list)
+    paused_until: Optional[date] = None
     can_mark_now: bool = False
     mark_reason: str = ""
     has_schedule: bool = False
@@ -887,7 +888,12 @@ async def _medication_response(
         instructions=medication.instructions,
         importance=medication.importance,
         is_active=medication.is_active,
-        daily_times_local=[value.strftime("%H:%M") for value in schedule],
+        daily_times_local=(
+            [value.strftime("%H:%M") for value in service.paused_times(medication)]
+            if service.is_paused(medication)
+            else [value.strftime("%H:%M") for value in schedule]
+        ),
+        paused_until=medication.paused_until,
         can_mark_now=action_state.can_mark,
         mark_reason=action_state.reason,
         has_schedule=action_state.has_schedule,
@@ -1688,7 +1694,12 @@ async def update_my_medication(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medication not found")
     if payload.daily_times_local is not None:
         times = [_local_time_to_next_utc(value, current_user.timezone) for value in payload.daily_times_local if value.strip()]
-        await service.replace_daily_reminders(medication.id, current_user.id, times)
+        if service.is_paused(medication):
+            # During a break the times are kept for the day the course resumes.
+            tz = ZoneInfo(current_user.timezone)
+            medication.paused_schedule = sorted({value.astimezone(tz).strftime("%H:%M") for value in times})
+        else:
+            await service.replace_daily_reminders(medication.id, current_user.id, times)
     await db.commit()
     await db.refresh(medication)
     return await _medication_response(service, medication, current_user)

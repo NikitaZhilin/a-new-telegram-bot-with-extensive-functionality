@@ -157,6 +157,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # Import handlers for callback registration
 from src.bot.handlers.broadcast import broadcast_callback_handlers
 from src.bot.handlers.feedback import admin_callback_handlers, feedback_conv
+from src.bot.handlers.medications import (
+    medication_pause_apply_callback,
+    medication_pause_callback,
+    medication_pause_conv,
+    medication_pause_set_callback,
+    medication_resume_callback,
+)
 from src.bot.handlers.lists import (
     lists_list_callback,
     lists_page_callback,
@@ -322,6 +329,7 @@ def create_application() -> Application:
     application.add_handler(medication_create_conv)
     application.add_handler(medication_edit_conv)
     application.add_handler(medication_reminder_conv)
+    application.add_handler(medication_pause_conv)
     
     # Reminders
     application.add_handler(reminder_create_conv)
@@ -391,6 +399,10 @@ def create_application() -> Application:
     application.add_handler(CallbackQueryHandler(medications_list_callback, pattern="^medications_list$"))
     application.add_handler(CallbackQueryHandler(medications_page_callback, pattern="^med_page:"))
     application.add_handler(CallbackQueryHandler(medication_view_callback, pattern="^med_view:"))
+    application.add_handler(CallbackQueryHandler(medication_pause_callback, pattern=r"^med_pause:\d+$"))
+    application.add_handler(CallbackQueryHandler(medication_pause_set_callback, pattern=r"^med_pause_set:\d+:\d+$"))
+    application.add_handler(CallbackQueryHandler(medication_pause_apply_callback, pattern=r"^med_pause_apply:\d+:\d{8}:\d+$"))
+    application.add_handler(CallbackQueryHandler(medication_resume_callback, pattern=r"^med_resume:\d+$"))
     application.add_handler(CallbackQueryHandler(medication_edit_dosage_value_callback, pattern="^med_edit_dosage_value:"))
     application.add_handler(CallbackQueryHandler(medication_edit_instructions_value_callback, pattern="^med_edit_instr_value:"))
     application.add_handler(CallbackQueryHandler(medication_edit_importance_value_callback, pattern="^med_edit_importance_value:"))

@@ -149,6 +149,44 @@ class ReminderWorkerService:
             logger.exception("Could not revive repeating reminder series")
             return 0
 
+    async def resume_paused_courses(self) -> int:
+        """Bring back medication courses whose break ends today and tell the user."""
+        try:
+            async with self.session_factory() as session:
+                service = MedicationService(session)
+                resumed = await service.resume_due_courses(self.clock(), settings.TIMEZONE_DEFAULT)
+                if not resumed:
+                    return 0
+                messages = []
+                for medication, user in resumed:
+                    times = await service._get_daily_schedule_times(
+                        medication.id, user.id, safe_timezone_name(user.timezone, settings.TIMEZONE_DEFAULT)
+                    )
+                    times_text = ", ".join(item.strftime("%H:%M") for item in times)
+                    text = (
+                        f"▶️ Сегодня снова начинается курс: {medication.name}.\n"
+                        + (f"Напоминания о приёме вернулись: {times_text}." if times_text else
+                           "Задайте время приёма в карточке лекарства кнопкой «Напомнить».")
+                    )
+                    messages.append((user.telegram_id, medication.id, text))
+                await session.commit()
+            for telegram_id, medication_id, text in messages:
+                try:
+                    await self.bot.send_message(
+                        chat_id=telegram_id,
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(
+                            [[InlineKeyboardButton("💊 Открыть лекарство", callback_data=f"med_view:{medication_id}")]]
+                        ),
+                    )
+                except Exception:
+                    logger.warning("Could not tell the user that a course resumed", exc_info=True)
+            logger.info(f"Resumed {len(messages)} medication course(s) after a break")
+            return len(messages)
+        except Exception:
+            logger.exception("Could not resume paused medication courses")
+            return 0
+
     async def start(self) -> None:
         """Start the worker loop."""
         self._running = True
@@ -162,6 +200,7 @@ class ReminderWorkerService:
 
         while self._running:
             try:
+                await self.resume_paused_courses()
                 result = await self.process_cycle()
                 if self.heartbeat:
                     if result.failed:
@@ -486,7 +525,9 @@ class ReminderWorkerService:
             )
             return "sent"
         except (Forbidden, BadRequest) as e:
-            logger.error(
+            # A user who blocked the bot is not a bug: warning, not the error journal.
+            log = logger.warning if isinstance(e, Forbidden) else logger.error
+            log(
                 f"Permanent Telegram failure for reminder {reminder.id} to user {reminder.user_id}: {e}"
             )
             # Keep the real reason (blocked by user, chat not found, …): the

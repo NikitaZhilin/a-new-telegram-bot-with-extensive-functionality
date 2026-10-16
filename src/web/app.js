@@ -1028,6 +1028,9 @@ function formatSubscriptionStatus(value) {
 
 function formatMedicationMarkState(item) {
   if (!item.is_active) return "Препарат в архиве.";
+  if (item.paused_until) {
+    return `⏸ Перерыв между курсами до ${new Date(item.paused_until + "T00:00:00").toLocaleDateString("ru-RU")}. Напоминания вернутся сами.`;
+  }
   if (item.can_mark_now) return "Можно отметить прием сейчас.";
   if (item.marked_at_utc) {
     return `Прием уже отмечен: ${formatDate(item.marked_at_utc)}.`;

@@ -4,13 +4,14 @@ Database models for RememberMe Bot.
 All datetime fields are stored in UTC (timezone-aware).
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     CheckConstraint,
     DateTime,
     Enum as SQLAlchemyEnum,
@@ -1202,6 +1203,13 @@ class Medication(Base):
     instructions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     importance: Mapped[str] = mapped_column(String(20), nullable=False, default="normal", server_default="normal")
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False, index=True)
+    # Break between courses: daily reminders are off until this local date,
+    # then they come back at the saved times (``paused_schedule``, "HH:MM").
+    paused_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
+    paused_schedule: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    pause_notice_reminder_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Days before the next course for the heads-up; 0 = no heads-up, None = default (7).
+    pause_notice_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
