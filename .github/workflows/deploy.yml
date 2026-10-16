@@ -169,6 +169,11 @@ jobs:
           fi
 
           mkdir -p "$DEPLOY_PATH/logs" "$DEPLOY_PATH/backups"
+          # The cron job runs the script through bash, so git resetting the file
+          # mode (it did: backups silently stopped on 13.10) cannot break it.
+          if [ "$(id -u)" = "0" ]; then
+            PROJECT_DIR="$DEPLOY_PATH" bash "$DEPLOY_PATH/scripts/install-vps-backup-cron.sh" >/dev/null
+          fi
           REMOTE
 
       - name: Upload production environment
