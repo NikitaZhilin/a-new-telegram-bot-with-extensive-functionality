@@ -1,7 +1,7 @@
 """Medication service."""
 
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -150,6 +150,9 @@ class MedicationService:
 
         medication.is_active = False
         medication.updated_at = datetime.now(timezone.utc)
+        await self._cancel_pause_notice(medication)
+        medication.paused_until = None
+        medication.paused_schedule = None
 
         reminders_result = await self.db.execute(
             select(Reminder).where(
@@ -242,6 +245,8 @@ class MedicationService:
         medication = await self.get_medication(medication_id, user_id)
         if not medication or not medication.is_active:
             return MedicationIntakeActionState(can_mark=False, reason="not_found")
+        if self.is_paused(medication):
+            return MedicationIntakeActionState(can_mark=False, reason="paused")
 
         now_utc = now_utc or datetime.now(timezone.utc)
         if now_utc.tzinfo is None:
@@ -385,7 +390,7 @@ class MedicationService:
     ) -> list[MedicationDailySlot]:
         """Return today's visible intake slots with taken/skipped/pending state."""
         medication = await self.get_medication(medication_id, user_id)
-        if not medication or not medication.is_active:
+        if not medication or not medication.is_active or self.is_paused(medication):
             return []
 
         now_utc = now_utc or datetime.now(timezone.utc)
@@ -619,6 +624,8 @@ class MedicationService:
         medication = await self.get_medication(medication_id, user_id)
         if not medication or not medication.is_active:
             return MedicationIntakeActionState(can_mark=False, reason="not_found")
+        if self.is_paused(medication):
+            return MedicationIntakeActionState(can_mark=False, reason="paused")
 
         now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
         slot_utc = self._ensure_utc(slot_utc)
@@ -788,9 +795,9 @@ class MedicationService:
         remind_at_utc: datetime,
         repeat_rule: RepeatRule = RepeatRule.DAILY,
     ) -> Optional[Reminder]:
-        """Create a reminder linked to a medication."""
+        """Create a reminder linked to a medication (not during a break between courses)."""
         medication = await self.get_medication(medication_id, user_id)
-        if not medication or not medication.is_active:
+        if not medication or not medication.is_active or self.is_paused(medication):
             return None
 
         if remind_at_utc.tzinfo is None:
@@ -863,7 +870,7 @@ class MedicationService:
     ) -> list[Reminder]:
         """Replace a medication's active daily schedule with the provided times."""
         medication = await self.get_medication(medication_id, user_id)
-        if not medication or not medication.is_active:
+        if not medication or not medication.is_active or self.is_paused(medication):
             return []
 
         normalized: dict[tuple[int, int], datetime] = {}
@@ -928,3 +935,155 @@ class MedicationService:
             remind_at_utc = remind_at_utc.replace(tzinfo=timezone.utc)
         utc = remind_at_utc.astimezone(timezone.utc)
         return utc.hour, utc.minute
+
+    # --- Break between courses ------------------------------------------------
+
+    PAUSE_NOTICE_DAYS = 7
+    PAUSE_DEFAULT_TIME = time(10, 0)
+
+    @staticmethod
+    def is_paused(medication: Optional[Medication]) -> bool:
+        return bool(medication is not None and getattr(medication, "paused_until", None))
+
+    @staticmethod
+    def _parse_hhmm(value: str) -> Optional[time]:
+        try:
+            hours, minutes = str(value).split(":", 1)
+            return time(int(hours), int(minutes))
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def paused_times(cls, medication: Medication) -> list[time]:
+        times = [cls._parse_hhmm(item) for item in (medication.paused_schedule or [])]
+        return sorted(item for item in times if item is not None)
+
+    @classmethod
+    def pause_notice_at(cls, medication: Medication, user_timezone: str) -> Optional[datetime]:
+        """When the «course starts in a week» heads-up fires (UTC), or None if the pause is too short."""
+        if not medication.paused_until:
+            return None
+        notice_day = medication.paused_until - timedelta(days=cls.PAUSE_NOTICE_DAYS)
+        times = cls.paused_times(medication)
+        local = datetime.combine(notice_day, times[0] if times else cls.PAUSE_DEFAULT_TIME, tzinfo=ZoneInfo(user_timezone))
+        return local.astimezone(timezone.utc)
+
+    async def _cancel_pause_notice(self, medication: Medication) -> None:
+        if not medication.pause_notice_reminder_id:
+            return
+        reminder = await self.db.get(Reminder, medication.pause_notice_reminder_id)
+        if reminder is not None and reminder.user_id == medication.user_id and reminder.status == ReminderStatus.ACTIVE:
+            self._cancel_reminder(reminder)
+        medication.pause_notice_reminder_id = None
+
+    async def pause_course(
+        self,
+        medication_id: int,
+        user_id: int,
+        until: date,
+        user_timezone: str,
+        now_utc: Optional[datetime] = None,
+    ) -> Optional[Medication]:
+        """Stop reminders until ``until`` (local date); keep the daily times to bring them back."""
+        medication = await self.get_medication(medication_id, user_id)
+        if not medication or not medication.is_active:
+            return None
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+        today = now_utc.astimezone(ZoneInfo(user_timezone)).date()
+        if until <= today:
+            raise ValueError("pause must end in the future")
+
+        if not self.is_paused(medication):
+            times = await self._get_daily_schedule_times(medication_id, user_id, user_timezone)
+            medication.paused_schedule = [item.strftime("%H:%M") for item in times]
+        await self._cancel_pause_notice(medication)
+
+        active = await self.db.execute(
+            select(Reminder).where(
+                and_(
+                    Reminder.medication_id == medication_id,
+                    Reminder.user_id == user_id,
+                    Reminder.status == ReminderStatus.ACTIVE,
+                )
+            )
+        )
+        for reminder in active.scalars().all():
+            self._cancel_reminder(reminder)
+
+        medication.paused_until = until
+        medication.updated_at = now_utc
+
+        notice_at = self.pause_notice_at(medication, user_timezone)
+        if notice_at is not None and notice_at > now_utc:
+            times_text = ", ".join(item.strftime("%H:%M") for item in self.paused_times(medication))
+            text = (
+                f"Через неделю, {until.strftime('%d.%m.%Y')}, снова начинается курс: {medication.name}.\n"
+                + (f"Напоминания о приёме вернутся сами ({times_text})." if times_text else
+                   "Не забудьте настроить время приёма в карточке лекарства.")
+                + "\nЕсли нужно — купите лекарство заранее."
+            )
+            notice = await ReminderService(self.db).create_reminder(
+                user_id=user_id,
+                text=text,
+                title="💊 Скоро курс",
+                remind_at_utc=notice_at,
+            )
+            if notice is not None:
+                medication.pause_notice_reminder_id = notice.id
+
+        await self.db.flush()
+        return medication
+
+    async def resume_course(
+        self,
+        medication_id: int,
+        user_id: int,
+        user_timezone: str,
+        now_utc: Optional[datetime] = None,
+    ) -> Optional[Medication]:
+        """End the break now: daily reminders come back at the saved times."""
+        medication = await self.get_medication(medication_id, user_id)
+        if not medication or not medication.is_active:
+            return None
+        if not self.is_paused(medication):
+            return medication
+        now_utc = self._ensure_utc(now_utc or datetime.now(timezone.utc))
+        times = self.paused_times(medication)
+        await self._cancel_pause_notice(medication)
+        medication.paused_until = None
+        medication.paused_schedule = None
+        medication.updated_at = now_utc
+        await self.db.flush()
+
+        tz = ZoneInfo(user_timezone)
+        local_now = now_utc.astimezone(tz)
+        next_times = []
+        for item in times:
+            local = datetime.combine(local_now.date(), item, tzinfo=tz)
+            if local <= local_now:
+                local += timedelta(days=1)
+            next_times.append(local.astimezone(timezone.utc))
+        if next_times:
+            await self.replace_daily_reminders(medication_id, user_id, next_times)
+        await self.db.flush()
+        return medication
+
+    async def resume_due_courses(self, now_utc: datetime, default_timezone: str) -> list[tuple[Medication, "User"]]:
+        """Bring back every course whose break ends today (user's local date) or earlier."""
+        from src.db.models import User
+        from src.utils.timezones import safe_timezone_name
+
+        now_utc = self._ensure_utc(now_utc)
+        rows = await self.db.execute(
+            select(Medication, User)
+            .join(User, User.id == Medication.user_id)
+            .where(and_(Medication.is_active.is_(True), Medication.paused_until.is_not(None)))
+        )
+        resumed = []
+        for medication, user in rows.all():
+            tz_name = safe_timezone_name(user.timezone, default_timezone)
+            if medication.paused_until > now_utc.astimezone(ZoneInfo(tz_name)).date():
+                continue
+            await self.resume_course(medication.id, user.id, tz_name, now_utc=now_utc)
+            resumed.append((medication, user))
+        return resumed

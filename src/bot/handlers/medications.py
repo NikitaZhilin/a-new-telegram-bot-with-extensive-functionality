@@ -268,8 +268,12 @@ async def _render_medication_view(
     if medication.instructions:
         lines.append(f"Комментарий: {medication.instructions}")
 
+    paused = MedicationService.is_paused(medication)
     lines.append("")
-    lines.extend(_format_medication_action_state(action_state, user_timezone))
+    if paused:
+        lines.extend(_format_pause_state(medication, user_timezone))
+    else:
+        lines.extend(_format_medication_action_state(action_state, user_timezone))
 
     if today_slots:
         lines.append("")
@@ -290,7 +294,33 @@ async def _render_medication_view(
     else:
         lines.append("Отметок приема пока нет.")
 
-    return "\n".join(lines), get_medication_view_keyboard(medication_id, can_mark=action_state.can_mark)
+    return "\n".join(lines), get_medication_view_keyboard(
+        medication_id, can_mark=action_state.can_mark, paused=paused
+    )
+
+
+def _format_pause_state(medication, user_timezone: str) -> list[str]:
+    """Card lines for a medication on a break between courses."""
+    from datetime import date as date_cls
+
+    service = MedicationService
+    until = medication.paused_until
+    today = datetime.now(ZoneInfo(user_timezone)).date()
+    days_left = (until - today).days if isinstance(until, date_cls) else 0
+    lines = [f"⏸ Перерыв между курсами до {until.strftime('%d.%m.%Y')} (осталось {days_left} дн.)"]
+    notice_at = service.pause_notice_at(medication, user_timezone)
+    if notice_at and notice_at > datetime.now(timezone.utc):
+        notice_local = notice_at.astimezone(ZoneInfo(user_timezone))
+        lines.append(f"🔔 Напомню за неделю: {notice_local.strftime('%d.%m.%Y в %H:%M')}")
+    times = service.paused_times(medication)
+    if times:
+        lines.append(
+            f"▶️ {until.strftime('%d.%m')} приёмы вернутся сами: "
+            + ", ".join(item.strftime("%H:%M") for item in times)
+        )
+    else:
+        lines.append(f"▶️ {until.strftime('%d.%m')} курс возобновится — время приёма можно будет задать кнопкой «Напомнить».")
+    return lines
 
 
 def _format_medication_today_slot(slot, user_timezone: str) -> str:
@@ -340,6 +370,8 @@ def _format_medication_action_alert(action_state, user_timezone: str) -> str:
     """Short alert for stale or unavailable medication action buttons."""
     if action_state.reason == "not_found":
         return "Лекарство не найдено"
+    if action_state.reason == "paused":
+        return "Сейчас перерыв между курсами — отмечать приём не нужно"
     if action_state.reason == "slot_not_open" and action_state.next_available_at_utc:
         open_local = action_state.next_available_at_utc.astimezone(ZoneInfo(user_timezone))
         return f"Окно этого приема откроется {open_local.strftime('%d.%m %H:%M')}"
@@ -872,11 +904,16 @@ async def medication_skip_callback(update: Update, context: ContextTypes.DEFAULT
 async def medication_snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Snooze medication reminder for 15 minutes."""
     query = update.callback_query
-    await query.answer("Напомню через 15 минут")
-
     medication_id = _parse_id(query.data)
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
+        service = MedicationService(session)
+        if MedicationService.is_paused(await service.get_medication(medication_id, user_id)):
+            await query.answer("Сейчас перерыв между курсами", show_alert=True)
+            return ConversationHandler.END
+    await query.answer("Напомню через 15 минут")
+
+    async with async_session_maker() as session:
         service = MedicationService(session)
         reminder = await service.snooze_reminder(medication_id, user_id, minutes=15)
         await session.commit()
@@ -1198,6 +1235,168 @@ async def medication_reminder_custom_save(update: Update, context: ContextTypes.
     return ConversationHandler.END
 
 
+# =============================================================================
+# Break between courses
+# =============================================================================
+
+PAUSE_MONTH_OPTIONS = (1, 2, 3, 4, 6)
+
+
+def _add_months(day, months: int):
+    import calendar
+
+    month_index = day.month - 1 + months
+    year = day.year + month_index // 12
+    month = month_index % 12 + 1
+    return day.replace(year=year, month=month, day=min(day.day, calendar.monthrange(year, month)[1]))
+
+
+def _parse_pause_date(value: str, today):
+    """«15.01.2027», «15.01.27» or «15.01» (next such date) → date, or None."""
+    from datetime import date as date_cls
+
+    match = re.fullmatch(r"\s*(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\s*", value or "")
+    if not match:
+        return None
+    day, month, year = int(match.group(1)), int(match.group(2)), match.group(3)
+    try:
+        if year:
+            year_value = int(year) + (2000 if len(year) == 2 else 0)
+            return date_cls(year_value, month, day)
+        candidate = date_cls(today.year, month, day)
+        return candidate if candidate > today else date_cls(today.year + 1, month, day)
+    except ValueError:
+        return None
+
+
+def _pause_period_keyboard(medication_id: int):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    labels = {1: "1 месяц", 2: "2 месяца", 3: "3 месяца", 4: "4 месяца", 6: "6 месяцев"}
+    buttons = [
+        InlineKeyboardButton(labels[months], callback_data=f"med_pause_set:{medication_id}:{months}")
+        for months in PAUSE_MONTH_OPTIONS
+    ]
+    return InlineKeyboardMarkup([
+        buttons[:3],
+        buttons[3:],
+        [InlineKeyboardButton("📅 Своя дата", callback_data=f"med_pause_custom:{medication_id}")],
+        [InlineKeyboardButton("❌ Отмена", callback_data=f"med_view:{medication_id}")],
+    ])
+
+
+async def medication_pause_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask how long the break between courses lasts."""
+    query = update.callback_query
+    await query.answer()
+    medication_id = _parse_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        medication = await MedicationService(session).get_medication(medication_id, user_id)
+    if not medication:
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
+        return ConversationHandler.END
+    await query.edit_message_text(
+        f"⏸ Перерыв между курсами: {medication.name}\n\n"
+        "На сколько поставить паузу? Пока идёт перерыв, напоминания о приёме не приходят.\n"
+        f"За {MedicationService.PAUSE_NOTICE_DAYS} дней до конца перерыва я напомню о скором курсе, "
+        "а в день начала курса напоминания вернутся сами в то же время.",
+        reply_markup=_pause_period_keyboard(medication_id),
+    )
+    return ConversationHandler.END
+
+
+async def _apply_pause(update: Update, medication_id: int, until) -> tuple[Optional[str], object]:
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+        medication = await MedicationService(session).pause_course(medication_id, user_id, until, user_timezone)
+        await session.commit()
+    if not medication:
+        return None, None
+    return await _render_medication_view(medication_id, user_id, user_timezone)
+
+
+async def medication_pause_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Pause for N months from today."""
+    query = update.callback_query
+    _, medication_id, months = query.data.split(":")
+    async with async_session_maker() as session:
+        user_timezone = await _get_user_timezone(update, session)
+    today = datetime.now(ZoneInfo(user_timezone)).date()
+    until = _add_months(today, int(months))
+    text, keyboard = await _apply_pause(update, int(medication_id), until)
+    if not text:
+        await query.answer()
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
+        return ConversationHandler.END
+    await query.answer(f"Пауза до {until.strftime('%d.%m.%Y')}")
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def medication_pause_custom_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask for the date the next course starts."""
+    query = update.callback_query
+    await query.answer()
+    medication_id = _parse_id(query.data)
+    context.user_data["pause_medication_id"] = medication_id
+    await _show_wizard_step(
+        update,
+        context,
+        "📅 С какого дня снова начинается курс?\n\n"
+        "Напишите дату, например 15.01.2027 или 15.01.",
+        reply_markup=get_cancel_inline_keyboard(),
+    )
+    return MedicationStates.WAIT_PAUSE_DATE
+
+
+async def medication_pause_custom_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save a pause until the typed date."""
+    medication_id = context.user_data.get("pause_medication_id")
+    async with async_session_maker() as session:
+        user_timezone = await _get_user_timezone(update, session)
+    today = datetime.now(ZoneInfo(user_timezone)).date()
+    until = _parse_pause_date(update.message.text, today)
+    await _delete_user_message(update)
+    if medication_id is None:
+        return ConversationHandler.END
+    if until is None or until <= today or (until - today).days > 3 * 366:
+        await _show_wizard_step(
+            update,
+            context,
+            "Не получилось понять дату. Напишите день начала следующего курса, "
+            "например 15.01.2027 — дата должна быть в будущем (не дальше 3 лет).",
+            reply_markup=get_cancel_inline_keyboard(),
+        )
+        return MedicationStates.WAIT_PAUSE_DATE
+    text, keyboard = await _apply_pause(update, medication_id, until)
+    if not text:
+        text, keyboard = "❌ Лекарство не найдено", get_back_home_inline_keyboard("medications_list")
+    await _show_wizard_step(update, context, text, reply_markup=keyboard)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def medication_resume_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """End the break now."""
+    query = update.callback_query
+    medication_id = _parse_id(query.data)
+    async with async_session_maker() as session:
+        user_id = await _get_app_user_id(update, session)
+        user_timezone = await _get_user_timezone(update, session)
+        medication = await MedicationService(session).resume_course(medication_id, user_id, user_timezone)
+        await session.commit()
+    if not medication:
+        await query.answer()
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
+        return ConversationHandler.END
+    await query.answer("Курс возобновлён")
+    text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
 async def medication_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask for medication delete confirmation."""
     query = update.callback_query
@@ -1299,6 +1498,22 @@ medication_edit_conv = ConversationHandler(
             CallbackQueryHandler(medication_edit_instructions_value_callback, pattern="^med_edit_instr_value:"),
             MessageHandler(TEXT_INPUT, medication_edit_instructions_save),
         ],
+    },
+    fallbacks=[
+        *exit_fallbacks(),
+        CommandHandler("cancel", cancel_handler),
+        CallbackQueryHandler(cancel_handler, pattern="^cancel$"),
+        *leave_wizard_fallbacks(),
+    ],
+)
+
+
+medication_pause_conv = ConversationHandler(
+    conversation_timeout=WIZARD_TIMEOUT_SECONDS,
+    allow_reentry=True,
+    entry_points=[CallbackQueryHandler(medication_pause_custom_start, pattern=r"^med_pause_custom:\d+$")],
+    states={
+        MedicationStates.WAIT_PAUSE_DATE: [MessageHandler(TEXT_INPUT, medication_pause_custom_save)],
     },
     fallbacks=[
         *exit_fallbacks(),

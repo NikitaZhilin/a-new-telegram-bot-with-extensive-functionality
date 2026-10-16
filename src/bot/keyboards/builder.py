@@ -1411,6 +1411,10 @@ def get_medications_list_keyboard(
             "important": "❗",
             "critical": "🚨",
         }.get(importance, "💊")
+        paused_until = getattr(medication, "paused_until", None)
+        if paused_until:
+            icon = "⏸"
+            title = truncate(f"{medication.name} · до {paused_until.strftime('%d.%m')}", 32)
         keyboard.append([
             InlineKeyboardButton(
                 f"{icon} {title}",
@@ -1439,10 +1443,18 @@ def get_medications_list_keyboard(
 def get_medication_view_keyboard(
     medication_id: int,
     can_mark: bool = True,
+    paused: bool = False,
 ) -> InlineKeyboardMarkup:
     """Keyboard for one medication."""
     keyboard = []
-    if can_mark:
+    if paused:
+        keyboard.append([
+            InlineKeyboardButton("▶️ Возобновить курс сейчас", callback_data=f"med_resume:{medication_id}"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton("📅 Изменить срок перерыва", callback_data=f"med_pause:{medication_id}"),
+        ])
+    elif can_mark:
         keyboard.append([
             InlineKeyboardButton("✅ Принял", callback_data=f"med_taken:{medication_id}"),
             InlineKeyboardButton("⏭ Пропустил", callback_data=f"med_skip:{medication_id}"),
@@ -1456,6 +1468,10 @@ def get_medication_view_keyboard(
             InlineKeyboardButton("⏰ Напомнить", callback_data=f"med_remind:{medication_id}"),
         ])
 
+    if not paused:
+        keyboard.append([
+            InlineKeyboardButton("⏸ Перерыв между курсами", callback_data=f"med_pause:{medication_id}"),
+        ])
     keyboard.append([
         InlineKeyboardButton("✏️ Изменить", callback_data=f"med_edit:{medication_id}"),
     ])
