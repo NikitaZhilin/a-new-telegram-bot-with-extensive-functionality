@@ -65,9 +65,9 @@ print("%s | version %s | db %s | %s" % (data.get("status"), data.get("version"),
   case "$status_json" in ok*) ;; *) warn "app status is not ok: $status_json" ;; esac
 
   pending=$(docker exec "$PREFIX-postgres" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "
-    SELECT count(*) FILTER (WHERE status = '\''PENDING'\'' AND notify_at_utc < now() - interval '\''10 minutes'\''),
-           count(*) FILTER (WHERE status = '\''FAILED'\'' AND updated_at > now() - interval '\''1 day'\'')
-    FROM reminder_notifications"' 2>/dev/null | tr '|' ' ')
+    SELECT count(*) FILTER (WHERE n.status = '\''PENDING'\'' AND r.status = '\''ACTIVE'\'' AND n.notify_at_utc < now() - interval '\''10 minutes'\''),
+           count(*) FILTER (WHERE n.status = '\''FAILED'\'' AND n.updated_at > now() - interval '\''1 day'\'')
+    FROM reminder_notifications n JOIN reminders r ON r.id = n.reminder_id"' 2>/dev/null | tr '|' ' ')
   if [ -n "$pending" ]; then
     set -- $pending
     echo "REMINDERS: overdue (>10 min) $1, failed last 24h $2"
@@ -76,7 +76,7 @@ print("%s | version %s | db %s | %s" % (data.get("status"), data.get("version"),
       docker exec "$PREFIX-postgres" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "
         SELECT '\''OVERDUE: notification '\'' || n.id || '\'' reminder '\'' || r.id || '\'' ('\'' || r.source_module || '\'', '\'' || r.repeat_rule || '\'', '\'' || r.status || '\'') due '\'' || to_char(n.notify_at_utc, '\''YYYY-MM-DD HH24:MI'\'') || '\'' UTC, user tz '\'' || u.timezone || '\'', error: '\'' || coalesce(left(n.last_error, 160), '\''-'\'')
         FROM reminder_notifications n JOIN reminders r ON r.id = n.reminder_id JOIN users u ON u.id = r.user_id
-        WHERE n.status = '\''PENDING'\'' AND n.notify_at_utc < now() - interval '\''10 minutes'\''
+        WHERE n.status = '\''PENDING'\'' AND r.status = '\''ACTIVE'\'' AND n.notify_at_utc < now() - interval '\''10 minutes'\''
         ORDER BY n.notify_at_utc LIMIT 5"' 2>&1
     fi
   fi
