@@ -170,7 +170,7 @@ def test_pause_buttons_are_registered():
     from tests.test_callback_registration import _collect_application_callback_patterns, _is_registered
 
     patterns = _collect_application_callback_patterns()
-    for callback in ("med_pause:5", "med_pause_set:5:3", "med_pause_custom:5", "med_resume:5"):
+    for callback in ("med_pause:5", "med_pause_set:5:3", "med_pause_custom:5", "med_resume:5", "med_pause_apply:5:20270115:7"):
         assert _is_registered(callback, patterns), callback
 
 
@@ -182,3 +182,46 @@ def test_paused_card_text():
     text = "\n".join(_format_pause_state(medication, TZ))
     assert "Перерыв между курсами до" in text and until.strftime("%d.%m.%Y") in text
     assert "Напомню за неделю" in text and "10:00" in text
+
+
+# --- Heads-up: 3 days / a week / 2 weeks / none -------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("days, phrase", [(3, "Через 3 дня"), (14, "Через 2 недели")])
+async def test_heads_up_days_can_be_chosen(db_session, days, phrase):
+    user, meds, medication = await _setup(db_session, 86100 + days)
+    until = datetime.now(MSK).date() + timedelta(days=60)
+    await meds.pause_course(medication.id, user.id, until, TZ, notice_days=days)
+
+    notice = await db_session.get(Reminder, medication.pause_notice_reminder_id)
+    local = _utc(notice.remind_at_utc).astimezone(MSK)
+    assert local.date() == until - timedelta(days=days)
+    assert notice.text.startswith(phrase)
+
+
+@pytest.mark.asyncio
+async def test_heads_up_can_be_switched_off(db_session):
+    user, meds, medication = await _setup(db_session, 86120)
+    await meds.pause_course(medication.id, user.id, datetime.now(MSK).date() + timedelta(days=60), TZ, notice_days=0)
+    assert medication.pause_notice_reminder_id is None
+    assert await _active(db_session, user.id) == []
+
+
+def test_days_phrase():
+    assert MedicationService.days_phrase(3) == "3 дня"
+    assert MedicationService.days_phrase(7) == "неделю"
+    assert MedicationService.days_phrase(14) == "2 недели"
+    assert MedicationService.days_phrase(5) == "5 дней"
+    assert MedicationService.days_phrase(21) == "21 день"
+
+
+def test_heads_up_options_fit_into_the_break():
+    from src.bot.handlers.medications import _pause_notice_keyboard
+
+    today = date(2026, 10, 16)
+    short = [b.callback_data for row in _pause_notice_keyboard(5, today + timedelta(days=5), today).inline_keyboard for b in row]
+    assert "med_pause_apply:5:20261021:3" in short
+    assert not any(c.endswith(":7") or c.endswith(":14") for c in short)
+    assert "med_pause_apply:5:20261021:0" in short
+    long = [b.callback_data for row in _pause_notice_keyboard(5, date(2027, 1, 16), today).inline_keyboard for b in row]
+    assert {"med_pause_apply:5:20270116:3", "med_pause_apply:5:20270116:7", "med_pause_apply:5:20270116:14"} <= set(long)

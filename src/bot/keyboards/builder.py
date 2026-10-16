@@ -1444,9 +1444,24 @@ def get_medication_view_keyboard(
     medication_id: int,
     can_mark: bool = True,
     paused: bool = False,
+    fix_action: Optional[tuple] = None,
 ) -> InlineKeyboardMarkup:
-    """Keyboard for one medication."""
+    """Keyboard for one medication.
+
+    ``fix_action`` = ("taken"|"skipped", slot_ts): the current dose is already
+    marked the other way and can be corrected.
+    """
     keyboard = []
+    if fix_action and not paused:
+        kind, slot_ts = fix_action
+        if kind == "taken":
+            keyboard.append([InlineKeyboardButton(
+                "🔄 Исправить: на самом деле принял", callback_data=f"med_taken:{medication_id}:{slot_ts}"
+            )])
+        else:
+            keyboard.append([InlineKeyboardButton(
+                "🔄 Исправить: на самом деле пропустил", callback_data=f"med_skip:{medication_id}:{slot_ts}"
+            )])
     if paused:
         keyboard.append([
             InlineKeyboardButton("▶️ Возобновить курс сейчас", callback_data=f"med_resume:{medication_id}"),

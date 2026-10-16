@@ -1208,6 +1208,8 @@ class Medication(Base):
     paused_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     paused_schedule: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     pause_notice_reminder_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Days before the next course for the heads-up; 0 = no heads-up, None = default (7).
+    pause_notice_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

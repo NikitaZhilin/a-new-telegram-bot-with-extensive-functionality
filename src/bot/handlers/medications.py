@@ -294,8 +294,18 @@ async def _render_medication_view(
     else:
         lines.append("Отметок приема пока нет.")
 
+    fix_action = None
+    if (
+        not paused
+        and action_state.reason == "slot_already_marked"
+        and action_state.marked_status
+        and action_state.current_slot_at_utc
+    ):
+        slot_ts = int(action_state.current_slot_at_utc.timestamp())
+        fix_action = "taken" if action_state.marked_status == "skipped" else "skipped"
+        fix_action = (fix_action, slot_ts)
     return "\n".join(lines), get_medication_view_keyboard(
-        medication_id, can_mark=action_state.can_mark, paused=paused
+        medication_id, can_mark=action_state.can_mark, paused=paused, fix_action=fix_action
     )
 
 
@@ -311,7 +321,12 @@ def _format_pause_state(medication, user_timezone: str) -> list[str]:
     notice_at = service.pause_notice_at(medication, user_timezone)
     if notice_at and notice_at > datetime.now(timezone.utc):
         notice_local = notice_at.astimezone(ZoneInfo(user_timezone))
-        lines.append(f"🔔 Напомню за неделю: {notice_local.strftime('%d.%m.%Y в %H:%M')}")
+        lines.append(
+            f"🔔 Напомню за {service.days_phrase(service.notice_days(medication))}: "
+            f"{notice_local.strftime('%d.%m.%Y в %H:%M')}"
+        )
+    elif service.notice_days(medication) <= 0:
+        lines.append("🔕 Напоминание перед курсом выключено")
     times = service.paused_times(medication)
     if times:
         lines.append(
@@ -358,8 +373,14 @@ def _format_medication_action_state(action_state, user_timezone: str) -> list[st
     if action_state.next_available_at_utc:
         next_local = action_state.next_available_at_utc.astimezone(tz)
         if action_state.reason in {"slot_already_marked", "already_marked_today"}:
+            if action_state.marked_status and action_state.current_slot_at_utc:
+                slot_local = action_state.current_slot_at_utc.astimezone(tz)
+                label = "пропущено" if action_state.marked_status == "skipped" else "принято"
+                first = f"Приём {slot_local.strftime('%H:%M')} отмечен: {label}. Ошиблись — исправьте кнопкой ниже."
+            else:
+                first = "Прием уже отмечен."
             return [
-                "Прием уже отмечен.",
+                first,
                 f"Кнопки приема появятся снова: {next_local.strftime('%d.%m %H:%M')}.",
             ]
 
@@ -864,7 +885,8 @@ async def medication_mark_taken_callback(update: Update, context: ContextTypes.D
             return ConversationHandler.END
         await query.answer(_format_medication_action_alert(state, user_timezone), show_alert=True)
     else:
-        await query.answer("Отмечено")
+        name = getattr(intake, "medication_name_snapshot", None) or "лекарство"
+        await query.answer(f"✅ {name}: принято")
 
     text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
     await query.edit_message_text(text, reply_markup=keyboard)
@@ -894,7 +916,8 @@ async def medication_skip_callback(update: Update, context: ContextTypes.DEFAULT
             return ConversationHandler.END
         await query.answer(_format_medication_action_alert(state, user_timezone), show_alert=True)
     else:
-        await query.answer("Отмечено как пропущено")
+        name = getattr(intake, "medication_name_snapshot", None) or "лекарство"
+        await query.answer(f"⏭ {name}: пропущено. Ошиблись — исправьте в карточке.")
 
     text, keyboard = await _render_medication_view(medication_id, user_id, user_timezone)
     await query.edit_message_text(text, reply_markup=keyboard)
@@ -1299,18 +1322,69 @@ async def medication_pause_callback(update: Update, context: ContextTypes.DEFAUL
     await query.edit_message_text(
         f"⏸ Перерыв между курсами: {medication.name}\n\n"
         "На сколько поставить паузу? Пока идёт перерыв, напоминания о приёме не приходят.\n"
-        f"За {MedicationService.PAUSE_NOTICE_DAYS} дней до конца перерыва я напомню о скором курсе, "
+        "Перед концом перерыва я напомню о скором курсе (срок выберете дальше), "
         "а в день начала курса напоминания вернутся сами в то же время.",
         reply_markup=_pause_period_keyboard(medication_id),
     )
     return ConversationHandler.END
 
 
-async def _apply_pause(update: Update, medication_id: int, until) -> tuple[Optional[str], object]:
+PAUSE_NOTICE_OPTIONS = ((3, "За 3 дня"), (7, "За неделю"), (14, "За 2 недели"))
+
+
+def _pause_notice_keyboard(medication_id: int, until, today):
+    """Heads-up choices that fit into the break (a 5-day break cannot warn 2 weeks ahead)."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    stamp = until.strftime("%Y%m%d")
+    length = (until - today).days
+    options = [
+        InlineKeyboardButton(label, callback_data=f"med_pause_apply:{medication_id}:{stamp}:{days}")
+        for days, label in PAUSE_NOTICE_OPTIONS
+        if days < length
+    ]
+    rows = [options] if options else []
+    rows.append([InlineKeyboardButton("🔕 Не напоминать", callback_data=f"med_pause_apply:{medication_id}:{stamp}:0")])
+    rows.append([InlineKeyboardButton("❌ Отмена", callback_data=f"med_view:{medication_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _pause_notice_question(until) -> str:
+    return (
+        f"⏸ Перерыв до {until.strftime('%d.%m.%Y')}.\n\n"
+        "За сколько дней до начала курса напомнить? "
+        "Например, чтобы успеть купить лекарство."
+    )
+
+
+async def medication_pause_apply_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save the break with the chosen heads-up."""
+    from datetime import date as date_cls
+
+    query = update.callback_query
+    _, medication_id, stamp, days = query.data.split(":")
+    until = date_cls(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:]))
+    try:
+        text, keyboard = await _apply_pause(update, int(medication_id), until, notice_days=int(days))
+    except ValueError:
+        await query.answer("Эта дата уже прошла — выберите срок заново", show_alert=True)
+        return ConversationHandler.END
+    if not text:
+        await query.answer()
+        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
+        return ConversationHandler.END
+    await query.answer(f"Перерыв до {until.strftime('%d.%m.%Y')}")
+    await query.edit_message_text(text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def _apply_pause(update: Update, medication_id: int, until, notice_days: Optional[int] = None) -> tuple[Optional[str], object]:
     async with async_session_maker() as session:
         user_id = await _get_app_user_id(update, session)
         user_timezone = await _get_user_timezone(update, session)
-        medication = await MedicationService(session).pause_course(medication_id, user_id, until, user_timezone)
+        medication = await MedicationService(session).pause_course(
+            medication_id, user_id, until, user_timezone, notice_days=notice_days
+        )
         await session.commit()
     if not medication:
         return None, None
@@ -1325,13 +1399,11 @@ async def medication_pause_set_callback(update: Update, context: ContextTypes.DE
         user_timezone = await _get_user_timezone(update, session)
     today = datetime.now(ZoneInfo(user_timezone)).date()
     until = _add_months(today, int(months))
-    text, keyboard = await _apply_pause(update, int(medication_id), until)
-    if not text:
-        await query.answer()
-        await query.edit_message_text("❌ Лекарство не найдено", reply_markup=get_back_home_inline_keyboard("medications_list"))
-        return ConversationHandler.END
-    await query.answer(f"Пауза до {until.strftime('%d.%m.%Y')}")
-    await query.edit_message_text(text, reply_markup=keyboard)
+    await query.answer()
+    await query.edit_message_text(
+        _pause_notice_question(until),
+        reply_markup=_pause_notice_keyboard(int(medication_id), until, today),
+    )
     return ConversationHandler.END
 
 
@@ -1370,10 +1442,12 @@ async def medication_pause_custom_save(update: Update, context: ContextTypes.DEF
             reply_markup=get_cancel_inline_keyboard(),
         )
         return MedicationStates.WAIT_PAUSE_DATE
-    text, keyboard = await _apply_pause(update, medication_id, until)
-    if not text:
-        text, keyboard = "❌ Лекарство не найдено", get_back_home_inline_keyboard("medications_list")
-    await _show_wizard_step(update, context, text, reply_markup=keyboard)
+    await _show_wizard_step(
+        update,
+        context,
+        _pause_notice_question(until),
+        reply_markup=_pause_notice_keyboard(medication_id, until, today),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 

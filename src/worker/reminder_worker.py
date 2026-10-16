@@ -525,7 +525,9 @@ class ReminderWorkerService:
             )
             return "sent"
         except (Forbidden, BadRequest) as e:
-            logger.error(
+            # A user who blocked the bot is not a bug: warning, not the error journal.
+            log = logger.warning if isinstance(e, Forbidden) else logger.error
+            log(
                 f"Permanent Telegram failure for reminder {reminder.id} to user {reminder.user_id}: {e}"
             )
             # Keep the real reason (blocked by user, chat not found, …): the

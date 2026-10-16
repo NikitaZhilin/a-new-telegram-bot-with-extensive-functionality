@@ -24,6 +24,9 @@ class MedicationIntakeActionState:
     next_available_at_utc: Optional[datetime] = None
     marked_at_utc: Optional[datetime] = None
     has_schedule: bool = False
+    # For an already marked slot: how it was marked, so a wrong press can be fixed.
+    marked_status: Optional[str] = None
+    marked_intake_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +156,7 @@ class MedicationService:
         await self._cancel_pause_notice(medication)
         medication.paused_until = None
         medication.paused_schedule = None
+        medication.pause_notice_days = None
 
         reminders_result = await self.db.execute(
             select(Reminder).where(
@@ -295,6 +299,8 @@ class MedicationService:
                 next_available_at_utc=next_open,
                 marked_at_utc=marked_at,
                 has_schedule=True,
+                marked_status=self._slot_status_from_intake(intake),
+                marked_intake_id=intake.id,
             )
 
         return MedicationIntakeActionState(
@@ -305,6 +311,25 @@ class MedicationService:
             next_available_at_utc=next_open,
             has_schedule=True,
         )
+
+    async def _correct_mark(
+        self,
+        state: MedicationIntakeActionState,
+        kind: str,
+        medication_id: int,
+        user_id: int,
+        now_utc: datetime,
+    ) -> Optional[MedicationIntake]:
+        """A slot marked «skipped» by mistake can be re-marked «taken» (and back)."""
+        if state.reason != "slot_already_marked" or not state.marked_intake_id or state.marked_status == kind:
+            return None
+        intake = await self.db.get(MedicationIntake, state.marked_intake_id)
+        if intake is None or intake.medication_id != medication_id or intake.user_id != user_id:
+            return None
+        intake.status = MedicationIntakeStatus.TAKEN if kind == "taken" else MedicationIntakeStatus.SKIPPED
+        intake.taken_at_utc = now_utc
+        await self.db.flush()
+        return intake
 
     async def mark_taken_for_current_slot(
         self,
@@ -317,6 +342,9 @@ class MedicationService:
         now_utc = taken_at_utc or datetime.now(timezone.utc)
         state = await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
         if not state.can_mark:
+            corrected = await self._correct_mark(state, "taken", medication_id, user_id, self._ensure_utc(now_utc))
+            if corrected:
+                return corrected, await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
             return None, state
         intake = await self.mark_taken(
             medication_id,
@@ -338,6 +366,9 @@ class MedicationService:
         now_utc = skipped_at_utc or datetime.now(timezone.utc)
         state = await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
         if not state.can_mark:
+            corrected = await self._correct_mark(state, "skipped", medication_id, user_id, self._ensure_utc(now_utc))
+            if corrected:
+                return corrected, await self.get_intake_action_state(medication_id, user_id, user_timezone, now_utc=now_utc)
             return None, state
         intake = await self.mark_skipped(
             medication_id,
@@ -670,6 +701,8 @@ class MedicationService:
                 next_available_at_utc=max(next_open_utc, now_utc),
                 marked_at_utc=self._ensure_utc(intake.taken_at_utc),
                 has_schedule=True,
+                marked_status=self._slot_status_from_intake(intake),
+                marked_intake_id=intake.id,
             )
         return MedicationIntakeActionState(
             can_mark=True,
@@ -696,6 +729,12 @@ class MedicationService:
                 return await self.mark_taken_for_current_slot(medication_id, user_id, user_timezone, taken_at_utc=now_utc)
             return await self.mark_skipped_for_current_slot(medication_id, user_id, user_timezone, skipped_at_utc=now_utc)
         if not state.can_mark:
+            corrected = await self._correct_mark(state, kind, medication_id, user_id, now_utc)
+            if corrected:
+                updated = await self.get_slot_action_state(
+                    medication_id, user_id, user_timezone, state.current_slot_at_utc, now_utc=now_utc
+                )
+                return corrected, updated or state
             return None, state
         if kind == "taken":
             intake = await self.mark_taken(
@@ -959,11 +998,29 @@ class MedicationService:
         return sorted(item for item in times if item is not None)
 
     @classmethod
+    def notice_days(cls, medication: Medication) -> int:
+        value = getattr(medication, "pause_notice_days", None)
+        return cls.PAUSE_NOTICE_DAYS if value is None else int(value)
+
+    @staticmethod
+    def days_phrase(days: int) -> str:
+        """3 → «3 дня», 7 → «неделю», 14 → «2 недели»."""
+        if days == 7:
+            return "неделю"
+        if days == 14:
+            return "2 недели"
+        if days % 10 == 1 and days % 100 != 11:
+            return f"{days} день"
+        if days % 10 in (2, 3, 4) and days % 100 not in (12, 13, 14):
+            return f"{days} дня"
+        return f"{days} дней"
+
+    @classmethod
     def pause_notice_at(cls, medication: Medication, user_timezone: str) -> Optional[datetime]:
-        """When the «course starts in a week» heads-up fires (UTC), or None if the pause is too short."""
-        if not medication.paused_until:
+        """When the «course starts soon» heads-up fires (UTC), or None when it is off."""
+        if not medication.paused_until or cls.notice_days(medication) <= 0:
             return None
-        notice_day = medication.paused_until - timedelta(days=cls.PAUSE_NOTICE_DAYS)
+        notice_day = medication.paused_until - timedelta(days=cls.notice_days(medication))
         times = cls.paused_times(medication)
         local = datetime.combine(notice_day, times[0] if times else cls.PAUSE_DEFAULT_TIME, tzinfo=ZoneInfo(user_timezone))
         return local.astimezone(timezone.utc)
@@ -983,8 +1040,12 @@ class MedicationService:
         until: date,
         user_timezone: str,
         now_utc: Optional[datetime] = None,
+        notice_days: Optional[int] = None,
     ) -> Optional[Medication]:
-        """Stop reminders until ``until`` (local date); keep the daily times to bring them back."""
+        """Stop reminders until ``until`` (local date); keep the daily times to bring them back.
+
+        ``notice_days``: heads-up that many days before the course (0 = none, None = 7).
+        """
         medication = await self.get_medication(medication_id, user_id)
         if not medication or not medication.is_active:
             return None
@@ -1011,13 +1072,15 @@ class MedicationService:
             self._cancel_reminder(reminder)
 
         medication.paused_until = until
+        medication.pause_notice_days = self.PAUSE_NOTICE_DAYS if notice_days is None else max(0, int(notice_days))
         medication.updated_at = now_utc
 
         notice_at = self.pause_notice_at(medication, user_timezone)
         if notice_at is not None and notice_at > now_utc:
             times_text = ", ".join(item.strftime("%H:%M") for item in self.paused_times(medication))
             text = (
-                f"Через неделю, {until.strftime('%d.%m.%Y')}, снова начинается курс: {medication.name}.\n"
+                f"Через {self.days_phrase(self.notice_days(medication))}, {until.strftime('%d.%m.%Y')}, "
+                f"снова начинается курс: {medication.name}.\n"
                 + (f"Напоминания о приёме вернутся сами ({times_text})." if times_text else
                    "Не забудьте настроить время приёма в карточке лекарства.")
                 + "\nЕсли нужно — купите лекарство заранее."
@@ -1052,6 +1115,7 @@ class MedicationService:
         await self._cancel_pause_notice(medication)
         medication.paused_until = None
         medication.paused_schedule = None
+        medication.pause_notice_days = None
         medication.updated_at = now_utc
         await self.db.flush()
 
