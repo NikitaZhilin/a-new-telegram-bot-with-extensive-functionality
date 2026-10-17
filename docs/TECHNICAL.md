@@ -233,6 +233,10 @@ Files:
 
 All admin screens check rights on every press; buttons are shown only to admins.
 
+### Plan For The Day
+
+`src/services/digest_service.py`, `src/bot/handlers/digest.py`: opt-in (`users.daily_digest`, migration 026). The worker checks every 10 minutes and sends at 08:00 user time, once per local date (`bot_activity_events` marker `daily_digest:YYYY-MM-DD`): active non-medication reminders of the day and daily times of active, not paused medications. Nothing is sent on an empty day.
+
 ## API
 
 Health:
@@ -333,6 +337,7 @@ POST /admin/errors/{event_id}/resolve
 POST /admin/errors/resolve-all
 GET /admin/feedback                ?status=new|read|answered
 POST /admin/feedback/{feedback_id}/status
+POST /admin/feedback/{feedback_id}/reply    {"text": "..."}  (delivered by the bot)
 ```
 
 Auth:
@@ -372,6 +377,7 @@ Migrations:
 023_user_feedback.py
 024_medication_course_pause.py
 025_weekly_medication_summary.py
+026_daily_digest.py
 ```
 
 Use:

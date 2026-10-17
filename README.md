@@ -30,7 +30,7 @@ README намеренно не содержит токенов, адресов �
 - Напоминания: дата и время прямо в тексте («завтра в 10 позвонить маме»), быстрые кнопки, предварительные уведомления, повторы, кнопки «Сделано / отложить» под уведомлением.
 - Лекарства: карточки препаратов, дозировка, инструкция, важность, напоминания 1-3 раза в день, отметки приема с исправлением, перерыв между курсами, сводка за неделю.
 - Водитель: авто, presets, пробег, ТО, заправки, расходы, документы, напоминания по документам, статистика.
-- Настройки: timezone, статистика, подписка, web-ключ, версия, changelog, служебный статус, обратная связь (`/feedback`).
+- Настройки: timezone, статистика, подписка, web-ключ, версия, changelog, служебный статус, план на день (утреннее сообщение), обратная связь (`/feedback`).
 - Администрирование: журнал ошибок, обращения пользователей с ответом из бота, оповещения по выбору получателей, утренние сообщения о проблемах сервера, ежедневная копия базы в Telegram.
 - Web: `/web` для пользовательских сценариев и `/admin/ui` для администрирования.
 
@@ -191,7 +191,7 @@ Old stage reports and provider-specific notes are kept in `docs/archive` and are
 - Reminders: date and time inside the text («завтра в 10 позвонить маме»), quick presets, advance notifications, repeats, «Done / snooze» buttons under each notification.
 - Medications: medication cards, dosage, instructions, importance, 1-3 daily reminders, intake tracking with correction, breaks between courses, weekly summary.
 - Driver: vehicles, presets, mileage, service plan, fuel, expenses, documents, document reminders, statistics.
-- Settings: timezone, stats, subscription, web key, version, changelog, technical status, feedback (`/feedback`).
+- Settings: timezone, stats, subscription, web key, version, changelog, technical status, plan for the day (morning message), feedback (`/feedback`).
 - Administration: error journal, user feedback with replies from the bot, announcements to chosen users, morning alerts about server problems, a daily database copy in Telegram.
 - Web: `/web` for user flows and `/admin/ui` for administration.
 
