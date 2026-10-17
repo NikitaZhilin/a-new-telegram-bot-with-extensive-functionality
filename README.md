@@ -13,6 +13,7 @@ README намеренно не содержит токенов, адресов �
 ### Документация
 
 - [Руководство пользователя](docs/USER_GUIDE.md)
+- [Руководство администратора](docs/ADMIN.md)
 - [Техническое руководство](docs/TECHNICAL.md)
 - [Водительский раздел](docs/DRIVER.md)
 - [Деплой](docs/DEPLOYMENT.md)
@@ -25,11 +26,12 @@ README намеренно не содержит токенов, адресов �
 ### Что Умеет Бот
 
 - Списки: личные и общие списки, пункты, bulk add, голосовое создание/пополнение списка, интерактивное прохождение чек-листа, роли `owner/editor/viewer`, токены копии и приглашения.
-- Заметки: автономные текстовые записи без чек-листов и отметок, просмотр, редактирование и архивирование.
-- Напоминания: быстрые даты/время, ручные фразы, предварительные уведомления за 30 минут/час/сутки, повторы, редактирование, выполнение, отмена.
-- Лекарства: карточки препаратов, дозировка, инструкция, важность, напоминания 1-3 раза в день, отметки приема.
+- Заметки: автономные текстовые записи без чек-листов и отметок, категории, закрепление, поиск; сохраняются сразу после названия.
+- Напоминания: дата и время прямо в тексте («завтра в 10 позвонить маме»), быстрые кнопки, предварительные уведомления, повторы, кнопки «Сделано / отложить» под уведомлением.
+- Лекарства: карточки препаратов, дозировка, инструкция, важность, напоминания 1-3 раза в день, отметки приема с исправлением, перерыв между курсами, сводка за неделю.
 - Водитель: авто, presets, пробег, ТО, заправки, расходы, документы, напоминания по документам, статистика.
-- Настройки: timezone, статистика, подписка, web-ключ, версия, changelog, служебный статус.
+- Настройки: timezone, статистика, подписка, web-ключ, версия, changelog, служебный статус, план на день (утреннее сообщение), обратная связь (`/feedback`).
+- Администрирование: журнал ошибок, обращения пользователей с ответом из бота, оповещения по выбору получателей, утренние сообщения о проблемах сервера, ежедневная копия базы в Telegram.
 - Web: `/web` для пользовательских сценариев и `/admin/ui` для администрирования.
 
 ### Архитектура
@@ -157,7 +159,7 @@ docker-compose config --quiet
 - PostgreSQL держите на `127.0.0.1`;
 - production API держите на `127.0.0.1`, если нет HTTPS/proxy/firewall;
 - для production используйте `API_DOCS_ENABLED=false` и строгий `CORS_ORIGINS`;
-- polling bot запускайте в одном экземпляре на один Telegram token;
+- polling bot запускайте в одном экземпляре на один Telegram token (вторая копия сама ждёт: блокировка в PostgreSQL);
 - worker запускайте в одном экземпляре, чтобы не дублировать уведомления;
 - перед рискованными миграциями делайте backup БД.
 
@@ -172,6 +174,7 @@ This README intentionally avoids tokens, server addresses, private paths, produc
 ### Documentation
 
 - [User Guide](docs/USER_GUIDE.md)
+- [Admin Guide (RU)](docs/ADMIN.md)
 - [Technical Guide](docs/TECHNICAL.md)
 - [Driver Guide](docs/DRIVER.md)
 - [Deployment](docs/DEPLOYMENT.md)
@@ -184,11 +187,12 @@ Old stage reports and provider-specific notes are kept in `docs/archive` and are
 ### Features
 
 - Lists: personal and shared lists, items, bulk add, voice-to-list creation/appending, interactive checklist runs, `owner/editor/viewer` roles, copy and collaboration tokens.
-- Notes: standalone text records without checklist state, with viewing, editing, and archiving.
-- Reminders: quick date/time presets, natural phrases, advance notifications 30 minutes / 1 hour / 1 day before, repeats, editing, done/cancel/delete actions.
-- Medications: medication cards, dosage, instructions, importance, 1-3 daily reminders, intake tracking.
+- Notes: standalone text records with categories, pinning and search; saved right after the title.
+- Reminders: date and time inside the text («завтра в 10 позвонить маме»), quick presets, advance notifications, repeats, «Done / snooze» buttons under each notification.
+- Medications: medication cards, dosage, instructions, importance, 1-3 daily reminders, intake tracking with correction, breaks between courses, weekly summary.
 - Driver: vehicles, presets, mileage, service plan, fuel, expenses, documents, document reminders, statistics.
-- Settings: timezone, stats, subscription, web key, version, changelog, technical status.
+- Settings: timezone, stats, subscription, web key, version, changelog, technical status, plan for the day (morning message), feedback (`/feedback`).
+- Administration: error journal, user feedback with replies from the bot, announcements to chosen users, morning alerts about server problems, a daily database copy in Telegram.
 - Web: `/web` for user flows and `/admin/ui` for administration.
 
 ### Architecture
@@ -316,6 +320,6 @@ docker-compose config --quiet
 - keep PostgreSQL bound to `127.0.0.1`;
 - keep production API bound to `127.0.0.1` unless it is behind HTTPS/proxy/firewall;
 - use `API_DOCS_ENABLED=false` and strict `CORS_ORIGINS` in production;
-- run one polling bot instance per Telegram token;
+- run one polling bot instance per Telegram token (a second copy waits: PostgreSQL advisory lock);
 - run one worker instance to avoid duplicate notifications;
 - back up the database before risky migrations.

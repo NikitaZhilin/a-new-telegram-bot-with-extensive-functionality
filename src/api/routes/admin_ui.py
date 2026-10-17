@@ -203,7 +203,7 @@ const FB_STATUS = { new: 'новое', read: 'прочитано', answered: 'о
 
 async function loadFeedback() {
   const data = await getJson('/admin/feedback');
-  document.getElementById('fbSummary').textContent = `Новых: ${data.new}. Ответить пользователю можно из бота кнопкой «Ответить».`;
+  document.getElementById('fbSummary').textContent = `Новых: ${data.new}. Ответ уходит пользователю от бота.`;
   document.getElementById('feedback').innerHTML = data.feedback.map(item => `
     <tr>
       <td>${item.id}</td>
@@ -212,8 +212,22 @@ async function loadFeedback() {
       <td>${esc(item.first_name || '')}${item.username ? ' @' + esc(item.username) : ''}<div class="muted">ID ${item.telegram_id}</div></td>
       <td style="white-space: pre-wrap">${esc(item.text)}${item.has_photo ? '<div class="muted">📎 скриншот (в Telegram)</div>' : ''}${item.admin_reply ? `<div class="muted">↩️ ${esc(item.admin_reply)}</div>` : ''}</td>
       <td>${item.status === 'new' ? '<span class="badge">новое</span>' : FB_STATUS[item.status]}</td>
-      <td>${item.status === 'new' ? `<button class="small secondary" onclick="markRead(${item.id})">Прочитано</button>` : ''}</td>
+      <td>
+        ${item.status === 'new' ? `<button class="small secondary" onclick="markRead(${item.id})">Прочитано</button>` : ''}
+        <button class="small" onclick="replyTo(${item.id})">Ответить</button>
+      </td>
     </tr>`).join('') || '<tr><td colspan="7" class="muted">Обращений пока нет</td></tr>';
+}
+
+async function replyTo(id) {
+  const text = window.prompt('Ответ пользователю (придёт от бота):');
+  if (!text || !text.trim()) return;
+  try {
+    await postJson(`/admin/feedback/${id}/reply`, { text });
+    await loadFeedback();
+  } catch (error) {
+    document.getElementById('error').textContent = String(error);
+  }
 }
 
 async function markRead(id) {

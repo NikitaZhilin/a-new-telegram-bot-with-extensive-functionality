@@ -30,17 +30,23 @@ The fallback script enforces this by refusing container names outside the
 Automatic release:
 
 ```text
-developer machine
-  -> git push origin main
-  -> GitHub Actions
+pull request
+  -> GitHub Actions: tests (also on every PR; failed tests shown as annotations)
+merge to main
+  -> GitHub Actions (ubuntu-24.04, actions/checkout v5, setup-python v6)
   -> tests and dry-runs
   -> SSH to VPS
-  -> clone/fetch/reset project
-  -> upload .env.prod from encrypted settings
-  -> docker compose build
+  -> clone/fetch/reset project; reinstall the backup cron job
+  -> merge .env.prod: GitHub-managed keys replaced, other keys kept
+  -> docker compose build (or deploy-vps-manual.sh fallback)
   -> init-db migrations
   -> restart bot/api/worker
+  -> remove this project's untagged images (label project=rememberme_bot)
+  -> read-only server health report (annotations on the run)
 ```
+
+The deploy never broadcasts to users. Announcements are sent by the admin from
+the bot (see [Admin Guide](ADMIN.md)).
 
 Manual release:
 
@@ -327,6 +333,28 @@ API health check from the VPS:
 curl -fsS http://127.0.0.1:8000/health
 ```
 
+### Server health workflow
+
+`.github/workflows/server-health.yml` runs `scripts/server-health.sh` over SSH
+(manually via «Run workflow» and every day at 05:17 UTC). The script changes
+nothing and prints `KEY: value` lines; problems are `WARN:` lines:
+
+- load, memory, swap, disk, Docker disk usage;
+- each `rememberme_bot-*` container: state, restarts, health, errors in 24 h;
+- getUpdates conflicts (a second bot copy);
+- app status from `/admin/service-status`;
+- overdue and failed reminder deliveries;
+- open error-journal entries seen in 24 h;
+- age of the latest backup and the result of the last backup run.
+
+The scheduled run sends the warnings to `ADMIN_TELEGRAM_IDS` through the bot
+container (`scripts/notify-admins.py`). No message when everything is fine.
+Right after a deploy «Connection refused» for the app status only means the API
+is still starting.
+
+The repository is public: annotations must contain only anonymous aggregates,
+never names, texts or Telegram IDs.
+
 ## Data and backups
 
 Application data is stored in the PostgreSQL Docker volume:
@@ -354,7 +382,21 @@ PROJECT_DIR=/opt/bots/rememberme bash scripts/install-vps-backup-cron.sh
 
 By default it writes compressed dumps to
 `/opt/bots/rememberme/backups/rememberme-YYYYMMDD-HHMMSS.sql.gz` every 6 hours
-and keeps them for 14 days. The script refuses container names outside the
+(at :17) and keeps them for 14 days. The cron job runs the script through
+`/bin/bash` and the deploy reinstalls it, because a `git reset` can drop the
+executable bit (this silently stopped backups from 13.10 to 16.10.2026).
+Log: `/opt/bots/rememberme/logs/backup.log`.
+
+Off-server copy: once a day (the 06:17 UTC run, `TELEGRAM_BACKUP_HOUR_UTC`) the
+dump is sent to `ADMIN_TELEGRAM_IDS` by `scripts/send-backup-telegram.py`
+running inside the bot container (refuses more than 3 recipients). The file
+contains all user data — do not forward it. To send one now:
+
+```bash
+FORCE_TELEGRAM_BACKUP=1 PROJECT_DIR=/opt/bots/rememberme bash scripts/backup-vps.sh
+```
+
+Restore: `gunzip -c rememberme-….sql.gz | psql …` into the stopped stack. The script refuses container names outside the
 `rememberme_bot-*` prefix and does not touch VPN, MTProto, other bots, or Docker
 volumes.
 
@@ -385,8 +427,11 @@ schema changes. Take a database backup before risky releases.
   files.
 - Keep PostgreSQL bound to `127.0.0.1`.
 - Keep the API bound to `127.0.0.1` unless it is behind HTTPS and a firewall.
-- Run only one polling bot instance per Telegram token.
+- Run only one polling bot instance per Telegram token (enforced by a
+  PostgreSQL advisory lock: a second copy waits).
 - Run only one worker instance to avoid duplicate reminders.
 - Use a unique `COMPOSE_PROJECT_NAME` per project on the same VPS.
 - Do not run `docker system prune`, `docker container prune`, `docker network
   prune`, or broad `docker rm` commands on the shared VPS during this deploy.
+  Image cleanup is limited to `docker image prune -f --filter
+  label=project=rememberme_bot` (only this project's untagged leftovers).

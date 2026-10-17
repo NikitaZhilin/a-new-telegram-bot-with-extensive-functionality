@@ -397,6 +397,8 @@ def infer_domain(event_name: str) -> str:
         return "driver"
     if event_name.startswith(("settings", "tz_", "menu:settings")):
         return "settings"
+    if event_name.startswith(("digest_",)):
+        return "settings"
     if event_name.startswith(("bc_",)):
         return "admin"
     if event_name.startswith(("fb_", "feedback", "/feedback")):

@@ -761,13 +761,20 @@ class DriverService:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
 
+        now = datetime.now(timezone.utc)
+        if expires_at <= now:
+            # Already expired: the document screen shows it; a reminder saying
+            # «осталось N дней» would be wrong.
+            return
         remind_at = expires_at - timedelta(days=document.remind_before_days)
+        if remind_at <= now:
+            remind_at = now + timedelta(minutes=1)
         from src.services.reminder_service import ReminderService
 
         await ReminderService(self.db).create_reminder(
             user_id=document.user_id,
             title=f"Документ: {document.title}"[:255],
-            text=self._format_document_reminder_text(document, expires_at),
+            text=self._format_document_reminder_text(document, expires_at, remind_at),
             driver_document_id=document.id,
             source_module="driver",
             remind_at_utc=remind_at,
@@ -795,13 +802,18 @@ class DriverService:
         self,
         document: DriverDocument,
         expires_at_utc: datetime,
+        remind_at_utc: Optional[datetime] = None,
     ) -> str:
         """Build user-facing reminder text for a driver document."""
         expires_text = expires_at_utc.strftime("%d.%m.%Y")
-        if document.remind_before_days == 0:
+        days_left = document.remind_before_days
+        if remind_at_utc is not None:
+            # Real days left when the reminder fires (it may be added late).
+            days_left = max((expires_at_utc - remind_at_utc).days, 0)
+        if days_left == 0:
             lead_text = "Срок действия документа истекает сегодня."
         else:
-            lead_text = f"До окончания срока действия осталось {document.remind_before_days} дн."
+            lead_text = f"До окончания срока действия осталось {days_left} дн."
 
         lines = [
             lead_text,

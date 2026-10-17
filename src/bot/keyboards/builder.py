@@ -2043,6 +2043,9 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💳 Подписка", callback_data="settings_subscription"),
         ],
         [
+            InlineKeyboardButton("🌅 План на день", callback_data="settings_digest"),
+        ],
+        [
             InlineKeyboardButton("💬 Обратная связь", callback_data="feedback_start"),
         ],
         [

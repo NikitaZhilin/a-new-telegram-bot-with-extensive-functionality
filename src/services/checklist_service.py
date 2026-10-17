@@ -1,6 +1,6 @@
 """Service for personal interactive checklist executions."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -12,6 +12,7 @@ from src.services.list_service import ListService
 
 
 ACTIVE = "active"
+DOUBLE_START_WINDOW = timedelta(minutes=2)
 COMPLETED = "completed"
 CANCELED = "canceled"
 
@@ -35,6 +36,18 @@ class ChecklistService:
         list_obj = await self.list_service.get_list(list_id, user_id, source_module=source_module)
         if not list_obj:
             return None
+
+        # A double press on «Пройти чек-лист» used to start two runs.
+        if initial_source_item_id is None:
+            existing = await self.get_active_run_for_list(list_id, user_id)
+            started = getattr(existing, "created_at", None) if existing else None
+            if started is not None:
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - started < DOUBLE_START_WINDOW and (
+                    existing.driver_vehicle_id == driver_vehicle_id
+                ):
+                    return existing
 
         items = await self.list_service.get_list_items(list_id, user_id, source_module=source_module)
         if not items:

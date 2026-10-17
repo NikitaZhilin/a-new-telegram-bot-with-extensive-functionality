@@ -420,7 +420,8 @@ async def test_driver_document_syncs_active_reminder(db_session):
     await db_session.flush()
 
     service = DriverService(db_session)
-    expires_at = datetime(2026, 6, 20, 9, 0, tzinfo=timezone.utc)
+    base = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
+    expires_at = base + timedelta(days=60)
     document = await service.create_document(
         user.id,
         "OSAGO",
@@ -447,7 +448,7 @@ async def test_driver_document_syncs_active_reminder(db_session):
     assert notification.status == ReminderNotificationStatus.PENDING
     assert _as_utc(notification.notify_at_utc) == expires_at - timedelta(days=10)
 
-    updated_expires_at = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+    updated_expires_at = base + timedelta(days=71)
     await service.update_document(
         document.id,
         user.id,
