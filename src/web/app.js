@@ -392,7 +392,7 @@ async function loadAdminFeedback() {
   const data = await adminApi("/admin/feedback?limit=50");
   const items = data.feedback || [];
   $("#adminFeedback").innerHTML = `
-    <div class="item-meta">Новых: ${data.new}. Ответить человеку можно в боте кнопкой «↩️ Ответить» под обращением.</div>
+    <div class="item-meta">Новых: ${data.new}. Ответ уходит пользователю от бота.</div>
     ${items.map((item) => `
       <article class="item-card">
         <div class="item-title">№${item.id} · ${escapeHtml(item.kind_label)} ${item.status === "new" ? '<span class="pill">новое</span>' : ""}</div>
@@ -400,7 +400,14 @@ async function loadAdminFeedback() {
         <div class="admin-feedback-text">${escapeHtml(item.text || "(только скриншот)")}</div>
         ${item.has_photo ? '<div class="item-meta">📎 скриншот пришёл вам в Telegram</div>' : ""}
         ${item.admin_reply ? `<div class="item-meta">↩️ Ваш ответ: ${escapeHtml(item.admin_reply)}</div>` : ""}
-        ${item.status === "new" ? `<button class="secondary" type="button" data-admin-feedback-read="${item.id}">Прочитано</button>` : ""}
+        <div class="admin-error-actions">
+          ${item.status === "new" ? `<button class="secondary" type="button" data-admin-feedback-read="${item.id}">Прочитано</button>` : ""}
+          <button class="secondary" type="button" data-admin-feedback-reply-open="${item.id}">Ответить</button>
+        </div>
+        <form class="admin-feedback-reply" data-id="${item.id}" hidden>
+          <textarea name="text" rows="3" maxlength="3000" placeholder="Ответ придёт пользователю от бота" required></textarea>
+          <button class="action-save" type="submit">Отправить ответ</button>
+        </form>
       </article>
     `).join("") || '<div class="empty-state compact">Обращений пока нет.</div>'}
   `;
@@ -428,10 +435,28 @@ async function loadAdminErrors() {
   `;
 }
 
+async function handleAdminReplySubmit(event) {
+  const form = event.target.closest(".admin-feedback-reply");
+  if (!form) return;
+  event.preventDefault();
+  try {
+    await adminPost(`/admin/feedback/${form.dataset.id}/reply`, { text: form.text.value });
+    showMessage("Ответ отправлен пользователю.");
+    await loadAdminFeedback();
+  } catch (error) {
+    showMessage(`Ответ не отправлен: ${error.message}`, true);
+  }
+}
+
 async function handleAdminListClick(event) {
   const button = event.target.closest("button");
   if (!button) return;
   try {
+    if (button.dataset.adminFeedbackReplyOpen) {
+      const form = $(`.admin-feedback-reply[data-id="${button.dataset.adminFeedbackReplyOpen}"]`);
+      form.hidden = !form.hidden;
+      return;
+    }
     if (button.dataset.adminFeedbackRead) {
       await adminPost(`/admin/feedback/${button.dataset.adminFeedbackRead}/status`, { status: "read" });
       await loadAdminFeedback();
@@ -3189,6 +3214,7 @@ function bindEvents() {
   bindFormSubmit("#driverJournalFilterForm", handleJournalFilter, "Фильтрация...");
   $("#feedbackForm")?.addEventListener("submit", (event) => handleFeedbackSubmit(event).catch((error) => showMessage(error.message, true)));
   $("#adminFeedback").addEventListener("click", handleAdminListClick);
+  $("#adminFeedback").addEventListener("submit", handleAdminReplySubmit);
   $("#adminErrors").addEventListener("click", handleAdminListClick);
   $("#adminErrorsResolved").addEventListener("change", () => loadAdminErrors().catch((error) => showMessage(error.message, true)));
   $("#adminActivityFilterForm").addEventListener("submit", (event) => {

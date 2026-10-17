@@ -9,7 +9,7 @@ Provides endpoints for:
 
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 from pydantic import BaseModel, Field
 
 from src.config import settings
@@ -67,7 +67,7 @@ async def health_check() -> HealthResponse:
     summary="Readiness probe",
     description="Check if service is ready to accept traffic (includes database check)",
 )
-async def health_ready() -> DetailedHealthResponse:
+async def health_ready(response: Response) -> DetailedHealthResponse:
     """
     Readiness probe endpoint.
     
@@ -91,6 +91,8 @@ async def health_ready() -> DetailedHealthResponse:
     # Determine overall status
     if db_status != "ok":
         overall_status = "degraded"
+        # Before, readiness said 200 even without a database.
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     else:
         overall_status = "ok"
     

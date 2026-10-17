@@ -823,3 +823,42 @@ async def set_feedback_status(
     if await FeedbackService(db).set_status(feedback_id, payload.status) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feedback not found")
     return {"ok": True}
+
+
+class FeedbackReplyPayload(BaseModel):
+    text: str = Field(..., min_length=1, max_length=3000)
+
+
+async def _send_feedback_reply(telegram_id: int, feedback_id: int, text: str) -> None:
+    """Deliver the reply from the bot, like «↩️ Ответить» in Telegram."""
+    from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+
+    from src.config import settings
+
+    async with Bot(settings.BOT_TOKEN) as bot:
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=f"💬 Ответ разработчика на ваше обращение №{feedback_id}:\n\n{text}"[:4000],
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💬 Написать ещё", callback_data="feedback_start")]]),
+        )
+
+
+@router.post("/feedback/{feedback_id}/reply", summary="Reply to a user from the admin panel")
+async def reply_to_feedback(
+    feedback_id: int, payload: FeedbackReplyPayload, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    from src.services.feedback_service import FeedbackService
+
+    service = FeedbackService(db)
+    item = await service.get(feedback_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feedback not found")
+    try:
+        await _send_feedback_reply(item.telegram_id, feedback_id, payload.text.strip())
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Не удалось доставить ответ: {type(exc).__name__}. Возможно, пользователь остановил бота.",
+        ) from None
+    await service.save_reply(feedback_id, payload.text)
+    return {"ok": True}

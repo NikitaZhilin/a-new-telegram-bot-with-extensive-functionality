@@ -132,6 +132,7 @@ class ReminderWorkerService:
         self._retry_after_seconds = 0.0
         self._last_failure_reason = None
         self._last_summary_check = None
+        self._last_digest_check = None
 
     async def revive_dead_series(self) -> int:
         """One-time repair on start: restart series ended by a failed delivery."""
@@ -261,6 +262,71 @@ class ReminderWorkerService:
             logger.info(f"Sent {sent} weekly medication summaries")
         return sent
 
+    async def send_daily_digests(self) -> int:
+        """08:00 local: «plan for today» to users who turned it on."""
+        from sqlalchemy import select as sa_select
+
+        from src.db.models import BotActivityEvent, User
+        from src.services.activity_service import ActivityService
+        from src.services.digest_service import DIGEST_HOUR, build_daily_plan
+
+        now = self.clock()
+        if self._last_digest_check and now - self._last_digest_check < timedelta(minutes=10):
+            return 0
+        self._last_digest_check = now
+        sent = 0
+        try:
+            async with self.session_factory() as session:
+                users = (await session.execute(sa_select(User).where(User.daily_digest.is_(True)))).scalars().all()
+                for user in users:
+                    tz_name = safe_timezone_name(user.timezone, settings.TIMEZONE_DEFAULT)
+                    local = now.astimezone(ZoneInfo(tz_name))
+                    if local.hour != DIGEST_HOUR:
+                        continue
+                    event_name = f"daily_digest:{local.date().isoformat()}"
+                    already = await session.scalar(
+                        sa_select(BotActivityEvent.id).where(
+                            BotActivityEvent.telegram_id == user.telegram_id,
+                            BotActivityEvent.event_name == event_name,
+                        ).limit(1)
+                    )
+                    if already:
+                        continue
+                    text = await build_daily_plan(session, user, tz_name, now)
+                    if text:
+                        try:
+                            await self.bot.send_message(
+                                chat_id=user.telegram_id,
+                                text=text,
+                                reply_markup=InlineKeyboardMarkup([
+                                    [
+                                        InlineKeyboardButton("⏰ Напоминания", callback_data="reminders_list"),
+                                        InlineKeyboardButton("💊 Лекарства", callback_data="medications_list"),
+                                    ],
+                                    [InlineKeyboardButton("🔕 Не присылать план", callback_data="digest_off")],
+                                ]),
+                            )
+                            sent += 1
+                        except Forbidden:
+                            pass
+                        except Exception:
+                            logger.warning("Could not send the daily plan", exc_info=True)
+                            continue
+                    await ActivityService(session).record_event(
+                        event_type="system",
+                        event_name=event_name,
+                        domain="system",
+                        user_id=user.id,
+                        telegram_id=user.telegram_id,
+                        source="system",
+                    )
+                    await session.commit()
+        except Exception:
+            logger.exception("Daily plans failed")
+        if sent:
+            logger.info(f"Sent {sent} daily plans")
+        return sent
+
     async def start(self) -> None:
         """Start the worker loop."""
         self._running = True
@@ -276,6 +342,7 @@ class ReminderWorkerService:
             try:
                 await self.resume_paused_courses()
                 await self.send_weekly_summaries()
+                await self.send_daily_digests()
                 result = await self.process_cycle()
                 if self.heartbeat:
                     if result.failed:
