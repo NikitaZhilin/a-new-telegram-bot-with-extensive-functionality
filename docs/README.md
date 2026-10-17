@@ -5,6 +5,7 @@ This directory contains the current documentation for `new_architecture`.
 ## Current Documents
 
 - [User Guide](USER_GUIDE.md) - how to use the Telegram bot and web version.
+- [Admin Guide](ADMIN.md) - error journal, feedback, announcements, server checks, backups (RU).
 - [Technical Guide](TECHNICAL.md) - architecture, runtime modes, data flow, tests, and operational notes.
 - [Driver Guide](DRIVER.md) - vehicle journal, fuel, expenses, documents, and driver-specific backend notes.
 - [Deployment](DEPLOYMENT.md) - VPS/Docker/GitHub Actions deployment.
